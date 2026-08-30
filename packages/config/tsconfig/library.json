@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "@barat/config — shared library (CommonJS output)",
+  "extends": "./base.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "useDefineForClassFields": false,
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": false,
+    "incremental": true
+  }
+}

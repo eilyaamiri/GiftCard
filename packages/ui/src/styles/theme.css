@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #0B1D33;
+  --color-brand-2: #102A46;
+  --color-ink: #13243A;
+  --color-teal: #21B4B0;
+  --color-teal-2: #46D0CB;
+  --color-slate: #6B7C93;
+  --color-paper: #FFFFFF;
+  --color-soft: #F6F8FA;
+  --color-mint: #DFF7F5;
+  --color-line: #DCE4EA;
+  --color-line-2: #E6EBF0;
+  --color-status-green: #18A66A;
+  --color-status-red: #D94A4A;
+  --color-status-amber: #D98B19;
+  --color-status-purple: #7157D9;
+  --color-ok-bg: #E7F7F0;
+  --color-ok-fg: #12835D;
+  --color-wait-bg: #FFF5DC;
+  --color-wait-fg: #9D6B00;
+  --color-info-bg: #EAF4FF;
+  --color-info-fg: #2B69A0;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+  --shadow-card: 0 8px 24px rgba(11,29,51,.08);
+  --breakpoint-sm: 560px;
+  --breakpoint-md: 900px;
+  --breakpoint-lg: 1440px;
+  --font-sans: Vazirmatn, sans-serif;
+}
+
+:root { font-family: Vazirmatn, sans-serif; color: #13243A; background: #F6F8FA; }
+*, *::before, *::after { box-sizing: border-box; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+.bp-ui { direction: rtl; }
+.bp-ui :where(input, textarea, select) { min-height: 44px; }
+.bp-ltr { direction: ltr; unicode-bidi: isolate; }
+.bp-focus:focus-visible { outline: 3px solid rgba(33,180,176,.45); outline-offset: 2px; }
+.bp-card { background: #fff; border: 1px solid #E6EBF0; border-radius: 18px; box-shadow: 0 8px 24px rgba(11,29,51,.08); }
+.bp-btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; border:0; border-radius:12px; padding:0 18px; font-weight:700; transition:filter .15s, transform .15s; }
+.bp-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.bp-btn:active:not(:disabled) { transform: translateY(1px); }
+.bp-btn:disabled { opacity:.55; cursor:not-allowed; }
+.bp-scroll-table { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.bp-scroll-table table { min-width:560px; width:100%; border-collapse:collapse; }
+.bp-scroll-table th, .bp-scroll-table td { padding:12px 14px; border-bottom:1px solid #E6EBF0; text-align:right; white-space:nowrap; }
+.bp-modal-scroll { max-height: min(90vh, 760px); overflow-y:auto; }
+@media (max-width: 559px) { .bp-btn { padding-inline:14px; } }

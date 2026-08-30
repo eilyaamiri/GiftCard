@@ -1,0 +1,138 @@
+/*
+ * Barat Pay design tokens — Tailwind CSS v4 (CSS-first configuration).
+ *
+ * Usage from an app stylesheet:
+ *   @import 'tailwindcss';
+ *   @import '@barat/config/tailwind/theme.css';
+ *
+ * Values are extracted verbatim from the approved prototypes. Do not invent new
+ * colours; add a token here (Foundation-owned) and reference it everywhere.
+ */
+
+@theme {
+  /* ---------------------------------------------------------------------
+   * Brand
+   * ------------------------------------------------------------------ */
+  --color-brand-navy: #0b1d33;
+  --color-brand-navy2: #102a46;
+  --color-brand-ink: #13243a;
+  --color-brand-teal: #21b4b0;
+  --color-brand-teal2: #46d0cb;
+  --color-brand-slate: #6b7c93;
+
+  /* ---------------------------------------------------------------------
+   * Surfaces
+   * ------------------------------------------------------------------ */
+  --color-surface-paper: #ffffff;
+  --color-surface-soft: #f6f8fa;
+  --color-surface-mint: #dff7f5;
+  --color-surface-line: #dce4ea;
+  --color-surface-line2: #e6ebf0;
+
+  /* ---------------------------------------------------------------------
+   * Status
+   * ------------------------------------------------------------------ */
+  --color-status-green: #18a66a;
+  --color-status-red: #d94a4a;
+  --color-status-amber: #d98b19;
+  --color-status-purple: #7157d9;
+
+  --color-status-ok-bg: #e7f7f0;
+  --color-status-ok-fg: #12835d;
+  --color-status-wait-bg: #fff5dc;
+  --color-status-wait-fg: #9d6b00;
+  --color-status-info-bg: #eaf4ff;
+  --color-status-info-fg: #2b69a0;
+
+  /* ---------------------------------------------------------------------
+   * Radius
+   * ------------------------------------------------------------------ */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 22px;
+  --radius-2xl: 28px;
+  --radius-full: 999px;
+
+  /* ---------------------------------------------------------------------
+   * Elevation
+   * ------------------------------------------------------------------ */
+  --shadow-card: 0 8px 24px rgba(11, 29, 51, 0.08);
+  --shadow-modal: 0 30px 90px rgba(0, 0, 0, 0.25);
+
+  /* ---------------------------------------------------------------------
+   * Breakpoints — exactly the ones the mobile prototype uses.
+   * ------------------------------------------------------------------ */
+  --breakpoint-sm: 560px;
+  --breakpoint-md: 900px;
+  --breakpoint-lg: 1440px;
+
+  /* ---------------------------------------------------------------------
+   * Typography — Vazirmatn ONLY. Never IRANSans, never Inter.
+   * `--font-vazirmatn` is provided by next/font/local in packages/ui.
+   * ------------------------------------------------------------------ */
+  --font-sans:
+    var(--font-vazirmatn), 'Vazirmatn', 'Vazirmatn FD', system-ui, -apple-system, 'Segoe UI',
+    sans-serif;
+  --font-num:
+    var(--font-vazirmatn-fd), var(--font-vazirmatn), 'Vazirmatn FD', 'Vazirmatn', system-ui,
+    sans-serif;
+
+  /* ---------------------------------------------------------------------
+   * Containers
+   * ------------------------------------------------------------------ */
+  --container-marketing: 1440px;
+  --container-admin: 1600px;
+}
+
+/*
+ * Global RTL + numeric rules.
+ * Money, gift-card codes and OTP MUST be isolated LTR or they render reversed
+ * inside a Persian RTL paragraph.
+ */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html[dir='rtl'] {
+    font-family: var(--font-sans);
+  }
+
+  .ltr-num,
+  .money,
+  .code,
+  .otp,
+  [data-ltr='true'] {
+    direction: ltr;
+    unicode-bidi: isolate;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fa-num {
+    font-family: var(--font-num);
+    font-feature-settings: 'ss01';
+  }
+
+  /* Accessibility: the prototype focus ring. */
+  :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+    outline: 3px solid rgba(33, 180, 176, 0.25);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Mobile hard rules: no horizontal overflow at 320px, 16px inputs. */
+  html,
+  body {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  @media (max-width: 560px) {
+    input,
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+}

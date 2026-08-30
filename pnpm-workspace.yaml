@@ -1,0 +1,17 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'integrations/*'
+  - 'tests'
+allowBuilds:
+  '@prisma/engines': true
+  '@scarf/scarf': false
+  argon2: true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+fetchTimeout: 300000
+minimumReleaseAgeExclude:
+  - react-hook-form@7.87.0
+  - tsx@4.23.13
+networkConcurrency: 8

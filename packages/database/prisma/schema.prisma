@@ -1,0 +1,1527 @@
+// ===========================================================================
+// Barat Pay — data model
+//
+// FROZEN after Phase 0. Only the Foundation agent may change this file.
+//
+// Iron rules (AGENTS.md section 6):
+//   1. Every rial amount is BigInt. There is no Float money column anywhere.
+//   2. Every foreign-currency amount is Decimal @db.Decimal(18, 6).
+//   3. Every percentage / rate / fee rate is Int basis points (100 bps = 1%).
+//   4. Quote is an immutable SNAPSHOT of values, never a set of references.
+//   5. GiftCardAsset stores ciphertext only (AES-256-GCM at the application
+//      layer). There is no plaintext code column and no code is ever logged.
+//   6. Financial history is never hard-deleted; only status changes.
+//
+// Prisma 7 note: the datasource has no `url`. The connection string lives in
+// prisma.config.ts and PrismaClient is constructed with @prisma/adapter-pg.
+// ===========================================================================
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/client"
+}
+
+// ===========================================================================
+// ENUMS — mirror packages/contracts exactly. Adding a value here without
+// adding it there (or the reverse) is a bug.
+// ===========================================================================
+
+enum OrderStatus {
+  DRAFT
+  AWAITING_PAYMENT
+  PAYMENT_PENDING
+  PAID
+  FULFILLMENT_PENDING
+  FULFILLING
+  FULFILLED
+  FAILED
+  REVIEW_REQUIRED
+  REFUND_PENDING
+  REFUNDED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  CREATED
+  REDIRECTED
+  PENDING
+  PAID
+  FAILED
+  CANCELLED
+  UNKNOWN
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum PaymentFailureReason {
+  CUSTOMER_CANCELLED
+  REQUEST_REJECTED
+  VERIFY_FAILED
+  INVALID_AUTHORITY
+  AMOUNT_MISMATCH
+  PROVIDER_TIMEOUT
+  PROVIDER_NETWORK_ERROR
+  PROVIDER_ALREADY_VERIFIED_LOCAL_STATE_MISMATCH
+  UNKNOWN_PROVIDER_RESPONSE
+}
+
+enum PaymentAmountUnit {
+  IRR
+  IRT
+}
+
+enum QuoteStatus {
+  ACTIVE
+  EXPIRED
+  ACCEPTED
+  CANCELLED
+}
+
+enum WorkItemStatus {
+  UNASSIGNED
+  ASSIGNED
+  IN_PROGRESS
+  WAITING_CUSTOMER
+  WAITING_SUPPLIER
+  NEED_REVIEW
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum WorkItemType {
+  MANUAL_GIFT_CARD_FULFILLMENT
+  INTERNATIONAL_PAYMENT
+  CUSTOMER_INFORMATION
+  SUPPLIER_FOLLOWUP
+  UNKNOWN_OUTCOME
+  REFUND_REVIEW
+  SUPPORT_REQUEST
+}
+
+enum QueueKey {
+  GIFT_CARD_MANUAL
+  SAAS_PAYMENT
+  AI_TOOLS
+  DOMAIN_HOSTING
+  EXAM_PAYMENT
+  SUPPLIER_ISSUE
+  CUSTOMER_INFO_REQUIRED
+  UNKNOWN_OUTCOME
+  REFUND_REVIEW
+}
+
+enum ChecklistItemType {
+  BOOLEAN
+  SYSTEM_VERIFIED
+  REQUIRED_FIELD
+  MANAGER_APPROVAL
+}
+
+enum ChecklistItemStatus {
+  PENDING
+  PASSED
+  FAILED
+  NOT_APPLICABLE
+  WAITING_APPROVAL
+}
+
+enum ChecklistStatus {
+  INCOMPLETE
+  READY_FOR_REVIEW
+  COMPLETED
+  BLOCKED
+}
+
+/// CODE / CODE_PIN  -> operator holds a secret that must be encrypted.
+/// URL              -> redemption link, no secret code.
+/// PROVIDER_DIRECT_EMAIL -> provider e-mails the customer; we never see a code.
+enum DeliveryAssetType {
+  CODE
+  CODE_PIN
+  URL
+  PROVIDER_DIRECT_EMAIL
+}
+
+enum DeliveryStatus {
+  NOT_READY
+  READY
+  SENDING
+  SENT
+  DELIVERY_FAILED
+}
+
+enum StaffRole {
+  ADMIN
+  MANAGEMENT
+  OPS_MANAGER
+  OPERATOR
+  FINANCE
+  SUPPORT
+  VIEWER
+}
+
+enum IdentityType {
+  MOBILE
+  EMAIL
+}
+
+enum OtpPurpose {
+  LOGIN
+  VERIFY_MOBILE
+  VERIFY_EMAIL
+  CHANGE_MOBILE
+  CHANGE_EMAIL
+}
+
+enum CustomerStatus {
+  ACTIVE
+  DISABLED
+  REVIEW_REQUIRED
+}
+
+enum FxPair {
+  USD_IRR
+}
+
+enum ReconciliationIssueType {
+  payment_without_order
+  paid_not_fulfilled
+  supplier_purchase_without_fulfillment
+  amount_mismatch
+  duplicate_payment
+  unknown_payment
+  unknown_supplier_outcome
+  refund_mismatch
+  paid_without_work_item
+  fulfilled_without_gift_card
+  gift_card_entered_not_sent
+  sent_not_fulfilled
+  delivery_failed
+  missing_actual_supplier_cost
+}
+
+enum ReconciliationStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  IGNORED_WITH_REASON
+}
+
+enum FunnelEventType {
+  PRODUCT_VIEWED
+  SERVICE_VIEWED
+  CART_CREATED
+  CART_ITEM_ADDED
+  CART_ITEM_REMOVED
+  QUOTE_GENERATED
+  QUOTE_ACCEPTED
+  CHECKOUT_STARTED
+  CUSTOMER_IDENTIFIED
+  PAYMENT_STARTED
+  PAYMENT_REDIRECTED
+  PAYMENT_RETURNED
+  PAYMENT_VERIFIED
+  PAYMENT_FAILED
+  PAYMENT_CANCELLED
+  ORDER_FULFILLED
+}
+
+enum AbandonmentType {
+  BROWSE_ABANDONMENT
+  QUOTE_ABANDONMENT
+  CHECKOUT_ABANDONMENT
+  PAYMENT_ABANDONMENT
+  EXPIRED_QUOTE
+}
+
+enum FeatureFlagKey {
+  gift_cards_enabled
+  international_payments_enabled
+  manual_fulfillment_enabled
+  supplier_api_enabled
+  fx_auto_rate_enabled
+  payment_gateway_enabled
+  zarinpal_enabled
+}
+
+enum ServiceFieldType {
+  TEXT
+  EMAIL
+  URL
+  NUMBER
+  SELECT
+  TEXTAREA
+  FILE
+}
+
+enum SupplierIntegrationMode {
+  MANUAL
+  API
+}
+
+enum FulfillmentMethod {
+  MANUAL
+  API
+}
+
+enum FulfillmentStatus {
+  PENDING
+  IN_PROGRESS
+  AWAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum PricingRuleScope {
+  GLOBAL
+  PRODUCT
+  SKU
+  SERVICE
+}
+
+enum CartStatus {
+  OPEN
+  CONVERTED
+  ABANDONED
+  EXPIRED
+}
+
+enum RefundStatus {
+  REQUESTED
+  APPROVED
+  PROCESSING
+  COMPLETED
+  REJECTED
+  FAILED
+}
+
+enum DeliveryChannel {
+  EMAIL
+  SMS
+  PANEL
+}
+
+// ===========================================================================
+// GROUP 1 — IDENTITY & CUSTOMER
+// ===========================================================================
+
+model Customer {
+  id           String         @id @default(cuid())
+  /// Human-readable public identifier, e.g. `BP-8F3K2Q`. Never the database id.
+  customerCode String         @unique
+  status       CustomerStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  identities        CustomerIdentity[]
+  profile           CustomerProfile?
+  otpChallenges     OtpChallenge[]
+  authSessions      AuthSession[]
+  commerceSessions  CommerceSession[]
+  notes             CustomerNote[]
+  flags             CustomerFlag[]
+  carts             Cart[]
+  quotes            Quote[]
+  orders            Order[]
+  payments          Payment[]
+  workItems         WorkItem[]
+
+  @@index([status, createdAt])
+  @@index([createdAt])
+}
+
+model CustomerIdentity {
+  id         String       @id @default(cuid())
+  customerId String
+  type       IdentityType
+  /// Exactly as the customer typed it, for display.
+  value      String
+  /// Canonical form. Mobiles become `09xxxxxxxxx`, e-mails become lowercase.
+  /// The uniqueness guarantee lives on this column, never on `value`.
+  valueNormalized String
+  isPrimary  Boolean      @default(false)
+  isVerified Boolean      @default(false)
+  verifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([type, valueNormalized])
+  @@index([customerId, type])
+}
+
+model CustomerProfile {
+  id         String    @id @default(cuid())
+  customerId String    @unique
+  firstName  String?
+  lastName   String?
+  /// Stored only when a regulatory need is proven. Encrypted at the app layer.
+  nationalIdHash String?
+  birthDate  DateTime?
+  preferredLanguage String  @default("fa")
+  marketingOptIn    Boolean @default(false)
+  metadata   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+/// One-time password challenge.
+/// Only the argon2 hash is stored. The code itself is never persisted, never
+/// logged and never returned by any endpoint (AGENTS.md rule 10).
+model OtpChallenge {
+  id         String     @id @default(cuid())
+  customerId String?
+  identityType IdentityType
+  /// Normalised target, so rate limiting works before a Customer row exists.
+  identityValueNormalized String
+  purpose    OtpPurpose
+  /// argon2id hash of the code. NEVER the code.
+  codeHash   String
+  attempts   Int        @default(0)
+  maxAttempts Int       @default(5)
+  /// How many codes were requested for this target in the current window.
+  requestCount Int      @default(1)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  lockedUntil DateTime?
+  ip         String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
+  @@index([identityValueNormalized, purpose, createdAt])
+  @@index([customerId, createdAt])
+  @@index([expiresAt])
+}
+
+/// An authenticated customer session. Only the token hash is stored.
+model AuthSession {
+  id         String    @id @default(cuid())
+  customerId String
+  /// SHA-256 of the session token. A leaked database row cannot be replayed.
+  tokenHash  String    @unique
+  ip         String?
+  userAgent  String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastSeenAt DateTime  @default(now())
+
+  createdAt DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, expiresAt])
+  @@index([expiresAt])
+}
+
+/// Anonymous, pre-login browsing session. Ties funnel events and an abandoned
+/// cart to a person once they eventually identify themselves.
+model CommerceSession {
+  id           String    @id @default(cuid())
+  sessionToken String    @unique
+  customerId   String?
+  ip           String?
+  userAgent    String?
+  utm          Json?
+  firstSeenAt  DateTime  @default(now())
+  lastSeenAt   DateTime  @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  carts    Cart[]
+  quotes   Quote[]
+
+  @@index([customerId, lastSeenAt])
+  @@index([lastSeenAt])
+}
+
+model CustomerNote {
+  id             String  @id @default(cuid())
+  customerId     String
+  authorStaffId  String?
+  body           String
+  isPinned       Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  author   StaffUser? @relation("CustomerNoteAuthor", fields: [authorStaffId], references: [id], onDelete: SetNull)
+
+  @@index([customerId, createdAt])
+}
+
+/// A durable marker on an account: fraud review, VIP, blocked, etc.
+model CustomerFlag {
+  id               String    @id @default(cuid())
+  customerId       String
+  key              String
+  reason           String?
+  createdByStaffId String?
+  expiresAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer  Customer   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy StaffUser? @relation("CustomerFlagCreator", fields: [createdByStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([customerId, key])
+  @@index([key, createdAt])
+}
+
+// ===========================================================================
+// GROUP 2 — STAFF, TEAMS & QUEUES
+// ===========================================================================
+
+model StaffUser {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  /// argon2id. Never a reversible encoding.
+  passwordHash String
+  fullName     String
+  role         StaffRole
+  isActive     Boolean   @default(true)
+  teamId       String?
+  lastLoginAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  team Team? @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  queueMemberships            QueueMembership[]
+  assignedWorkItems           WorkItem[]                 @relation("WorkItemAssignee")
+  customerNotes               CustomerNote[]             @relation("CustomerNoteAuthor")
+  customerFlagsCreated        CustomerFlag[]             @relation("CustomerFlagCreator")
+  fulfillmentsPerformed       Fulfillment[]              @relation("FulfillmentOperator")
+  fulfillmentsApproved        Fulfillment[]              @relation("FulfillmentApprover")
+  giftCardAssetsEntered       GiftCardAsset[]            @relation("GiftCardAssetEnteredBy")
+  checklistItemsVerified      FulfillmentChecklistItem[] @relation("ChecklistItemVerifier")
+  reconciliationIssuesOwned   ReconciliationIssue[]      @relation("ReconciliationAssignee")
+  reconciliationIssuesClosed  ReconciliationIssue[]      @relation("ReconciliationResolver")
+  refundsRequested            Refund[]                   @relation("RefundRequester")
+  refundsApproved             Refund[]                   @relation("RefundApprover")
+  pricingRulesCreated         PricingRule[]              @relation("PricingRuleCreator")
+  fxRatesCreated              FxRate[]                   @relation("FxRateCreator")
+  featureFlagsUpdated         FeatureFlag[]              @relation("FeatureFlagUpdater")
+
+  @@index([role, isActive])
+  @@index([teamId])
+}
+
+model Team {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members StaffUser[]
+}
+
+model Queue {
+  id          String   @id @default(cuid())
+  key         QueueKey @unique
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  /// Target minutes to first response; drives the SLA breach flag on WorkItem.
+  slaMinutes  Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships QueueMembership[]
+  workItems   WorkItem[]
+}
+
+model QueueMembership {
+  id          String  @id @default(cuid())
+  queueId     String
+  staffUserId String
+  /// Whether this member may assign work to others in the queue.
+  canAssign   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  queue     Queue     @relation(fields: [queueId], references: [id], onDelete: Cascade)
+  staffUser StaffUser @relation(fields: [staffUserId], references: [id], onDelete: Cascade)
+
+  @@unique([queueId, staffUserId])
+  @@index([staffUserId])
+}
+
+// ===========================================================================
+// GROUP 3 — CATALOG & SUPPLY
+// ===========================================================================
+
+model Product {
+  id            String  @id @default(cuid())
+  slug          String  @unique
+  brand         String
+  title         String
+  titleFa       String
+  description   String?
+  descriptionFa String?
+  category      String
+  imageUrl      String?
+  redemptionNotesFa String?
+  isActive      Boolean @default(true)
+  sortOrder     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skus Sku[]
+
+  @@index([category, isActive, sortOrder])
+  @@index([brand, isActive])
+}
+
+model Sku {
+  id                String            @id @default(cuid())
+  productId         String
+  code              String            @unique
+  /// Region is part of the product identity: a US card is not an IR card.
+  region            String
+  currency          String            @default("USD")
+  /// Face value in the SKU currency.
+  faceValue         Decimal           @db.Decimal(18, 6)
+  denominationLabel String
+  /// How value reaches the customer for this SKU. Set by the supplier's model.
+  deliveryAssetType DeliveryAssetType @default(CODE)
+  isActive          Boolean           @default(true)
+  minQuantity       Int               @default(1)
+  maxQuantity       Int               @default(10)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product        Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  supplierOffers SupplierOffer[]
+  cartItems      CartItem[]
+  quotes         Quote[]
+  giftCardAssets GiftCardAsset[]
+
+  @@unique([productId, region, faceValue, currency])
+  @@index([productId, isActive])
+  @@index([isActive, region])
+}
+
+model Supplier {
+  id               String                  @id @default(cuid())
+  code             String                  @unique
+  name             String
+  integrationMode  SupplierIntegrationMode @default(MANUAL)
+  /// True only for suppliers that actually hand a raw code to the operator
+  /// (Tillo). Reloadly / Runa / Giftbit do not.
+  supportsRawCode  Boolean                 @default(false)
+  defaultCurrency  String                  @default("USD")
+  isActive         Boolean                 @default(true)
+  notes            String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  offers       SupplierOffer[]
+  fulfillments Fulfillment[]
+
+  @@index([isActive])
+}
+
+model SupplierOffer {
+  id           String  @id @default(cuid())
+  supplierId   String
+  skuId        String
+  costCurrency String  @default("USD")
+  /// What we pay the supplier for one unit, before their discount.
+  costAmount   Decimal @db.Decimal(18, 6)
+  /// Supplier discount off face value, in basis points.
+  discountBps  Int     @default(0)
+  availability String  @default("AVAILABLE")
+  /// Lower wins when several suppliers can serve the same SKU.
+  priority     Int     @default(100)
+  isActive     Boolean @default(true)
+  lastCheckedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplier Supplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  sku      Sku      @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  quotes   Quote[]
+
+  @@unique([supplierId, skuId])
+  @@index([skuId, isActive, priority])
+}
+
+model InternationalService {
+  id                   String  @id @default(cuid())
+  slug                 String  @unique
+  name                 String
+  nameFa               String
+  category             String
+  currency             String  @default("USD")
+  minAmount            Decimal? @db.Decimal(18, 6)
+  maxAmount            Decimal? @db.Decimal(18, 6)
+  isActive             Boolean @default(true)
+  requiresManualReview Boolean @default(true)
+  sortOrder            Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fields    ServiceFieldDefinition[]
+  cartItems CartItem[]
+  quotes    Quote[]
+
+  @@index([category, isActive, sortOrder])
+}
+
+model ServiceFieldDefinition {
+  id              String           @id @default(cuid())
+  serviceId       String
+  key             String
+  label           String
+  labelFa         String
+  fieldType       ServiceFieldType @default(TEXT)
+  isRequired      Boolean          @default(true)
+  validationRegex String?
+  helpTextFa      String?
+  options         Json?
+  sortOrder       Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  service InternationalService @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, key])
+  @@index([serviceId, sortOrder])
+}
+
+// ===========================================================================
+// GROUP 4 — PRICING & FX
+// ===========================================================================
+
+/// Every knob of the pricing formula. Nothing is hardcoded in the engine.
+/// Changing a rule creates a NEW version; historical quotes keep their snapshot.
+model PricingRule {
+  id       String           @id @default(cuid())
+  name     String
+  scope    PricingRuleScope @default(GLOBAL)
+  /// Product / SKU / Service id when the scope is not GLOBAL.
+  targetId String?
+  version  Int              @default(1)
+
+  fxSpreadBps     Int
+  fxRiskBufferBps Int
+
+  serviceFeeBps      Int
+  serviceFeeFixedIrr BigInt @default(0)
+
+  operationalFeeIrr BigInt @default(0)
+
+  targetMarginBps  Int
+  /// Absolute margin floor. Wins whenever the bps margin falls below it.
+  minimumMarginIrr BigInt @default(0)
+
+  paymentFeeBps      Int
+  paymentFeeFixedIrr BigInt @default(0)
+
+  quoteTtlSeconds  Int    @default(600)
+  /// Customer price is always rounded UP to a multiple of this.
+  roundingStepIrr  BigInt @default(10000)
+  /// Supplier cost variance beyond this requires manager approval.
+  maxSupplierCostToleranceBps Int @default(500)
+
+  isActive         Boolean   @default(true)
+  effectiveFrom    DateTime  @default(now())
+  effectiveTo      DateTime?
+  createdByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy StaffUser? @relation("PricingRuleCreator", fields: [createdByStaffId], references: [id], onDelete: SetNull)
+  quotes    Quote[]
+
+  @@unique([scope, targetId, version])
+  @@index([scope, targetId, isActive])
+  @@index([isActive, effectiveFrom])
+}
+
+/// A point-in-time FX observation. Quotes embed the values, not a reference,
+/// but the id is kept so we can trace provenance.
+model FxRate {
+  id               String   @id @default(cuid())
+  pair             FxPair
+  buyRate          Decimal  @db.Decimal(18, 6)
+  sellRate         Decimal  @db.Decimal(18, 6)
+  midRate          Decimal  @db.Decimal(18, 6)
+  /// `API` | `SCRAPE` | `MANUAL`
+  source           String
+  /// Logical provider name, e.g. `primary-nav`, `secondary-tgju`, `manual`.
+  provider         String
+  isManualOverride Boolean  @default(false)
+  overrideReason   String?
+  createdByStaffId String?
+
+  receivedAt  DateTime
+  effectiveAt DateTime  @default(now())
+  expiresAt   DateTime?
+
+  createdAt DateTime @default(now())
+
+  createdBy StaffUser? @relation("FxRateCreator", fields: [createdByStaffId], references: [id], onDelete: SetNull)
+  quotes    Quote[]
+
+  @@index([pair, effectiveAt])
+  @@index([pair, isManualOverride, effectiveAt])
+  @@index([provider, receivedAt])
+}
+
+/// IMMUTABLE ONCE CHECKOUT STARTS (AGENTS.md rule 11).
+///
+/// A full snapshot of every input and every intermediate component, so the price
+/// can be explained months later without recomputation. `snapshot` additionally
+/// stores the serialised PricingRule and FxRateSnapshot used.
+model Quote {
+  id                String  @id @default(cuid())
+  quoteNumber       String  @unique
+  customerId        String?
+  commerceSessionId String?
+  cartId            String?
+
+  /// Exactly one of skuId / serviceId is set (enforced in the application layer).
+  skuId           String?
+  serviceId       String?
+  supplierOfferId String?
+  quantity        Int     @default(1)
+  currency        String  @default("USD")
+
+  pricingRuleId  String?
+  pricingVersion Int     @default(1)
+
+  // --- FX snapshot ---------------------------------------------------------
+  marketFxRate       Decimal  @db.Decimal(18, 6)
+  effectiveFxRate    Decimal  @db.Decimal(18, 6)
+  fxProvider         String
+  fxRateId           String?
+  fxRateTimestamp    DateTime
+  fxSpreadAmount     BigInt   @default(0)
+  fxRiskBufferAmount BigInt   @default(0)
+
+  // --- Cost, fees, margin (all IRR) ---------------------------------------
+  supplierCostUsd Decimal @db.Decimal(18, 6)
+  supplierCostIrr BigInt
+  paymentFee      BigInt  @default(0)
+  serviceFee      BigInt  @default(0)
+  operationalFee  BigInt  @default(0)
+  marginAmount    BigInt  @default(0)
+  discountAmount  BigInt  @default(0)
+
+  // --- Totals --------------------------------------------------------------
+  subtotal           BigInt
+  finalAmountIrr     BigInt
+  /// finalAmountIrr / 10. Denormalised so the UI never divides.
+  displayAmountToman BigInt
+
+  status      QuoteStatus @default(ACTIVE)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  cancelledAt DateTime?
+  /// Idempotency for quote acceptance (AGENTS.md rule 9).
+  idempotencyKey String? @unique
+
+  /// Serialised PricingRuleSnapshot + FxRateSnapshot exactly as used.
+  snapshot Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer        Customer?            @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  commerceSession CommerceSession?     @relation(fields: [commerceSessionId], references: [id], onDelete: SetNull)
+  cart            Cart?                @relation(fields: [cartId], references: [id], onDelete: SetNull)
+  sku             Sku?                 @relation(fields: [skuId], references: [id], onDelete: SetNull)
+  service         InternationalService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  supplierOffer   SupplierOffer?       @relation(fields: [supplierOfferId], references: [id], onDelete: SetNull)
+  pricingRule     PricingRule?         @relation(fields: [pricingRuleId], references: [id], onDelete: SetNull)
+  fxRate          FxRate?              @relation(fields: [fxRateId], references: [id], onDelete: SetNull)
+
+  components QuoteComponent[]
+  orders     Order[]
+
+  @@index([customerId, status, createdAt])
+  @@index([status, expiresAt])
+  @@index([commerceSessionId, createdAt])
+  @@index([createdAt])
+}
+
+/// One auditable line of a quote's price. Purely additive history.
+model QuoteComponent {
+  id            String   @id @default(cuid())
+  quoteId       String
+  /// SUPPLIER_COST | FX_SPREAD | FX_RISK_BUFFER | PAYMENT_FEE | SERVICE_FEE
+  /// | OPERATIONAL_FEE | MARGIN | DISCOUNT | ROUNDING
+  kind          String
+  label         String
+  labelFa       String
+  /// Signed: DISCOUNT is negative.
+  amountIrr     BigInt
+  amountForeign Decimal? @db.Decimal(18, 6)
+  currency      String?
+  /// The bps rate that produced the amount, when applicable.
+  bps           Int?
+  sortOrder     Int      @default(0)
+  meta          Json?
+
+  createdAt DateTime @default(now())
+
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId, sortOrder])
+}
+
+// ===========================================================================
+// GROUP 5 — CART, ORDER & PAYMENT
+// ===========================================================================
+
+model Cart {
+  id                String     @id @default(cuid())
+  customerId        String?
+  commerceSessionId String?
+  status            CartStatus @default(OPEN)
+  currency          String     @default("USD")
+  expiresAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  commerceSession CommerceSession? @relation(fields: [commerceSessionId], references: [id], onDelete: SetNull)
+
+  items  CartItem[]
+  quotes Quote[]
+  orders Order[]
+
+  @@index([customerId, status])
+  @@index([commerceSessionId, status])
+  @@index([status, updatedAt])
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  skuId     String?
+  serviceId String?
+  quantity  Int    @default(1)
+  /// Indicative unit cost captured when the item was added. NOT a price.
+  unitCostForeign Decimal? @db.Decimal(18, 6)
+  currency  String?
+  /// Values for `ServiceFieldDefinition` inputs on international payments.
+  inputData Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart                  @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  sku     Sku?                  @relation(fields: [skuId], references: [id], onDelete: SetNull)
+  service InternationalService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([cartId])
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  /// Public order number, e.g. `BP-2026-000123`.
+  orderNumber String      @unique
+  customerId  String
+  quoteId     String
+  cartId      String?
+  status      OrderStatus @default(DRAFT)
+
+  /// Must equal Quote.finalAmountIrr and Payment.amountIrr. A mismatch is the
+  /// security event AMOUNT_MISMATCH and stops the flow.
+  totalAmountIrr     BigInt
+  displayAmountToman BigInt
+  currency           String @default("IRR")
+
+  /// Idempotency for order creation (AGENTS.md rule 9).
+  idempotencyKey String @unique
+
+  /// Where a URL / PROVIDER_DIRECT_EMAIL asset should be delivered.
+  deliveryEmail String?
+  customerNote  String?
+  /// Normalised, customer-safe reason. Never a raw provider message.
+  failureReason String?
+  metadata      Json?
+
+  placedAt    DateTime?
+  paidAt      DateTime?
+  fulfilledAt DateTime?
+  cancelledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  quote    Quote    @relation(fields: [quoteId], references: [id])
+  cart     Cart?    @relation(fields: [cartId], references: [id], onDelete: SetNull)
+
+  payments             Payment[]
+  refunds              Refund[]
+  workItems            WorkItem[]
+  fulfillments         Fulfillment[]
+  giftCardAssets       GiftCardAsset[]
+  deliveryAttempts     DeliveryAttempt[]
+  reconciliationIssues ReconciliationIssue[]
+
+  @@index([customerId, createdAt])
+  @@index([status, createdAt])
+  @@index([quoteId])
+  @@index([paidAt])
+}
+
+model Payment {
+  id         String        @id @default(cuid())
+  orderId    String
+  customerId String
+  /// Logical provider key, e.g. `zarinpal`, `mock`.
+  provider   String
+  status     PaymentStatus @default(CREATED)
+
+  amountIrr          BigInt
+  displayAmountToman BigInt
+
+  // --- Provider fields -----------------------------------------------------
+  /// Gateway session identifier. Unique per provider; NULLs do not collide.
+  providerAuthority   String?
+  /// Bank reference number shown to the customer after success.
+  providerRefId       String?
+  /// Provider status code from the request step (ZarinPal: 100 / 101 / ...).
+  providerRequestCode Int?
+  /// Provider status code from the verify step.
+  providerVerifyCode  Int?
+  /// Amount exactly as the provider reported it, in `providerAmountUnit`.
+  providerAmount      Decimal?           @db.Decimal(18, 6)
+  providerAmountUnit  PaymentAmountUnit?
+  providerFee         BigInt?
+  providerFeeType     String?
+  /// Already masked at write time, e.g. `6037********1234`.
+  maskedCard          String?
+  /// Salted hash for repeat-card analytics. Never the PAN.
+  cardHash            String?
+
+  failureReason PaymentFailureReason?
+
+  /// Idempotency for payment creation and verification (AGENTS.md rule 9).
+  idempotencyKey String @unique
+
+  requestedAt  DateTime?
+  redirectedAt DateTime?
+  callbackAt   DateTime?
+  verifiedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order    Order    @relation(fields: [orderId], references: [id])
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  attempts             PaymentAttempt[]
+  refunds              Refund[]
+  reconciliationIssues ReconciliationIssue[]
+
+  @@unique([provider, providerAuthority])
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@index([customerId, createdAt])
+  @@index([verifiedAt])
+}
+
+/// Append-only log of every interaction with the gateway.
+///
+/// `requestPayload` / `responsePayload` MUST be sanitised before they are
+/// written: no merchant id, no token, no card number (AGENTS.md rule 10).
+model PaymentAttempt {
+  id            String  @id @default(cuid())
+  paymentId     String
+  attemptNumber Int
+  /// REQUEST | REDIRECT | CALLBACK | VERIFY
+  action        String
+  /// OK | FAILED | TIMEOUT | NETWORK_ERROR
+  status        String
+  providerCode  Int?
+  /// Normalised message. Never surfaced to the customer verbatim.
+  providerMessage String?
+  requestPayload  Json?
+  responsePayload Json?
+  ip         String?
+  userAgent  String?
+  durationMs Int?
+
+  createdAt DateTime @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@unique([paymentId, attemptNumber])
+  @@index([paymentId, createdAt])
+}
+
+model Refund {
+  id                String       @id @default(cuid())
+  orderId           String
+  paymentId         String?
+  amountIrr         BigInt
+  reason            String
+  status            RefundStatus @default(REQUESTED)
+  requestedByStaffId String?
+  approvedByStaffId  String?
+  providerRefundRef  String?
+
+  requestedAt DateTime  @default(now())
+  processedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order      @relation(fields: [orderId], references: [id])
+  payment     Payment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  requestedBy StaffUser? @relation("RefundRequester", fields: [requestedByStaffId], references: [id], onDelete: SetNull)
+  approvedBy  StaffUser? @relation("RefundApprover", fields: [approvedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([status, requestedAt])
+}
+
+// ===========================================================================
+// GROUP 6 — OPERATIONS
+// ===========================================================================
+
+/// A unit of operator work.
+///
+/// INVARIANT: at most ONE active work item per order.
+/// Prisma cannot express a partial unique index, so it is enforced by the
+/// `activeOrderKey` column: the application sets `activeOrderKey = orderId`
+/// while the item is live and NULL the moment it reaches a terminal status.
+/// The `@unique` below then makes a second active item impossible at the
+/// database level. The application layer must additionally guard the
+/// transition inside the same transaction. See docs/operations.
+model WorkItem {
+  id       String         @id @default(cuid())
+  code     String         @unique
+  orderId  String?
+  customerId String?
+  queueId  String
+  type     WorkItemType
+  status   WorkItemStatus @default(UNASSIGNED)
+  /// Lower number = more urgent.
+  priority Int            @default(100)
+
+  /// Equals orderId while the item is active, NULL once terminal.
+  activeOrderKey String? @unique
+
+  assignedToStaffId String?
+  assignedAt        DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  dueAt             DateTime?
+  slaBreachedAt     DateTime?
+
+  title          String
+  description    String?
+  payload        Json?
+  resolutionNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  customer   Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  queue      Queue      @relation(fields: [queueId], references: [id])
+  assignedTo StaffUser? @relation("WorkItemAssignee", fields: [assignedToStaffId], references: [id], onDelete: SetNull)
+
+  checklist    FulfillmentChecklist?
+  fulfillments Fulfillment[]
+
+  @@index([queueId, status, priority])
+  @@index([assignedToStaffId, status])
+  @@index([status, createdAt])
+  @@index([orderId])
+  @@index([type, status])
+}
+
+/// Versioned definition of the checklist for a work item type.
+model TaskChecklistTemplate {
+  id           String       @id @default(cuid())
+  workItemType WorkItemType
+  queueKey     QueueKey?
+  name         String
+  version      Int          @default(1)
+  isActive     Boolean      @default(true)
+  /// Array of item definitions: key, label, labelFa, type, isBlocking, sortOrder.
+  definition   Json
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checklists FulfillmentChecklist[]
+
+  @@unique([workItemType, queueKey, version])
+  @@index([workItemType, isActive])
+}
+
+/// Gates `SEND_TO_CUSTOMER`. An operator cannot deliver until every blocking
+/// item has passed — enforced on the backend, not by hiding a button.
+model FulfillmentChecklist {
+  id            String          @id @default(cuid())
+  workItemId    String          @unique
+  templateId    String?
+  status        ChecklistStatus @default(INCOMPLETE)
+  blockedReason String?
+  completedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  workItem WorkItem               @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  template TaskChecklistTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+
+  items FulfillmentChecklistItem[]
+
+  @@index([status, updatedAt])
+}
+
+model FulfillmentChecklistItem {
+  id          String              @id @default(cuid())
+  checklistId String
+  key         String
+  label       String
+  labelFa     String
+  type        ChecklistItemType   @default(BOOLEAN)
+  status      ChecklistItemStatus @default(PENDING)
+  /// A blocking item that has not PASSED prevents delivery.
+  isBlocking  Boolean             @default(true)
+  sortOrder   Int                 @default(0)
+  /// Captured value for REQUIRED_FIELD items.
+  value       Json?
+  verifiedByStaffId String?
+  verifiedAt        DateTime?
+  note              String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checklist  FulfillmentChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+  verifiedBy StaffUser?           @relation("ChecklistItemVerifier", fields: [verifiedByStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([checklistId, key])
+  @@index([checklistId, status])
+}
+
+model Fulfillment {
+  id         String            @id @default(cuid())
+  orderId    String
+  workItemId String?
+  supplierId String?
+  status     FulfillmentStatus @default(PENDING)
+  method     FulfillmentMethod @default(MANUAL)
+
+  supplierReference String?
+  supplierOrderId   String?
+
+  /// What we actually paid the supplier, in their currency.
+  actualSupplierCost     Decimal? @db.Decimal(18, 6)
+  actualSupplierCurrency String?
+  /// Converted at the fulfillment-time rate, for contribution reporting.
+  actualSupplierCostIrr  BigInt?
+  /// Variance versus the quoted supplier cost, in bps. Beyond
+  /// `PricingRule.maxSupplierCostToleranceBps` a manager must approve.
+  costVarianceBps        Int?
+
+  approvedByStaffId  String?
+  approvedAt         DateTime?
+  fulfilledByStaffId String?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  failureReason      String?
+
+  /// Idempotency for fulfillment (AGENTS.md rule 9).
+  idempotencyKey String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order      @relation(fields: [orderId], references: [id])
+  workItem    WorkItem?  @relation(fields: [workItemId], references: [id], onDelete: SetNull)
+  supplier    Supplier?  @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  approvedBy  StaffUser? @relation("FulfillmentApprover", fields: [approvedByStaffId], references: [id], onDelete: SetNull)
+  fulfilledBy StaffUser? @relation("FulfillmentOperator", fields: [fulfilledByStaffId], references: [id], onDelete: SetNull)
+
+  giftCardAssets GiftCardAsset[]
+
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@index([supplierId, createdAt])
+  @@index([workItemId])
+}
+
+/// The delivered digital value.
+///
+/// SECURITY: `encryptedCode` / `encryptedPin` hold AES-256-GCM ciphertext
+/// produced at the application layer with `GIFT_CARD_ENCRYPTION_KEY`.
+/// There is NO plaintext column, and decryption is audited via AuditLog.
+///
+/// `encryptedCode` is nullable because URL and PROVIDER_DIRECT_EMAIL assets have
+/// no code at all. The application enforces: assetType in (CODE, CODE_PIN)
+/// requires `encryptedCode`; CODE_PIN additionally requires `encryptedPin`;
+/// URL requires `deliveryUrl`; PROVIDER_DIRECT_EMAIL requires `recipientEmail`.
+model GiftCardAsset {
+  id            String            @id @default(cuid())
+  fulfillmentId String?
+  orderId       String
+  skuId         String?
+  assetType     DeliveryAssetType @default(CODE)
+
+  encryptedCode String?
+  encryptedPin  String?
+  /// Display-safe form, e.g. `XXXX-XXXX-4821`. Safe to log.
+  maskedCode    String?
+  serialNumber  String?
+
+  deliveryUrl    String?
+  recipientEmail String?
+  expiryDate     DateTime?
+
+  supplierReference      String?
+  actualSupplierCost     Decimal? @db.Decimal(18, 6)
+  actualSupplierCurrency String?
+
+  status DeliveryStatus @default(NOT_READY)
+
+  /// Which operator entered the asset, and when.
+  enteredByUserId String?
+  enteredAt       DateTime?
+  sentAt          DateTime?
+
+  /// Key rotation support: which key version produced the ciphertext.
+  encryptionKeyVersion Int       @default(1)
+  /// How many times the plaintext has been decrypted, and when last.
+  accessCount          Int       @default(0)
+  lastAccessedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fulfillment Fulfillment? @relation(fields: [fulfillmentId], references: [id], onDelete: SetNull)
+  order       Order        @relation(fields: [orderId], references: [id])
+  sku         Sku?         @relation(fields: [skuId], references: [id], onDelete: SetNull)
+  enteredBy   StaffUser?   @relation("GiftCardAssetEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
+
+  deliveryAttempts DeliveryAttempt[]
+
+  @@index([orderId])
+  @@index([status, createdAt])
+  @@index([fulfillmentId])
+  @@index([enteredByUserId, enteredAt])
+}
+
+model DeliveryAttempt {
+  id              String          @id @default(cuid())
+  giftCardAssetId String?
+  orderId         String
+  channel         DeliveryChannel @default(EMAIL)
+  /// Masked recipient. Never a full e-mail address or mobile number.
+  recipientMasked String
+  status          DeliveryStatus  @default(SENDING)
+  providerMessageId String?
+  /// Normalised error key, never the raw provider body.
+  errorCode         String?
+  attemptNumber     Int           @default(1)
+  sentAt            DateTime?
+
+  createdAt DateTime @default(now())
+
+  giftCardAsset GiftCardAsset? @relation(fields: [giftCardAssetId], references: [id], onDelete: SetNull)
+  order         Order          @relation(fields: [orderId], references: [id])
+
+  @@index([orderId, createdAt])
+  @@index([giftCardAssetId, attemptNumber])
+  @@index([status, createdAt])
+}
+
+// ===========================================================================
+// GROUP 7 — ANALYTICS, FINANCE & GOVERNANCE
+//
+// FunnelEvent, AbandonmentRecord, ReconciliationIssue (partly) and AuditLog
+// reference entities by plain id rather than by foreign key. They are
+// append-only, high-volume and partly polymorphic; a hard FK would both slow
+// ingestion and, worse, imply that a referenced row may be deleted. Financial
+// history is never deleted, so the ids stay valid.
+// ===========================================================================
+
+model FunnelEvent {
+  id   String          @id @default(cuid())
+  type FunnelEventType
+
+  commerceSessionId String?
+  customerId        String?
+  cartId            String?
+  quoteId           String?
+  orderId           String?
+  paymentId         String?
+  productId         String?
+  skuId             String?
+  serviceId         String?
+
+  occurredAt DateTime @default(now())
+  properties Json?
+  ip         String?
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([type, occurredAt])
+  @@index([commerceSessionId, occurredAt])
+  @@index([customerId, occurredAt])
+  @@index([orderId])
+  @@index([occurredAt])
+}
+
+model AbandonmentRecord {
+  id   String          @id @default(cuid())
+  type AbandonmentType
+
+  commerceSessionId String?
+  customerId        String?
+  cartId            String?
+  quoteId           String?
+  orderId           String?
+
+  lastEventType FunnelEventType?
+  lastEventAt   DateTime
+  /// Value at risk, for the recovery-priority report.
+  amountIrr     BigInt?
+
+  detectedAt      DateTime  @default(now())
+  recoveredAt     DateTime?
+  recoveryOrderId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type, detectedAt])
+  @@index([customerId, detectedAt])
+  @@index([commerceSessionId])
+  @@index([recoveredAt])
+}
+
+model ReconciliationIssue {
+  id       String                  @id @default(cuid())
+  type     ReconciliationIssueType
+  status   ReconciliationStatus    @default(OPEN)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity String                  @default("MEDIUM")
+
+  orderId         String?
+  paymentId       String?
+  fulfillmentId   String?
+  giftCardAssetId String?
+
+  expectedAmountIrr BigInt?
+  actualAmountIrr   BigInt?
+  differenceIrr     BigInt?
+  details           Json?
+
+  detectedAt         DateTime  @default(now())
+  assignedToStaffId  String?
+  resolvedByStaffId  String?
+  resolvedAt         DateTime?
+  resolutionNote     String?
+  /// Required when status is IGNORED_WITH_REASON. The row is never deleted.
+  ignoreReason       String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order      Order?     @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  payment    Payment?   @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  assignedTo StaffUser? @relation("ReconciliationAssignee", fields: [assignedToStaffId], references: [id], onDelete: SetNull)
+  resolvedBy StaffUser? @relation("ReconciliationResolver", fields: [resolvedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([status, detectedAt])
+  @@index([type, status])
+  @@index([orderId])
+  @@index([paymentId])
+  @@index([assignedToStaffId, status])
+}
+
+/// Append-only audit trail.
+///
+/// `before` / `after` MUST be redacted before writing: no gift-card code, no
+/// PIN, no OTP, no token, no secret (AGENTS.md rule 10). Store a masked value or
+/// a boolean "changed" marker instead.
+model AuditLog {
+  id String @id @default(cuid())
+
+  /// Staff user id, customer id, or a system identifier such as `worker:fx-sync`.
+  actor     String
+  /// CUSTOMER | STAFF | SYSTEM
+  actorType String    @default("STAFF")
+  actorRole String?
+
+  /// Verb, e.g. `PAYMENT_VERIFIED`, `GIFT_CARD_DECRYPTED`, `PRICING_RULE_UPDATED`.
+  action   String
+  /// Model name, e.g. `Order`.
+  entity   String
+  entityId String
+
+  before Json?
+  after  Json?
+
+  ip        String?
+  userAgent String?
+  requestId String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId, createdAt])
+  @@index([actor, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}
+
+model FeatureFlag {
+  id          String         @id @default(cuid())
+  key         FeatureFlagKey @unique
+  isEnabled   Boolean        @default(false)
+  description String?
+  /// Percentage rollout in basis points. 10_000 bps = everyone.
+  rolloutBps  Int            @default(0)
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  updatedBy StaffUser? @relation("FeatureFlagUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+}

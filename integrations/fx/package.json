@@ -1,0 +1,36 @@
+{
+  "name": "@barat/fx",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Barat Pay fx integration — interface contract plus provider adapters. Domain modules import this barrel only.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./providers/*": {
+      "types": "./dist/providers/*.d.ts",
+      "default": "./dist/providers/*.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@barat/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@barat/config": "workspace:*",
+    "@types/node": "26.4.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

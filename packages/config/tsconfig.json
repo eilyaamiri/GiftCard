@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig/base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false
+  },
+  "include": ["tailwind/**/*.js", "tailwind/**/*.d.ts", "eslint/**/*.mjs"],
+  "exclude": ["node_modules"]
+}
