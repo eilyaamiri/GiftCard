@@ -1,7 +1,19 @@
-import { Injectable } from '@nestjs/common';
-import { prisma } from '@barat/database';
+import { Inject, Injectable } from '@nestjs/common';
+import type { Prisma, PrismaClient } from '@barat/database';
 
 import { deepRedact, type RedactedJson } from './deep-redactor';
+
+/**
+ * Prisma refuses a bare `null` on a nullable Json column (it cannot tell SQL
+ * NULL from JSON null), and the sentinel that resolves the ambiguity is a
+ * runtime import of the client. Importing it here would drag the database
+ * singleton — and therefore DATABASE_URL — into every consumer of this file, so
+ * a redacted `null` is simply left out: an absent column already reads as
+ * "nothing was recorded for this side of the change".
+ */
+function toJsonInput(value: RedactedJson): Prisma.InputJsonValue | undefined {
+  return value === null ? undefined : (value as Prisma.InputJsonValue);
+}
 
 export type AuditActorType = 'CUSTOMER' | 'STAFF' | 'SYSTEM' | 'ANONYMOUS';
 
@@ -35,10 +47,21 @@ export interface AuditWriter {
   }): Promise<void>;
 }
 
+export const AUDIT_DATABASE = Symbol('AUDIT_DATABASE');
+export const AUDIT_WRITER = Symbol('AUDIT_WRITER');
+
 @Injectable()
 export class PrismaAuditWriter implements AuditWriter {
+  constructor(
+    @Inject(AUDIT_DATABASE)
+    private readonly database: Pick<PrismaClient, 'auditLog'>,
+  ) {}
+
   async append(input: Parameters<AuditWriter['append']>[0]): Promise<void> {
-    await prisma.auditLog.create({
+    const before = input.before === undefined ? undefined : toJsonInput(input.before);
+    const after = input.after === undefined ? undefined : toJsonInput(input.after);
+
+    await this.database.auditLog.create({
       data: {
         actor: input.actor,
         actorType: input.actorType,
@@ -46,8 +69,8 @@ export class PrismaAuditWriter implements AuditWriter {
         action: input.action,
         entity: input.entity,
         entityId: input.entityId,
-        ...(input.before === undefined ? {} : { before: input.before }),
-        ...(input.after === undefined ? {} : { after: input.after }),
+        ...(before === undefined ? {} : { before }),
+        ...(after === undefined ? {} : { after }),
         ip: input.ip,
         userAgent: input.userAgent,
         requestId: input.requestId,
@@ -56,12 +79,10 @@ export class PrismaAuditWriter implements AuditWriter {
   }
 }
 
-export const AUDIT_WRITER = Symbol('AUDIT_WRITER');
-
 /** Append-only audit facade. It intentionally exposes no update/delete method. */
 @Injectable()
 export class AuditService {
-  constructor(private readonly writer: PrismaAuditWriter) {}
+  constructor(@Inject(AUDIT_WRITER) private readonly writer: AuditWriter) {}
 
   async record(input: RecordAuditInput): Promise<void> {
     const before = deepRedact(input.before);

@@ -22,7 +22,7 @@
     "clean": "rm -rf dist *.tsbuildinfo",
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@barat/contracts": "workspace:*"

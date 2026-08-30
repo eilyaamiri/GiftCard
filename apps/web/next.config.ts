@@ -7,6 +7,7 @@ import type { NextConfig } from 'next';
  * artefact, so Next has to transpile them itself.
  */
 const nextConfig: NextConfig = {
+  output: 'standalone',
   reactStrictMode: true,
   poweredByHeader: false,
 
@@ -17,9 +18,7 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_API_URL: process.env['API_PUBLIC_URL'] ?? 'http://localhost:4000',
   },
 
-  experimental: {
-    typedRoutes: true,
-  },
+  typedRoutes: true,
 
   async headers() {
     return [

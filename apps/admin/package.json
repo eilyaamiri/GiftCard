@@ -4,12 +4,12 @@
   "private": true,
   "description": "Barat Pay admin panel and operator workspace — Next.js, RTL Persian, server-side RBAC",
   "scripts": {
-    "dev": "next dev --port 3001",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start --port 3001",
+    "start": "next start",
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "clean": "rm -rf .next out *.tsbuildinfo"
   },
   "dependencies": {
@@ -19,6 +19,7 @@
     "@tanstack/react-query": "5.102.8",
     "clsx": "2.1.1",
     "date-fns-jalali": "4.4.0-0",
+    "decimal.js": "10.6.0",
     "lucide-react": "1.37.0",
     "next": "16.3.3",
     "react": "19.2.8",

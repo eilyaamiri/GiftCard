@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Install, lint, typecheck, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://barat:barat@localhost:5432/barat?schema=public
+      REDIS_URL: redis://localhost:6379
+      SESSION_JWT_SECRET: ci-only-secret-that-is-at-least-32-characters
+      GIFT_CARD_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+      ZARINPAL_ENABLED: 'false'
+      ZARINPAL_MERCHANT_ID: 00000000-0000-0000-0000-000000000000
+      ZARINPAL_REQUEST_URL: https://payment.zarinpal.com/pg/v4/payment/request.json
+      ZARINPAL_VERIFY_URL: https://payment.zarinpal.com/pg/v4/payment/verify.json
+      ZARINPAL_STARTPAY_URL: https://payment.zarinpal.com/pg/StartPay
+      ZARINPAL_CALLBACK_URL: http://localhost:4000/api/payments/zarinpal/callback
+      ZARINPAL_AMOUNT_UNIT: IRR
+      API_PUBLIC_URL: http://localhost:4000
+      WEB_PUBLIC_URL: http://localhost:3000
+      ADMIN_PUBLIC_URL: http://localhost:3001
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck
+        run: pnpm typecheck
+      - name: Unit tests
+        run: pnpm test
+      - name: Build
+        run: pnpm build

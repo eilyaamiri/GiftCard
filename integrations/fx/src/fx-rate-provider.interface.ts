@@ -1,8 +1,9 @@
 import type { FxPair } from '@barat/contracts';
 
 /**
- * A provider observation. Rates are decimal strings in IRR per one unit of the
- * pair's foreign currency; a JavaScript number is deliberately not accepted.
+ * A provider observation. Rates are fixed-point decimal strings in IRR per one
+ * unit of the pair's foreign currency. Numbers are deliberately not accepted:
+ * converting a JSON number to a rate could silently lose rial precision.
  */
 export interface RawFxRate {
   readonly pair: FxPair;
@@ -58,6 +59,6 @@ export class FxProviderError extends Error {
   }
 }
 
-/** DI tokens. The primary and secondary positions are policy, not provider names. */
+/** DI tokens. Primary and secondary are policy positions, not provider names. */
 export const FX_PRIMARY_RATE_PROVIDER = 'BARAT_FX_PRIMARY_RATE_PROVIDER';
 export const FX_SECONDARY_RATE_PROVIDER = 'BARAT_FX_SECONDARY_RATE_PROVIDER';

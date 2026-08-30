@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "/Users/ilyaamiri/.local/bin/pnpm",
+      "runtimeArgs": ["--filter", "@barat/web", "dev"],
+      "port": 3000,
+      "autoPort": true
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "/Users/ilyaamiri/.local/bin/pnpm",
+      "runtimeArgs": ["--filter", "@barat/admin", "dev"],
+      "port": 3001,
+      "autoPort": true
+    }
+  ]
+}

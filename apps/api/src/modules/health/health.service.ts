@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 
 import { AppConfigService } from '../../common/config';
 
@@ -34,7 +34,7 @@ export interface HealthReport {
 export class HealthService {
   private readonly startedAt = Date.now();
 
-  constructor(private readonly config: AppConfigService) {}
+  constructor(@Inject(AppConfigService) private readonly config: AppConfigService) {}
 
   /** Cheap process-alive answer. Never touches I/O. */
   live(): { status: 'ok'; timestamp: string } {

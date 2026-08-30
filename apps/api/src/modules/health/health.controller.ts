@@ -1,8 +1,8 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Inject } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 
-import { type HealthReport, HealthService } from './health.service';
+import { HealthService, type HealthReport } from './health.service';
 
 /**
  * Probes are exempt from rate limiting: an orchestrator polling every second
@@ -12,7 +12,7 @@ import { type HealthReport, HealthService } from './health.service';
 @SkipThrottle()
 @Controller('health')
 export class HealthController {
-  constructor(private readonly health: HealthService) {}
+  constructor(@Inject(HealthService) private readonly health: HealthService) {}
 
   @Get()
   @ApiOperation({ summary: 'Readiness report including dependency status' })

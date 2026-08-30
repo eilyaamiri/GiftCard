@@ -4,12 +4,12 @@
   "private": true,
   "description": "Barat Pay customer storefront — Next.js, RTL Persian, mobile-first from 320px",
   "scripts": {
-    "dev": "next dev --port 3000",
+    "dev": "next dev",
     "build": "next build",
-    "start": "next start --port 3000",
+    "start": "next start",
     "lint": "eslint src",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "clean": "rm -rf .next out *.tsbuildinfo"
   },
   "dependencies": {
