@@ -4,7 +4,7 @@
 
 :root { --navy:#0B1D33; --navy2:#102A46; --ink:#13243A; --teal:#21B4B0; --teal2:#46D0CB; --slate:#6B7C93; --paper:#fff; --soft:#F6F8FA; --mint:#DFF7F5; --line:#DCE4EA; --green:#18A66A; --amber:#D98B19; }
 * { box-sizing:border-box; }
-html { scroll-behavior:smooth; }
+html { scroll-behavior:smooth; scrollbar-gutter:stable; }
 body { margin:0; background:var(--soft); color:var(--ink); font-family:Vazirmatn, sans-serif; }
 button,input,select,textarea { font:inherit; }
 a { color:inherit; text-decoration:none; }
@@ -101,8 +101,8 @@ a { color:inherit; text-decoration:none; }
 /* Customer workspace — the same operational language as the admin panel, with
  * the reading order flipped for RTL: the navy rail is on the right and the
  * identity card sits at the top-left of the content area. */
-.account-shell { min-height:calc(100vh - 76px); display:flex; flex-direction:row; direction:rtl; background:var(--soft); }
-.account-sidebar { width:252px; flex:0 0 252px; display:flex; flex-direction:column; padding:24px 16px 18px; color:#fff; background:var(--navy); }
+.account-shell { min-height:100vh; display:flex; flex-direction:row; direction:rtl; background:var(--soft); }
+.account-sidebar { position:sticky; top:0; height:100vh; width:252px; flex:0 0 252px; display:flex; flex-direction:column; padding:24px 16px 18px; color:#fff; background:var(--navy); }
 .account-brand { display:flex; align-items:center; gap:10px; padding:0 8px 28px; color:#fff; font-size:20px; }
 .account-brand > span:last-child { display:grid; gap:2px; }
 .account-brand strong { font-weight:900; }
@@ -166,7 +166,7 @@ a { color:inherit; text-decoration:none; }
 
 @media (max-width:760px) {
   .account-shell { display:block; }
-  .account-sidebar { width:100%; padding:12px 14px 10px; }
+  .account-sidebar { position:relative; top:auto; height:auto; width:100%; min-height:0; padding:12px 14px 10px; }
   .account-brand { padding:0 4px 12px; }
   .account-menu { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
   .account-menu-group { display:flex; gap:6px; }
