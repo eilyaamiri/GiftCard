@@ -92,7 +92,8 @@ a { color:inherit; text-decoration:none; }
 .summary-total-placeholder { color:var(--slate); font-size:13px; font-weight:700; line-height:1.8; }
 .alert { border-radius:12px; padding:13px 15px; background:#EAF4FF; color:#2B69A0; font-size:13px; line-height:1.8; }
 .alert.warn { background:#FFF5DC; color:#9D6B00; }
-.footer { background:var(--navy); color:#a9bac9; padding:38px 0; font-size:13px; }
+.account-payment-action { flex:1 1 260px; min-width:min(100%,260px); }
+.account-payment-action .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
 .footer-inner { display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; }
 .footer .logo { color:#fff; }
 .mobile-menu { display:none; }

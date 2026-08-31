@@ -14,7 +14,17 @@ import { createPayment, gatewayDestination, paymentAttempt, purchaseError, reset
  * asks the server for the verified outcome. Either way the outcome is decided
  * server-side — this component never concludes anything about the money.
  */
-export function StartPayment({ orderId, orderNumber }: { readonly orderId: string; readonly orderNumber: string }) {
+export function StartPayment({
+  orderId,
+  orderNumber,
+  label = "پرداخت امن",
+  busyLabel = "در حال انتقال به درگاه...",
+}: {
+  readonly orderId: string;
+  readonly orderNumber: string;
+  readonly label?: string;
+  readonly busyLabel?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +59,7 @@ export function StartPayment({ orderId, orderNumber }: { readonly orderId: strin
         </div>
       ) : null}
       <button type="button" className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18 }} onClick={() => void start()} disabled={busy}>
-        <Lock size={16} aria-hidden="true" /> {busy ? "در حال انتقال به درگاه..." : "پرداخت امن"}
+        <Lock size={16} aria-hidden="true" /> {busy ? busyLabel : label}
       </button>
     </>
   );

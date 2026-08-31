@@ -4,6 +4,7 @@ import { Badge, Ltr, formatIrr, formatJalaliDate, formatToman } from "@barat/ui"
 import { AccountNav } from "@/components/account-nav";
 import { orderStatusView } from "@/lib/status";
 import { api, ApiClientError } from "@/lib/api";
+import { StartPayment } from "@/app/checkout/[orderNumber]/start-payment";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
   });
 
   const view = orderStatusView(order.status);
+  const payable = order.status === "AWAITING_PAYMENT" || order.status === "PAYMENT_PENDING";
   const timeline: ReadonlyArray<{ readonly label: string; readonly at: string | null }> = [
     { label: "ثبت سفارش", at: order.createdAt },
     { label: "پرداخت", at: order.paidAt },
@@ -52,6 +54,21 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
       </div>
 
       <div className="hero-actions">
+        {payable ? (
+          <>
+            <div className="alert" style={{ flexBasis: "100%" }}>
+              پرداخت این نسخه آزمایشی است؛ با انتخاب «پرداخت»، تراکنش فرضی تأیید و سفارش وارد مرحله آماده‌سازی می‌شود.
+            </div>
+            <div className="account-payment-action">
+              <StartPayment
+                orderId={order.id}
+                orderNumber={order.orderNumber}
+                label="پرداخت"
+                busyLabel="در حال ثبت پرداخت آزمایشی..."
+              />
+            </div>
+          </>
+        ) : null}
         <Link className="btn btn-outline" href="/account/orders">بازگشت به سفارش‌ها</Link>
         <Link className="btn btn-outline" href={`/account/support?orderId=${encodeURIComponent(order.id)}`}>پیگیری این سفارش</Link>
       </div>
