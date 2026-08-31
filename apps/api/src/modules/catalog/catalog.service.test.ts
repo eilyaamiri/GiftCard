@@ -6,8 +6,11 @@ vi.mock('@barat/database', () => ({
   Prisma: { JsonNull: null },
 }));
 
+import type { AppConfigService } from '../../common/config/app-config.service';
 import type { CatalogDatabase } from './catalog.tokens';
 import { CatalogService } from './catalog.service';
+
+const TEST_CONFIG = { productImageDir: '/tmp/baratpay-catalog-tests' } as AppConfigService;
 
 const CREATED_AT = new Date('2026-08-30T10:00:00.000Z');
 const SUPPLIER_ID = 'supplier-private-tillo';
@@ -71,7 +74,7 @@ function harness() {
     supplierOffer,
     $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
   } as unknown as CatalogDatabase;
-  return { service: new CatalogService(db), product, supplierOffer };
+  return { service: new CatalogService(db, TEST_CONFIG), product, supplierOffer };
 }
 
 describe('CatalogService public projections', () => {
@@ -121,7 +124,7 @@ describe('CatalogService admin service bounds', () => {
         update,
       },
     } as unknown as CatalogDatabase;
-    const service = new CatalogService(db);
+    const service = new CatalogService(db, TEST_CONFIG);
 
     await expect(
       service.adminUpdateService('service-1', { minAmount: '11' }),

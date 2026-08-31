@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/consistent-type-imports -- AppConfigService is
  * constructor-injected; emitDecoratorMetadata needs the runtime class value. */
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import Decimal from 'decimal.js';
@@ -160,7 +160,7 @@ function imageExtension(file: { mimetype: string; buffer: Buffer }): (typeof IMA
 export class CatalogService {
   constructor(
     @Inject(CATALOG_DATABASE) private readonly db: CatalogDatabase,
-    @Optional() private readonly config?: AppConfigService,
+    private readonly config: AppConfigService,
   ) {}
 
   /* ------------------------------------------------------------------ public */
@@ -550,7 +550,7 @@ export class CatalogService {
       ]);
     }
 
-    const root = this.config?.productImageDir ?? path.join(process.cwd(), 'data', 'product-images');
+    const root = this.config.productImageDir;
     await fs.mkdir(root, { recursive: true });
     await Promise.all(
       IMAGE_VARIANTS.filter((variant) => variant.extension !== extension).map((variant) =>
@@ -570,7 +570,7 @@ export class CatalogService {
     for (const variant of IMAGE_VARIANTS) {
       try {
         return {
-          buffer: await fs.readFile(imagePath(this.config?.productImageDir ?? path.join(process.cwd(), 'data', 'product-images'), id, variant.extension)),
+          buffer: await fs.readFile(imagePath(this.config.productImageDir, id, variant.extension)),
           contentType: variant.contentType,
         };
       } catch (error) {

@@ -55,7 +55,7 @@ export class CatalogController {
   }
 
   @Get('products/:id/image')
-  @Header('Cache-Control', 'public, max-age=3600, must-revalidate')
+  @Header('Cache-Control', 'public, max-age=0, must-revalidate')
   async productImage(@Param('id') id: string): Promise<StreamableFile> {
     const image = await this.catalog.productImage(id);
     return new StreamableFile(image.buffer, { type: image.contentType });

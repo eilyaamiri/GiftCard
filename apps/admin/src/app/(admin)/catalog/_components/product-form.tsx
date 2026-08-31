@@ -1,14 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import type { AdminProduct } from "../_lib/catalog-contracts";
 import { FormError } from "./form-error";
 
 export function ProductForm({ product }: { product?: AdminProduct }) {
   const router = useRouter();
-  const isEdit = Boolean(product);
+  const [savedProductId, setSavedProductId] = useState(product?.id ?? null);
+  const isEdit = savedProductId !== null;
   const [slug, setSlug] = useState(product?.slug ?? "");
   const [brand, setBrand] = useState(product?.brand ?? "");
   const [title, setTitle] = useState(product?.title ?? "");
@@ -22,6 +23,17 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
   const [isActive, setIsActive] = useState(product?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(product?.imageUrl ?? null);
+
+  useEffect(() => {
+    if (!imageFile) {
+      setPreviewUrl(product?.imageUrl ?? null);
+      return;
+    }
+    const url = URL.createObjectURL(imageFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [imageFile, product?.imageUrl]);
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,10 +53,13 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
     };
     try {
       let savedProduct: { id: string };
-      if (isEdit && product) {
-        savedProduct = await api.put<{ id: string }>(`/api/admin/catalog/products/${product.id}`, payload);
+      if (savedProductId) {
+        savedProduct = await api.put<{ id: string }>(`/api/admin/catalog/products/${savedProductId}`, payload);
       } else {
         savedProduct = await api.post<{ id: string }>("/api/admin/catalog/products", payload);
+        /* If the subsequent image upload fails, keep the newly-created id. A
+         * retry then updates that row rather than creating a duplicate product. */
+        setSavedProductId(savedProduct.id);
       }
       if (imageFile) {
         await api.uploadProductImage(savedProduct.id, imageFile);
@@ -93,6 +108,9 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
             onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
           />
           <small>JPG، PNG، WebP یا GIF — حداکثر ۵ مگابایت. تصویر بارگذاری‌شده بر آدرس تصویر اولویت دارد.</small>
+          {previewUrl ? (
+            <img src={previewUrl} alt="پیش‌نمایش تصویر محصول" className="product-image-preview" />
+          ) : null}
         </label>
         <label>
           ترتیب نمایش
