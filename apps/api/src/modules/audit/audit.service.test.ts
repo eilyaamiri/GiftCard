@@ -25,6 +25,34 @@ describe('deepRedact', () => {
       },
     });
   });
+
+  it('strips bank numbers while keeping the masked forms an auditor needs', () => {
+    /* The whole point of storing a mask is that it can be read back. If the
+     * redactor swallowed `ibanMasked` too, the audit row would say nothing. */
+    const result = deepRedact({
+      iban: 'IR560170000000000000001234',
+      cardNumber: '6037990000000121',
+      accountNumber: '0100123456001',
+      ibanEncrypted: 'v1.aaa.bbb.ccc',
+      cardEncrypted: 'v1.aaa.bbb.ccc',
+      ibanMasked: 'IR56017***************1234',
+      ibanBankName: 'بانک ملی ایران',
+      cardMasked: '6037-99**-****-0121',
+      holderName: 'یکتا کریمی',
+    });
+
+    expect(result).toEqual({
+      iban: '[REDACTED]',
+      cardNumber: '[REDACTED]',
+      accountNumber: '[REDACTED]',
+      ibanEncrypted: '[REDACTED]',
+      cardEncrypted: '[REDACTED]',
+      ibanMasked: 'IR56017***************1234',
+      ibanBankName: 'بانک ملی ایران',
+      cardMasked: '6037-99**-****-0121',
+      holderName: 'یکتا کریمی',
+    });
+  });
 });
 
 describe('AuditService', () => {

@@ -4,6 +4,7 @@ import { prisma } from '@barat/database';
 import { AuditModule } from '../audit/audit.module';
 import { AccountController } from './account.controller';
 import { AccountService } from './account.service';
+import { BankDetailsService } from './bank-details.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CUSTOMERS_DATABASE } from './customers.tokens';
@@ -23,6 +24,7 @@ import { SupportService } from './support.service';
   providers: [
     { provide: CUSTOMERS_DATABASE, useValue: prisma },
     AccountService,
+    BankDetailsService,
     CustomersService,
     SupportService,
   ],

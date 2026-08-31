@@ -15,6 +15,7 @@ export type CustomersDatabase = Pick<
   | 'customer'
   | 'customerProfile'
   | 'customerIdentity'
+  | 'customerBankAccount'
   | 'customerNote'
   | 'customerFlag'
   | 'order'

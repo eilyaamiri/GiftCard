@@ -31,6 +31,24 @@ export const updateProfileRequestSchema = z
   .refine((value) => Object.keys(value).length > 0, 'At least one field must be provided');
 export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
+export const updateAccountEmailRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().max(254).pipe(z.email()),
+});
+export type UpdateAccountEmailRequest = z.infer<typeof updateAccountEmailRequestSchema>;
+
+/**
+ * Deliberately loose on shape and strict on meaning: the IBAN and the card may
+ * arrive with spaces, dashes or Persian digits, and the checksum rules in
+ * `bank-details.utils.ts` decide whether they are real. `ownershipConfirmed` is
+ * the customer's statement that both belong to them.
+ */
+export const saveBankAccountRequestSchema = z.object({
+  iban: z.string().trim().min(20).max(40),
+  cardNumber: z.string().trim().min(16).max(25),
+  ownershipConfirmed: z.boolean(),
+});
+export type SaveBankAccountRequest = z.infer<typeof saveBankAccountRequestSchema>;
+
 export const customerSearchRequestSchema = z
   .object({
     /** Free-text term matched against mobile, e-mail, customer code or customer name. */

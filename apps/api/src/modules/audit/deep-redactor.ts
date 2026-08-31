@@ -1,5 +1,29 @@
 const REDACTED = '[REDACTED]';
-const SENSITIVE_KEY_PARTS = ['code', 'pin', 'otp', 'token', 'secret', 'password'] as const;
+
+/**
+ * Substring matches, so `giftCardCode`, `codeHash` and `refreshToken` are all
+ * covered without listing every spelling anyone might invent.
+ */
+const SENSITIVE_KEY_PARTS = [
+  'code',
+  'pin',
+  'otp',
+  'token',
+  'secret',
+  'password',
+  'cardnumber',
+  'accountnumber',
+  'ibanencrypted',
+  'cardencrypted',
+] as const;
+
+/**
+ * Exact matches, for names that are sensitive alone but are contained in names
+ * that must stay readable: a bare `iban` may never reach an audit row, while
+ * `ibanMasked` and `ibanBankName` are precisely what such a row should show.
+ */
+const SENSITIVE_KEY_EXACT: ReadonlySet<string> = new Set(['iban', 'shaba', 'sheba', 'pan']);
+
 const MAX_DEPTH = 64;
 
 export type RedactedJson =
@@ -12,7 +36,10 @@ export type RedactedJson =
 
 function isSensitiveKey(key: string): boolean {
   const canonical = key.toLowerCase().replace(/[^a-z0-9]/gu, '');
-  return SENSITIVE_KEY_PARTS.some((part) => canonical.includes(part));
+  return (
+    SENSITIVE_KEY_EXACT.has(canonical) ||
+    SENSITIVE_KEY_PARTS.some((part) => canonical.includes(part))
+  );
 }
 
 /**
