@@ -47,6 +47,21 @@ const redisUrl = z.string().refine((value) => {
 }, 'Must be a valid redis:// or rediss:// connection URL');
 
 /**
+ * In a `.env` file the natural way to say "not configured" is to leave the value
+ * blank (`ZARINPAL_MERCHANT_ID=`), which arrives as an empty string rather than
+ * as undefined. Treat blank as absent so an operator is never pushed into
+ * inventing a placeholder merchant id just to boot with the gateway disabled.
+ *
+ * This does not loosen anything: the `superRefine` below still rejects a blank
+ * value whenever ZARINPAL_ENABLED is true.
+ */
+const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    schema.optional(),
+  );
+
+/**
  * AES-256-GCM key: exactly 32 raw bytes, base64 encoded.
  * Generate with `openssl rand -base64 32`.
  */
@@ -92,11 +107,11 @@ export const envSchema = z
 
     /* ---------------------------------------------------------------- ZarinPal */
     ZARINPAL_ENABLED: booleanFromEnv.default(false),
-    ZARINPAL_MERCHANT_ID: z.string().trim().min(1).optional(),
-    ZARINPAL_REQUEST_URL: httpUrl.optional(),
-    ZARINPAL_VERIFY_URL: httpUrl.optional(),
-    ZARINPAL_STARTPAY_URL: httpUrl.optional(),
-    ZARINPAL_CALLBACK_URL: httpUrl.optional(),
+    ZARINPAL_MERCHANT_ID: blankAsUndefined(z.string().trim().min(1)),
+    ZARINPAL_REQUEST_URL: blankAsUndefined(httpUrl),
+    ZARINPAL_VERIFY_URL: blankAsUndefined(httpUrl),
+    ZARINPAL_STARTPAY_URL: blankAsUndefined(httpUrl),
+    ZARINPAL_CALLBACK_URL: blankAsUndefined(httpUrl),
     ZARINPAL_REQUEST_TIMEOUT_MS: positiveInt.max(60_000).default(10_000),
     /**
      * OPEN DECISION — must be confirmed against the real merchant contract.
