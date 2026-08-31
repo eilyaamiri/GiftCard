@@ -11,8 +11,17 @@ set -a; . /opt/baratpay/secrets/.env.api; set +a
 export NODE_OPTIONS="--max-old-space-size=1024"
 
 echo "==> pull"
-git fetch --all -q
-git reset --hard -q "origin/$(git rev-parse --abbrev-ref HEAD)"
+# DEPLOY_SKIP_PULL is for callers that have already put the checkout on the exact
+# revision they want — the CI wrapper does, so it can ship the commit that passed
+# verification rather than whatever origin/main happens to be a minute later.
+# Those callers must also run a *copy* of this file: resetting the checkout
+# rewrites the script bash is still reading line by line.
+if [ -n "${DEPLOY_SKIP_PULL:-}" ]; then
+  echo "    skipped, already on $(git rev-parse --short HEAD)"
+else
+  git fetch --all -q
+  git reset --hard -q "origin/$(git rev-parse --abbrev-ref HEAD)"
+fi
 
 echo "==> install"
 pnpm install --no-frozen-lockfile --prefer-offline

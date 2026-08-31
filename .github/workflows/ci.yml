@@ -4,8 +4,12 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # Deploy calls this so a release can never ship a revision CI has not verified.
+  workflow_call:
 
 concurrency:
+  # Keyed on the caller too: a deploy's verification must not cancel — or be
+  # cancelled by — the ordinary push build of the same commit.
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 

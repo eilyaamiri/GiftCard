@@ -6,6 +6,7 @@ copies on the server are installed from here.
 | file | installed to |
 |---|---|
 | `deploy.sh` | `/opt/baratpay/deploy.sh` |
+| `ci-deploy.sh` | `/opt/baratpay/ci-deploy.sh` (mode 700) |
 | `nginx-baratpay.conf` | `/etc/nginx/sites-available/baratpay` |
 
 Secrets are **not** here. They live in `/opt/baratpay/secrets/.env.{api,web,admin}`
@@ -38,6 +39,36 @@ fixed by TLS:
    a wrong password. The API now derives `Secure` from the scheme of the public
    URL, so an https origin gets it and the flag is never the thing that breaks a
    login.
+
+## Releasing
+
+A release is a person pressing a button, never a push. Run the **Deploy**
+workflow (`.github/workflows/deploy.yml`) from the Actions tab on `main`; it
+runs the full CI suite first, then waits for someone to approve the `production`
+environment before it touches the server. Both gates are deliberate: production
+release is one of the changes that requires human review.
+
+What runs where:
+
+1. `deploy.yml` calls `ci.yml` through `workflow_call`, so no revision can ship
+   without lint, typecheck, tests and both Next builds passing on that commit.
+2. After approval the runner opens one SSH connection with a key that exists
+   only for this. Server-side that key is pinned to `ci-deploy.sh`, so it cannot
+   open a shell, read `/opt/baratpay/secrets/`, or forward a port — the string
+   Actions sends is a label, not a command.
+3. `ci-deploy.sh` fetches, checks that the SHA Actions verified is an ancestor of
+   `origin/main`, checks it out, and runs a *copy* of `deploy.sh` with
+   `DEPLOY_SKIP_PULL=1`. The copy matters: `deploy.sh` lives in the checkout it
+   rewrites, and bash reads a script as it goes.
+4. The workflow then curls the three services, including one request that must
+   still answer `401`. A panel that answered `200` there would be an open back
+   office, and that is worth failing a release over.
+
+Rotating the deploy key means: new keypair on the server, replace the
+`command="/opt/baratpay/ci-deploy.sh",no-agent-forwarding,no-port-forwarding,no-pty,no-user-rc,no-X11-forwarding`
+line in `~/.ssh/authorized_keys`, and update the `DEPLOY_SSH_KEY` secret on the
+`production` environment. `deploy.sh` still runs by hand on the box when GitHub
+is unreachable.
 
 ## Notes
 

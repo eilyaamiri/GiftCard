@@ -1,0 +1,100 @@
+name: Deploy
+
+# Production releases are deliberately manual: someone has to press the button
+# and then approve the `production` environment. Nothing here fires on a push.
+on:
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'Why this release (kept in the run log)'
+        required: false
+        default: 'manual release'
+
+concurrency:
+  # Never two deploys at once: the box builds both Next apps in sequence
+  # precisely because it cannot afford to do two things at a time.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Ship to production
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://130-185-72-83.nip.io
+    steps:
+      - name: Refuse anything but main
+        # The environment's branch policy already enforces this; the explicit
+        # check makes the reason obvious in the log instead of an opaque refusal.
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "::error::Deploys run from main only (asked for ${{ github.ref }})."
+          exit 1
+
+      - name: Install the deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          # Through the environment, never interpolated into the script: a
+          # `${{ }}` in a run block would let the input's text become shell.
+          RELEASE_REASON: ${{ github.event.inputs.reason }}
+          RELEASE_SHA: ${{ github.sha }}
+        # The key is pinned server-side to a forced command, so the string sent
+        # here is only a label in the server's log — it cannot run anything.
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -o UserKnownHostsFile="$HOME/.ssh/known_hosts" \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -o RequestTTY=no \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=20 \
+            "$DEPLOY_USER@$DEPLOY_HOST" \
+            "deploy $RELEASE_SHA ($RELEASE_REASON)"
+
+      - name: Smoke-test the running services
+        run: |
+          # The API reports nothing about its own revision, so this asserts on
+          # what the three services actually answer instead.
+          fail=0
+          check() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 30 "$1" || echo 000)
+            if [ "$code" != "$2" ]; then
+              echo "::error::$1 answered $code, expected $2"
+              fail=1
+            else
+              echo "ok  $1 -> $code"
+            fi
+          }
+          check https://130-185-72-83.nip.io/api/health 200
+          check https://130-185-72-83.nip.io/ 200
+          check https://admin.130-185-72-83.nip.io/login 200
+          # An unauthenticated caller must still be refused after a deploy:
+          # a panel that answers 200 here would be an open back office.
+          check https://admin.130-185-72-83.nip.io/api/support/tickets 401
+          exit $fail
+
+      - name: Remove the key from the runner
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
