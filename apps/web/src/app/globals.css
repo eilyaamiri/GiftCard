@@ -148,19 +148,22 @@ a { color:inherit; text-decoration:none; }
 .auth-visual p { position:relative; max-width:280px; margin:16px 0 0; color:#c6d5df; font-size:14px; line-height:2; }
 .auth-orbit { position:absolute; left:36px; bottom:40px; width:96px; height:96px; border:10px solid rgba(255,255,255,.13); border-right-color:var(--teal2); border-radius:50%; transform:rotate(-25deg); }
 .auth-card-wrap-single .auth-card { text-align:center; }
-.otp-card { padding-block:42px 38px; }
-.otp-brand-mark { width:46px; height:46px; display:grid; place-items:center; margin:0 auto 22px; color:#fff; border-radius:15px; background:linear-gradient(140deg,var(--navy),var(--teal)); font-size:22px; font-weight:900; }
-.otp-box { margin-top:28px; padding:24px 20px 20px; border:1px solid var(--line); border-radius:18px; background:var(--soft); }
-.otp-box .otp-input { justify-content:center; }
+.otp-card { padding-block:54px; }
+.otp-form { display:grid; gap:12px; }
+.otp-form .bp-ltr { display:flex; width:100%; flex-wrap:nowrap; justify-content:center; gap:10px; }
+.otp-form .bp-ltr input { flex:0 0 48px; width:48px; height:52px; min-width:0; border-radius:10px; }
+.otp-paste-hint { margin:0; color:var(--slate); font-size:11px; line-height:1.8; text-align:center; }
+.otp-form .auth-expiry { margin:0; }
+.otp-form .auth-submit:first-of-type { margin-top:6px; }
 .auth-expiry { display:flex; justify-content:center; gap:5px; margin:14px 0 0; font-size:12px; }
-.otp-box .btn-ghost { margin-top:6px; color:var(--slate); }
 
 @media (max-width:760px) {
   .auth-page { padding:28px 12px 54px; }
   .auth-card-wrap { display:block; min-height:0; width:100%; }
   .auth-visual { display:none; }
   .auth-card { padding:34px 22px; }
-  .otp-box { padding-inline:10px; }
+  .otp-form .bp-ltr { gap:6px; }
+  .otp-form .bp-ltr input { flex-basis:calc((100% - 30px)/6); width:calc((100% - 30px)/6); height:auto; aspect-ratio:1/1.12; }
 }
 
 

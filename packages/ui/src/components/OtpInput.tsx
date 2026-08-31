@@ -50,13 +50,15 @@ export function OtpInput({
       setDigitAt(index, " ");
       return;
     }
-    const chars = clean.split("");
-    let cursor = index;
-    for (const char of chars) {
-      if (cursor >= length) break;
-      setDigitAt(cursor, char);
-      cursor += 1;
+
+    const current = (value ?? internal).padEnd(length, " ").split("");
+    const available = clean.slice(0, length - index);
+    for (let offset = 0; offset < available.length; offset += 1) {
+      current[index + offset] = available[offset] ?? " ";
     }
+    commit(current.join("").replace(/\s+$/, ""));
+
+    const cursor = index + available.length;
     const target = refs.current[Math.min(cursor, length - 1)];
     target?.focus();
     target?.select();
