@@ -160,6 +160,24 @@ export const BACK_OFFICE_ROLES = [
 
 export const OPERATOR_ROLES = ["ADMIN", "OPS_MANAGER", "OPERATOR"] as const satisfies readonly StaffRole[];
 
+/** Mirrors the explicit roles on `/api/customers/*`; VIEWER is intentionally absent. */
+export const CUSTOMER_VIEW_ROLES = [
+  "ADMIN",
+  "MANAGEMENT",
+  "OPS_MANAGER",
+  "OPERATOR",
+  "FINANCE",
+  "SUPPORT",
+] as const satisfies readonly StaffRole[];
+
+export const CUSTOMER_NOTE_ROLES = [
+  "ADMIN",
+  "MANAGEMENT",
+  "OPS_MANAGER",
+  "OPERATOR",
+  "SUPPORT",
+] as const satisfies readonly StaffRole[];
+
 /**
  * Operators run fulfilment, never money: no FX rate edits, no pricing rules, no
  * payment status changes, no order amount edits, no refunds.

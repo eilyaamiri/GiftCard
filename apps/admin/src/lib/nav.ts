@@ -3,6 +3,7 @@ import {
   AUDIT_ROLES,
   BACK_OFFICE_ROLES,
   CATALOG_WRITE_ROLES,
+  CUSTOMER_VIEW_ROLES,
   FINANCIAL_WRITE_ROLES,
   OPERATOR_ROLES,
   QUEUE_VIEW_ROLES,
@@ -37,6 +38,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/orders", label: "سفارش‌ها", icon: "shopping-bag", roles: BACK_OFFICE_ROLES },
       { href: "/quotes", label: "استعلام‌ها", icon: "receipt-text", roles: BACK_OFFICE_ROLES },
       { href: "/payments", label: "پرداخت‌ها", icon: "credit-card", roles: BACK_OFFICE_ROLES },
+      { href: "/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog", roles: CUSTOMER_VIEW_ROLES },
     ],
   },
   {
@@ -73,6 +75,7 @@ export const OPERATOR_NAV: NavSection[] = [
     items: [
       { href: "/operator", label: "میز من", icon: "layout-dashboard", roles: OPERATOR_ROLES },
       { href: "/operator/tasks", label: "تسک‌ها", icon: "list-checks", roles: OPERATOR_ROLES },
+      { href: "/operator/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog", roles: OPERATOR_ROLES },
       { href: "/operator/performance", label: "عملکرد و SLA", icon: "line-chart", roles: OPERATOR_ROLES },
     ],
   },
