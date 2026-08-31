@@ -13,6 +13,11 @@ export default async function OperatorLayout({ children }: { children: React.Rea
         title="میزکار اپراتور"
         staffName={staff.email}
         staffRoleLabel={STAFF_ROLE_LABELS[staff.role]}
+        profileShortcuts={[
+          { href: "/operator", label: "میز من", icon: "layout-dashboard" },
+          { href: "/operator/tasks", label: "تسک‌های من", icon: "list-checks" },
+          { href: "/operator/performance", label: "عملکرد من", icon: "line-chart" },
+        ]}
       >
         {children}
       </AppShell>

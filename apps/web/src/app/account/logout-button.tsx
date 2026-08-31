@@ -20,9 +20,9 @@ export function LogoutButton() {
   }
 
   return (
-    <button type="button" className="btn btn-outline" onClick={signOut} disabled={pending} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-      <LogOut size={16} />
-      {pending ? "در حال خروج..." : "خروج از حساب"}
+    <button type="button" className="account-profile-logout" onClick={signOut} disabled={pending}>
+      <LogOut size={16} aria-hidden="true" />
+      {pending ? "در حال خروج…" : "خروج از حساب"}
     </button>
   );
 }

@@ -4,10 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api } from "@/lib/api";
 
-/**
- * Lives beside the login route because sign-in and sign-out are one concern.
- * Floats over the topbar so neither panel shell has to be restructured.
- */
+/** Revokes the staff session; the HttpOnly cookie can only be cleared by the API. */
 export function LogoutButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);

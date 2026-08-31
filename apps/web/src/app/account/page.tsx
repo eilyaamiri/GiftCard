@@ -1,16 +1,14 @@
 import Link from "next/link";
 import { Badge, EmptyState, Ltr, formatJalaliDate, formatToman, toPersianDigits } from "@barat/ui";
 import { PackageSearch } from "lucide-react";
-import { AccountNav } from "@/components/account-nav";
 import { orderStatusView } from "@/lib/status";
-import { customerDisplayName, requireSession } from "@/lib/session";
+import { requireSession } from "@/lib/session";
 import { api } from "@/lib/api";
-import { LogoutButton } from "./logout-button";
 
 export const dynamic = "force-dynamic";
 
 export default async function AccountPage() {
-  const customer = await requireSession();
+  await requireSession();
   const [profile, orders, payments, support] = await Promise.all([
     api.accountProfile(),
     api.accountOrders({ pageSize: 5 }),
@@ -22,13 +20,6 @@ export default async function AccountPage() {
 
   return (
     <main className="page container" style={{ maxWidth: 760 }}>
-      <div className="eyebrow">حساب کاربری</div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <h1 className="h2" style={{ marginBlockEnd: 0 }}>سلام {customerDisplayName(customer)}</h1>
-        <LogoutButton />
-      </div>
-      <AccountNav />
-
       {profile.requiresProfileCompletion ? (
         <div className="alert warn" style={{ marginBlockEnd: 16 }}>
           برای تکمیل خرید، نام و نام خانوادگی خود را ثبت کنید.{" "}
