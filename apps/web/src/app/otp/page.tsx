@@ -119,53 +119,42 @@ export default function OtpPage() {
   const canResend = cooldown === 0 && !resending;
 
   return (
-    <main className="page container" style={{ maxWidth: 420 }}>
-      <div className="eyebrow">تأیید هویت</div>
-      <h1 className="h2">کد تأیید را وارد کنید</h1>
-      <p className="muted">
-        کد {toPersianDigits(challenge.codeLength)} رقمی برای <Ltr>{challenge.maskedTarget}</Ltr> ارسال شد.
-      </p>
+    <main className="auth-page">
+      <div className="auth-card-wrap auth-card-wrap-single container">
+        <section className="auth-card otp-card">
+          <div className="otp-brand-mark">ب</div>
+          <div className="eyebrow">SECURITY CHECK · برات</div>
+          <h1 className="h2">کد ورود را وارد کنید</h1>
+          <p className="muted">کد {toPersianDigits(challenge.codeLength)} رقمی برای <Ltr>{challenge.maskedTarget}</Ltr> ارسال شد.</p>
 
-      <div className="card pad" style={{ marginBlockStart: 18 }}>
-        <OtpInput
-          length={challenge.codeLength}
-          value={code}
-          onChange={setCode}
-          onComplete={verify}
-          disabled={verifying || expired}
-          invalid={Boolean(error)}
-          autoFocus
-        />
-        <FormMessage tone="error">{error}</FormMessage>
+          <div className="otp-box">
+            <OtpInput
+              length={challenge.codeLength}
+              value={code}
+              onChange={setCode}
+              onComplete={verify}
+              disabled={verifying || expired}
+              invalid={Boolean(error)}
+              autoFocus
+            />
+            <FormMessage tone="error">{error}</FormMessage>
 
-        {expired ? (
-          <p className="muted" style={{ fontSize: 13, marginBlockStart: 10 }}>مهلت این کد به پایان رسید. کد تازه‌ای بگیرید.</p>
-        ) : (
-          <p className="muted" style={{ display: "flex", gap: 6, fontSize: 13, marginBlockStart: 10 }}>
-            اعتبار کد:
-            <CountdownTimer expiresAt={challenge.expiresAt} onExpire={() => setExpired(true)} />
-          </p>
-        )}
+            {expired ? (
+              <p className="muted auth-expiry">مهلت این کد به پایان رسید. کد تازه‌ای بگیرید.</p>
+            ) : (
+              <p className="muted auth-expiry">اعتبار کد: <CountdownTimer expiresAt={challenge.expiresAt} onExpire={() => setExpired(true)} /></p>
+            )}
 
-        <button
-          type="button"
-          className="btn btn-primary"
-          style={{ width: "100%", marginBlockStart: 16 }}
-          onClick={() => verify(code)}
-          disabled={verifying || expired || code.replace(/\s/g, "").length < challenge.codeLength}
-        >
-          {verifying ? "در حال بررسی..." : "تأیید و ورود"}
-        </button>
-
-        <button type="button" className="btn btn-ghost" style={{ width: "100%", marginBlockStart: 8 }} onClick={resend} disabled={!canResend}>
-          {cooldown > 0 ? `ارسال مجدد کد (${toPersianDigits(cooldown)} ثانیه)` : resending ? "در حال ارسال..." : "ارسال مجدد کد"}
-        </button>
+            <button type="button" className="btn btn-primary auth-submit" onClick={() => verify(code)} disabled={verifying || expired || code.replace(/\s/g, "").length < challenge.codeLength}>
+              {verifying ? "در حال بررسی..." : "تأیید و ورود"}
+            </button>
+            <button type="button" className="btn btn-ghost auth-submit" onClick={resend} disabled={!canResend}>
+              {cooldown > 0 ? `ارسال مجدد کد (${toPersianDigits(cooldown)} ثانیه)` : resending ? "در حال ارسال..." : "ارسال مجدد کد"}
+            </button>
+          </div>
+          <p className="auth-note"><ShieldCheck size={16} /> این کد را با هیچ‌کس، حتی پشتیبانی برات، در میان نگذارید.</p>
+        </section>
       </div>
-
-      <p className="muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBlockStart: 14 }}>
-        <ShieldCheck size={16} />
-        این کد را با هیچ‌کس، حتی پشتیبانی برات، در میان نگذارید.
-      </p>
     </main>
   );
 }

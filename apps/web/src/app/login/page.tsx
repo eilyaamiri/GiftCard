@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input, Label, FormMessage, toLatinDigits } from "@barat/ui";
 import { Phone, ShieldCheck } from "lucide-react";
@@ -32,6 +32,14 @@ function LoginForm() {
   const [identifier, setIdentifier] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void api.me().then((result) => {
+      if (active && result.isAuthenticated) router.replace(next || "/account");
+    }).catch(() => { /* The form will report the next actionable error. */ });
+    return () => { active = false; };
+  }, [next, router]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -66,44 +74,50 @@ function LoginForm() {
   }
 
   return (
-    <main className="page container" style={{ maxWidth: 420 }}>
-      <div className="eyebrow">ورود</div>
-      <h1 className="h2">ورود به برات</h1>
-      <p className="muted">شماره موبایل یا ایمیل خود را وارد کنید تا کد یک‌بار مصرف برایتان ارسال شود.</p>
+    <main className="auth-page">
+      <div className="auth-card-wrap container">
+        <section className="auth-card">
+          <div className="eyebrow">WELCOME BACK · برات</div>
+          <h1 className="h2">ورود به حساب شما</h1>
+          <p className="muted">شماره موبایل یا ایمیل خود را وارد کنید تا کد یک‌بارمصرف برایتان ارسال شود.</p>
 
-      {params.get("reason") === "expired" ? (
-        <div className="alert warn" style={{ marginBlockEnd: 14 }}>نشست شما پایان یافته است. برای ادامه دوباره وارد شوید.</div>
-      ) : null}
+          {params.get("reason") === "expired" ? (
+            <div className="alert warn" style={{ marginBlockEnd: 14 }}>نشست شما پایان یافته است. برای ادامه دوباره وارد شوید.</div>
+          ) : null}
 
-      <form className="card pad" style={{ marginBlockStart: 18 }} onSubmit={submit} noValidate>
-        <div className="field">
-          <Label htmlFor="identifier" required>موبایل یا ایمیل</Label>
-          <Input
-            id="identifier"
-            name="identifier"
-            required
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            ltr
-            startAdornment={<Phone size={16} />}
-            placeholder="۰۹۱۲۱۲۳۴۵۶۷"
-            value={identifier}
-            onChange={(e) => setIdentifier(e.target.value)}
-            invalid={Boolean(error)}
-            aria-describedby="identifier-error"
-          />
-          <FormMessage tone="error" id="identifier-error">{error}</FormMessage>
-        </div>
-        <button type="submit" className="btn btn-primary" style={{ width: "100%" }} disabled={loading || identifier.trim().length === 0}>
-          {loading ? "در حال ارسال کد..." : "دریافت کد ورود"}
-        </button>
-      </form>
-
-      <p className="muted" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, marginBlockStart: 14 }}>
-        <ShieldCheck size={16} />
-        برات هرگز کد ورود شما را نمی‌پرسد و آن را در هیچ صفحه‌ای نمایش نمی‌دهد.
-      </p>
+          <form className="auth-form" onSubmit={submit} noValidate>
+            <div className="field">
+              <Label htmlFor="identifier" required>شماره موبایل یا ایمیل</Label>
+              <Input
+                id="identifier"
+                name="identifier"
+                required
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                ltr
+                startAdornment={<Phone size={16} />}
+                placeholder="۰۹۱۲۱۲۳۴۵۶۷"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
+                invalid={Boolean(error)}
+                aria-describedby="identifier-error"
+              />
+              <FormMessage tone="error" id="identifier-error">{error}</FormMessage>
+            </div>
+            <button type="submit" className="btn btn-primary auth-submit" disabled={loading || identifier.trim().length === 0}>
+              {loading ? "در حال ارسال کد..." : "ارسال کد ورود"}
+            </button>
+          </form>
+          <p className="auth-note"><ShieldCheck size={16} /> با ادامه، شرایط استفاده و حریم خصوصی برات را می‌پذیرید.</p>
+        </section>
+        <aside className="auth-visual" aria-label="امنیت برات">
+          <span className="auth-visual-kicker">SECURE BY DESIGN</span>
+          <strong>ورود ساده،<br />حفاظت جدی.</strong>
+          <p>کد ورود فقط برای شماست؛ برات هیچ‌وقت آن را از شما درخواست نمی‌کند.</p>
+          <div className="auth-orbit" aria-hidden="true" />
+        </aside>
+      </div>
     </main>
   );
 }

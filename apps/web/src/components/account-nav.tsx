@@ -13,7 +13,7 @@ const links = [
 export function AccountNav() {
   const pathname = usePathname();
   return (
-    <nav className="filterbar" aria-label="منوی حساب کاربری" style={{ marginBottom: 22 }}>
+    <nav className="account-mobile-nav" aria-label="منوی حساب کاربری">
       {links.map((link) => (
         <Link key={link.href} href={link.href} className={`chip ${pathname === link.href ? "active" : ""}`} aria-current={pathname === link.href ? "page" : undefined}>
           {link.label}
