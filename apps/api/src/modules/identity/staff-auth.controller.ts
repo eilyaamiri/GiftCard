@@ -52,7 +52,7 @@ export class StaffAuthController {
 
     response.cookie(STAFF_COOKIE_NAME, result.accessToken, {
       httpOnly: true,
-      secure: this.config.isProduction,
+      secure: this.config.adminCookieSecure,
       /* `strict` for staff: the admin panel is never linked to from a gateway
        * return page, so there is no legitimate cross-site navigation. */
       sameSite: 'strict',
@@ -80,7 +80,7 @@ export class StaffAuthController {
   logout(@Res({ passthrough: true }) response: CookieResponse): { loggedOut: boolean } {
     response.clearCookie(STAFF_COOKIE_NAME, {
       httpOnly: true,
-      secure: this.config.isProduction,
+      secure: this.config.adminCookieSecure,
       sameSite: 'strict',
       path: '/',
     });

@@ -54,6 +54,40 @@ export class AppConfigService {
     return [this.webPublicUrl, this.adminPublicUrl];
   }
 
+  /**
+   * Whether a session cookie for this origin may carry the `Secure` attribute.
+   *
+   * `Secure` means "never send this cookie over plain HTTP". A browser does not
+   * merely ignore the attribute on an http:// origin — it refuses to store the
+   * cookie at all. So tying `Secure` to NODE_ENV, as this once did, silently
+   * breaks every login on any production deployment not yet fronted by TLS: the
+   * server answers 201 and sets a cookie the browser immediately discards, which
+   * looks exactly like a wrong password.
+   *
+   * The attribute describes the transport, so it follows the transport. An https
+   * origin gets `Secure`; a plain http one cannot have it and still function. A
+   * malformed or missing URL is treated as https, so the failure mode of a
+   * misconfiguration is a cookie that is too strict rather than one sent in the
+   * clear.
+   */
+  private isHttps(url: string): boolean {
+    try {
+      return new URL(url).protocol === 'https:';
+    } catch {
+      return true;
+    }
+  }
+
+  /** `Secure` for the customer cookie, which lives on the storefront origin. */
+  get webCookieSecure(): boolean {
+    return this.isHttps(this.webPublicUrl);
+  }
+
+  /** `Secure` for the staff cookie, which lives on the admin panel origin. */
+  get adminCookieSecure(): boolean {
+    return this.isHttps(this.adminPublicUrl);
+  }
+
   /* ------------------------------------------------------------------ secrets */
 
   /**

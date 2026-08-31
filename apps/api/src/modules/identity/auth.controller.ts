@@ -85,7 +85,7 @@ export class AuthController {
 
     response.cookie(AUTH_COOKIE_NAME, result.accessToken, {
       httpOnly: true,
-      secure: this.config.isProduction,
+      secure: this.config.webCookieSecure,
       sameSite: 'lax',
       path: '/',
       maxAge: AUTH_SESSION_TTL_SECONDS * 1000,
@@ -121,7 +121,7 @@ export class AuthController {
 
     response.clearCookie(AUTH_COOKIE_NAME, {
       httpOnly: true,
-      secure: this.config.isProduction,
+      secure: this.config.webCookieSecure,
       sameSite: 'lax',
       path: '/',
     });
