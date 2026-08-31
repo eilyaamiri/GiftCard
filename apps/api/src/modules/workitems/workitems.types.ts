@@ -129,10 +129,13 @@ export interface WorkItemSummary {
   readonly status: WorkItemStatus;
   readonly priority: number;
   readonly assignedToStaffId: string | null;
+  /** Safe display identity for operational reports; never an email or credential. */
+  readonly assignedToStaffName?: string | null;
   readonly assignedAt: Date | null;
   readonly startedAt: Date | null;
   readonly completedAt: Date | null;
   readonly dueAt: Date | null;
+  readonly slaBreachedAt?: Date | null;
   readonly title: string;
   readonly description: string | null;
   readonly createdAt: Date;

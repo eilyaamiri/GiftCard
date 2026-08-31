@@ -6,6 +6,7 @@ import {
   FINANCIAL_WRITE_ROLES,
   OPERATOR_ROLES,
   QUEUE_VIEW_ROLES,
+  REPORT_ROLES,
 } from "@/lib/api";
 
 export interface NavItem {
@@ -58,6 +59,8 @@ export const ADMIN_NAV: NavSection[] = [
     title: "عملیات و بازرسی",
     items: [
       { href: "/work-queue", label: "صف کارها", icon: "list-checks", roles: QUEUE_VIEW_ROLES },
+      { href: "/sla", label: "SLA و کیفیت", icon: "line-chart", roles: QUEUE_VIEW_ROLES },
+      { href: "/reports", label: "گزارش‌ها", icon: "line-chart", roles: REPORT_ROLES },
       { href: "/audit", label: "گزارش رخدادها", icon: "shield-check", roles: AUDIT_ROLES },
       { href: "/settings", label: "تنظیمات", icon: "settings", roles: ["ADMIN"] },
     ],
@@ -70,6 +73,7 @@ export const OPERATOR_NAV: NavSection[] = [
     items: [
       { href: "/operator", label: "میز من", icon: "layout-dashboard", roles: OPERATOR_ROLES },
       { href: "/operator/tasks", label: "تسک‌ها", icon: "list-checks", roles: OPERATOR_ROLES },
+      { href: "/operator/performance", label: "عملکرد و SLA", icon: "line-chart", roles: OPERATOR_ROLES },
     ],
   },
 ];

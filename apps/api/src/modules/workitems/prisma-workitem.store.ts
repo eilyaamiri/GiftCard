@@ -28,10 +28,12 @@ const WORK_ITEM_SELECT = {
   startedAt: true,
   completedAt: true,
   dueAt: true,
+  slaBreachedAt: true,
   title: true,
   description: true,
   createdAt: true,
   queue: { select: { key: true } },
+  assignedTo: { select: { fullName: true } },
 } satisfies Prisma.WorkItemSelect;
 
 type SelectedWorkItem = Prisma.WorkItemGetPayload<{ select: typeof WORK_ITEM_SELECT }>;
@@ -47,10 +49,12 @@ function toSummary(row: SelectedWorkItem): WorkItemSummary {
     status: row.status as WorkItemStatus,
     priority: row.priority,
     assignedToStaffId: row.assignedToStaffId,
+    assignedToStaffName: row.assignedTo?.fullName ?? null,
     assignedAt: row.assignedAt,
     startedAt: row.startedAt,
     completedAt: row.completedAt,
     dueAt: row.dueAt,
+    slaBreachedAt: row.slaBreachedAt,
     title: row.title,
     description: row.description,
     createdAt: row.createdAt,

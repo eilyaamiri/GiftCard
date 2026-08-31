@@ -166,6 +166,9 @@ export const OPERATOR_ROLES = ["ADMIN", "OPS_MANAGER", "OPERATOR"] as const sati
  */
 export const FINANCIAL_WRITE_ROLES = ["ADMIN", "MANAGEMENT", "FINANCE"] as const satisfies readonly StaffRole[];
 
+/** Cross-domain business reports may expose financial aggregates. */
+export const REPORT_ROLES = ["ADMIN", "MANAGEMENT", "FINANCE"] as const satisfies readonly StaffRole[];
+
 /** Catalog, services and suppliers are one editorial surface with one gate. */
 export const CATALOG_WRITE_ROLES = ["ADMIN", "OPS_MANAGER"] as const satisfies readonly StaffRole[];
 
