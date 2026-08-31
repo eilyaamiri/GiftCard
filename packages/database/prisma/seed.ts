@@ -605,14 +605,12 @@ async function seedChecklistTemplates(): Promise<void> {
 
 async function seedPricingRule(adminId: string): Promise<string> {
   const id = 'seed_pricing_rule_global_v1';
+  // The @@unique is [scope, targetId, version] and targetId is null for a GLOBAL
+  // rule. Postgres treats NULL as distinct from every other NULL, so Prisma
+  // refuses null inside a compound-unique lookup. The seed id is deterministic,
+  // so upserting by id gives the same idempotency without the illegal where.
   await prisma.pricingRule.upsert({
-    where: {
-      scope_targetId_version: {
-        scope: PricingRuleScope.GLOBAL,
-        targetId: null as unknown as string,
-        version: 1,
-      },
-    },
+    where: { id },
     create: {
       id,
       name: 'Global default pricing rule',
