@@ -48,3 +48,21 @@ fixed by TLS:
   step the server boots cleanly and 404s every asset.
 - The certificate covers both names and renews itself through certbot's timer.
   Port 80 must stay reachable for the renewal challenge.
+
+## Demo sign-in
+
+`OTP_DEV_FIXED_CODE=123456` is set in `/opt/baratpay/secrets/.env.api`, so every
+storefront login code is that value. This exists because no SMS gateway is
+connected. It must be removed the moment one is — see the comment on the
+variable in `apps/api/src/common/config/env.schema.ts` for what it costs. The
+schema refuses to boot if it is still set once ZarinPal is enabled.
+
+The operator queue only has claimable work because the seed leaves the
+unfulfilled tail `UNASSIGNED`. Claiming consumes it, so to get the queue back:
+
+    cd /opt/baratpay/app
+    set -a; . /opt/baratpay/secrets/.env.api; set +a
+    NODE_ENV=development pnpm --filter @barat/database db:seed
+
+`NODE_ENV` is overridden because the seed refuses to run under `production` —
+that guard is deliberate and stays. This database holds nothing but demo data.
