@@ -162,6 +162,18 @@ a { color:inherit; text-decoration:none; }
 .account-search-result svg { color:var(--teal); }
 .account-search-result:hover,.account-search-result:focus-visible { background:var(--soft); outline:none; }
 .account-search-results p { margin:0; padding:10px; color:var(--slate); font-size:10px; text-align:center; }
+.profile-marketing-preference { margin-block:4px 2px; }
+.profile-marketing-checkbox { width:100%; min-height:72px; display:flex !important; align-items:center; gap:12px; padding:12px 14px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:12px; cursor:pointer; transition:border-color .18s,background .18s; }
+.profile-marketing-checkbox:hover { border-color:#8adcd9; background:var(--mint); }
+.profile-marketing-checkbox > span:first-child { position:relative; width:22px; height:22px; flex:0 0 22px; display:inline-flex; align-items:center; justify-content:center; }
+.profile-marketing-checkbox input[type=checkbox] { position:absolute; inset:0; width:22px; height:22px; min-height:0; margin:0; padding:0; appearance:none; color:#fff; background:#fff; border:1.5px solid #b8c7d1; border-radius:7px; cursor:pointer; transition:border-color .18s,background .18s,box-shadow .18s; }
+.profile-marketing-checkbox input[type=checkbox]:checked { border-color:var(--teal); background:var(--teal); }
+.profile-marketing-checkbox input[type=checkbox]:focus-visible { outline:0; box-shadow:0 0 0 3px rgba(33,180,176,.23); }
+.profile-marketing-checkbox > span:first-child svg { position:relative; width:15px; height:15px; pointer-events:none; color:#fff; opacity:0; }
+.profile-marketing-checkbox input[type=checkbox]:checked + svg { opacity:1; }
+.profile-marketing-copy { display:grid; gap:3px; text-align:right; }
+.profile-marketing-copy strong { color:var(--ink); font-size:12px; font-weight:800; }
+.profile-marketing-copy small { color:var(--slate); font-size:10px; font-weight:500; line-height:1.7; }
 .account-content { padding:24px clamp(20px,4vw,54px) 60px; }
 .account-content > .page { min-height:0; width:100%; max-width:none !important; padding:0; }
 .account-content > .page > .eyebrow,.account-content > .page > h1 { display:none; }

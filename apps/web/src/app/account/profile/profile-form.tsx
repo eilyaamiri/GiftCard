@@ -48,8 +48,22 @@ export function ProfileForm({ profile }: { profile: AccountProfile }) {
         <Label htmlFor="lastName" required>نام خانوادگی</Label>
         <Input id="lastName" name="lastName" autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} invalid={Boolean(error) && !lastName.trim()} />
       </div>
-      <div className="field">
-        <Checkbox id="marketingOptIn" checked={marketingOptIn} onChange={(e) => setMarketingOptIn(e.target.checked)} label="اطلاع از تخفیف‌ها و خبرهای برات" />
+      <div className="profile-marketing-preference">
+        <Checkbox
+          id="marketingOptIn"
+          checked={marketingOptIn}
+          onChange={(e) => setMarketingOptIn(e.target.checked)}
+          aria-describedby="marketingOptInDescription"
+          className="profile-marketing-checkbox"
+          label={
+            <span className="profile-marketing-copy">
+              <strong>اطلاع از تخفیف‌ها و خبرهای برات</strong>
+              <small id="marketingOptInDescription">
+                پیشنهادهای منتخب و خبرهای مهم را برای من ارسال کن.
+              </small>
+            </span>
+          }
+        />
       </div>
       <FormMessage tone="error">{error}</FormMessage>
       {saved ? <FormMessage tone="hint">تغییرات ذخیره شد.</FormMessage> : null}
