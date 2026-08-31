@@ -7,8 +7,13 @@ import { Inject, Injectable } from '@nestjs/common';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { CustomerReadService } from '../identity/customer-read.service';
+import { maskEmail, normalizeEmail } from '../identity/identity.utils';
 import type { IdentityActor } from '../identity/identity.tokens';
-import type { UpdateProfileRequest } from '../identity/identity.schemas';
+import type {
+  UpdateAccountEmailRequest,
+  UpdateProfileRequest,
+} from '../identity/identity.schemas';
+import { BankDetailsService } from './bank-details.service';
 import { CUSTOMERS_DATABASE, type CustomersDatabase } from './customers.tokens';
 import type {
   AccountOrderDto,
@@ -32,10 +37,11 @@ export class AccountService {
     @Inject(CUSTOMERS_DATABASE) private readonly database: CustomersDatabase,
     private readonly customers: CustomerReadService,
     private readonly audit: AuditService,
+    private readonly bankDetails: BankDetailsService,
   ) {}
 
   async getProfile(customerId: string): Promise<CustomerProfileDto> {
-    const [customer, profile] = await Promise.all([
+    const [customer, profile, bankAccount] = await Promise.all([
       this.customers.customerDto(customerId),
       this.database.customerProfile.findUnique({
         where: { customerId },
@@ -47,6 +53,7 @@ export class AccountService {
           updatedAt: true,
         },
       }),
+      this.bankDetails.get(customerId),
     ]);
 
     return {
@@ -54,6 +61,7 @@ export class AccountService {
       preferredLanguage: profile?.preferredLanguage ?? 'fa',
       marketingOptIn: profile?.marketingOptIn ?? false,
       requiresProfileCompletion: !profile?.firstName || !profile.lastName,
+      bankAccount,
       updatedAt: (profile?.updatedAt ?? new Date()).toISOString(),
     };
   }
@@ -96,6 +104,90 @@ export class AccountService {
       entityId: customerId,
       before,
       after: data,
+      ip: actor.ip,
+      userAgent: actor.userAgent,
+    });
+
+    return this.getProfile(customerId);
+  }
+
+  /**
+   * Change the e-mail on the account.
+   *
+   * The new address always lands unverified, because nothing here has proved
+   * that the customer can read it — there is no mail channel connected yet, and
+   * a flag that says "verified" without a round trip is a lie the rest of the
+   * system would believe. Sign-in is by mobile OTP, so an unverified e-mail
+   * cannot be used to take over an account in the meantime.
+   *
+   * The address is never written to the audit row in full: the masked form is
+   * enough to tell one change from another.
+   */
+  async updateEmail(
+    customerId: string,
+    input: UpdateAccountEmailRequest,
+    actor: IdentityActor,
+  ): Promise<CustomerProfileDto> {
+    const email = normalizeEmail(input.email);
+
+    const owner = await this.database.customerIdentity.findUnique({
+      where: { type_valueNormalized: { type: 'EMAIL', valueNormalized: email } },
+      select: { customerId: true },
+    });
+    if (owner && owner.customerId !== customerId) {
+      throw DomainErrors.conflict(
+        'این ایمیل روی حساب دیگری ثبت شده است.',
+        'email already bound to another customer',
+      );
+    }
+
+    const current = await this.database.customerIdentity.findFirst({
+      where: { customerId, type: 'EMAIL' },
+      select: { id: true, valueNormalized: true, isVerified: true },
+    });
+    if (current?.valueNormalized === email) {
+      return this.getProfile(customerId);
+    }
+
+    try {
+      if (current) {
+        await this.database.customerIdentity.update({
+          where: { id: current.id },
+          data: { value: input.email, valueNormalized: email, isVerified: false, verifiedAt: null },
+        });
+      } else {
+        await this.database.customerIdentity.create({
+          data: {
+            customerId,
+            type: 'EMAIL',
+            value: input.email,
+            valueNormalized: email,
+            /* The mobile stays the primary identity: it is the one that signs in. */
+            isPrimary: false,
+            isVerified: false,
+          },
+        });
+      }
+    } catch (error) {
+      /* P2002 on (type, valueNormalized): another request took the address
+       * between the check above and this write. Same answer as the check. */
+      if ((error as { readonly code?: unknown }).code === 'P2002') {
+        throw DomainErrors.conflict(
+          'این ایمیل روی حساب دیگری ثبت شده است.',
+          'email uniqueness race',
+        );
+      }
+      throw error;
+    }
+
+    await this.audit.record({
+      actor: customerId,
+      actorType: 'CUSTOMER',
+      action: 'CUSTOMER_EMAIL_UPDATED',
+      entity: 'CustomerIdentity',
+      entityId: customerId,
+      before: current ? { maskedEmail: maskEmail(current.valueNormalized), isVerified: current.isVerified } : null,
+      after: { maskedEmail: maskEmail(email), isVerified: false },
       ip: actor.ip,
       userAgent: actor.userAgent,
     });

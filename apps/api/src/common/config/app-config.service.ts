@@ -99,6 +99,19 @@ export class AppConfigService {
     return Buffer.from(this.get('GIFT_CARD_ENCRYPTION_KEY'), 'base64');
   }
 
+  /**
+   * Raw AES-256-GCM key for a customer's own payout details.
+   *
+   * Falls back to the gift-card key when unset so a developer box needs one
+   * secret rather than two. The two data classes still cannot be confused for
+   * each other: each envelope is bound to its own AAD, so a bank ciphertext put
+   * in a gift-card column fails authentication either way.
+   */
+  bankDetailsEncryptionKey(): Buffer {
+    const configured = this.get('BANK_DETAILS_ENCRYPTION_KEY');
+    return Buffer.from(configured ?? this.get('GIFT_CARD_ENCRYPTION_KEY'), 'base64');
+  }
+
   /** Session signing secret. Same handling rules as above. */
   sessionJwtSecret(): string {
     return this.get('SESSION_JWT_SECRET');

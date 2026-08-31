@@ -178,6 +178,30 @@ a { color:inherit; text-decoration:none; }
 .profile-marketing-copy { display:grid; gap:3px; text-align:right; }
 .profile-marketing-copy strong { color:var(--ink); font-size:12px; font-weight:800; }
 .profile-marketing-copy small { color:var(--slate); font-size:10px; font-weight:500; line-height:1.7; }
+.profile-identity-value { display:flex; align-items:center; gap:8px; color:var(--ink); font-weight:700; }
+.profile-identity-value small { font-weight:500; }
+.profile-inline-btn { min-height:32px; padding:0 10px; color:var(--teal); font-size:12px; }
+.profile-inline-form { padding-block:14px; border-bottom:1px solid var(--line); }
+.profile-form-actions { display:flex; flex-wrap:wrap; gap:9px; margin-block-start:14px; }
+.bank-card { margin-block-start:16px; }
+.bank-card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-block-end:14px; }
+.bank-card-head h3 { margin:0 0 6px; }
+.bank-card-head p { margin:0; font-size:13px; }
+.bank-attestation { margin-block:6px 4px; }
+.bank-attestation-checkbox { width:100%; min-height:72px; display:flex !important; align-items:center; gap:12px; padding:12px 14px; color:var(--ink); background:var(--soft); border:1px solid var(--line); border-radius:12px; cursor:pointer; transition:border-color .18s,background .18s; }
+.bank-attestation-checkbox:hover { border-color:#8adcd9; background:var(--mint); }
+.bank-attestation-checkbox > span:first-child { position:relative; width:22px; height:22px; flex:0 0 22px; display:inline-flex; align-items:center; justify-content:center; }
+.bank-attestation-checkbox input[type=checkbox] { position:absolute; inset:0; width:22px; height:22px; min-height:0; margin:0; padding:0; appearance:none; color:#fff; background:#fff; border:1.5px solid #b8c7d1; border-radius:7px; cursor:pointer; transition:border-color .18s,background .18s,box-shadow .18s; }
+.bank-attestation-checkbox input[type=checkbox]:checked { border-color:var(--teal); background:var(--teal); }
+.bank-attestation-checkbox input[type=checkbox]:focus-visible { outline:0; box-shadow:0 0 0 3px rgba(33,180,176,.23); }
+.bank-attestation-checkbox > span:first-child svg { position:relative; width:15px; height:15px; pointer-events:none; color:#fff; opacity:0; }
+.bank-attestation-checkbox input[type=checkbox]:checked + svg { opacity:1; }
+.bank-attestation-copy { display:grid; gap:3px; text-align:right; }
+.bank-attestation-copy strong { color:var(--ink); font-size:12px; font-weight:800; }
+.bank-attestation-copy small { color:var(--slate); font-size:10px; font-weight:500; line-height:1.7; }
+.bank-remove-btn { color:var(--color-status-red); }
+.bank-privacy { display:flex; align-items:flex-start; gap:7px; margin:16px 0 0; color:var(--slate); font-size:12px; line-height:1.9; }
+.bank-privacy svg { flex:0 0 auto; width:16px; height:16px; margin-top:4px; color:var(--teal); }
 .account-content { padding:24px clamp(20px,4vw,54px) 60px; }
 .account-content > .page { min-height:0; width:100%; max-width:none !important; padding:0; }
 .account-content > .page > .eyebrow,.account-content > .page > h1 { display:none; }

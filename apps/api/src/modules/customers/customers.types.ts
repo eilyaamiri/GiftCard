@@ -3,6 +3,23 @@ import type { CustomerDto, CustomerStatus, PaymentStatus } from '@barat/contract
  * typed from the (frozen) Prisma schema until Foundation adds one. */
 import type { RefundStatus } from '@barat/database';
 
+/**
+ * The customer's own payout details, as they may be shown back to them.
+ * There is no field here that could carry a full IBAN or card number.
+ */
+export interface BankAccountDto {
+  /** Snapshot of the profile name the details were declared under. */
+  readonly holderName: string;
+  readonly maskedIban: string;
+  readonly ibanBankName: string | null;
+  readonly maskedCardNumber: string;
+  readonly cardBankName: string | null;
+  readonly ownershipAttestedAt: string;
+  /** False until a bank inquiry confirms the holder; nothing does that yet. */
+  readonly isVerified: boolean;
+  readonly updatedAt: string;
+}
+
 /** Customer-visible profile. Identity values are masked, never raw. */
 export interface CustomerProfileDto {
   readonly customer: CustomerDto;
@@ -10,6 +27,7 @@ export interface CustomerProfileDto {
   readonly marketingOptIn: boolean;
   /** True until first and last name are present; the UI gates checkout on it. */
   readonly requiresProfileCompletion: boolean;
+  readonly bankAccount: BankAccountDto | null;
   readonly updatedAt: string;
 }
 

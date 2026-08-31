@@ -67,7 +67,7 @@ const blankAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
  */
 const base64Key32 = z
   .string()
-  .min(1, 'GIFT_CARD_ENCRYPTION_KEY is required')
+  .min(1, 'An AES-256-GCM key is required')
   .refine((value) => {
     try {
       const decoded = Buffer.from(value, 'base64');
@@ -75,7 +75,7 @@ const base64Key32 = z
     } catch {
       return false;
     }
-  }, 'GIFT_CARD_ENCRYPTION_KEY must be exactly 32 bytes, canonical base64 (openssl rand -base64 32)');
+  }, 'The key must be exactly 32 bytes, canonical base64 (openssl rand -base64 32)');
 
 export const envSchema = z
   .object({
@@ -97,6 +97,12 @@ export const envSchema = z
       .string()
       .min(32, 'SESSION_JWT_SECRET must be at least 32 characters'),
     GIFT_CARD_ENCRYPTION_KEY: base64Key32,
+    /**
+     * Encrypts the customer's own payout details (IBAN, card number). Optional
+     * so a developer box still boots on one key; production sets its own, so a
+     * gift-card key rotation never has to move bank data with it.
+     */
+    BANK_DETAILS_ENCRYPTION_KEY: blankAsUndefined(base64Key32),
     /** Persistent local storage for catalog product images. */
     PRODUCT_IMAGE_DIR: z.string().trim().min(1).default('/var/lib/baratpay/product-images'),
 

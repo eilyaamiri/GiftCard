@@ -338,6 +338,7 @@ model Customer {
 
   identities        CustomerIdentity[]
   profile           CustomerProfile?
+  bankAccount       CustomerBankAccount?
   otpChallenges     OtpChallenge[]
   authSessions      AuthSession[]
   commerceSessions  CommerceSession[]
@@ -387,6 +388,40 @@ model CustomerProfile {
   preferredLanguage String  @default("fa")
   marketingOptIn    Boolean @default(false)
   metadata   Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+}
+
+/// Where a refund is paid back to. Both the IBAN and the card must belong to
+/// the account holder, which is why `holderName` is a snapshot of the profile
+/// name at the moment of the attestation rather than a value the customer typed.
+///
+/// Same rule as `GiftCardAsset` (AGENTS.md 6.5): there is no plaintext column.
+/// `ibanEncrypted` and `cardEncrypted` hold AES-256-GCM envelopes; everything
+/// read back by a UI comes from the masked columns.
+model CustomerBankAccount {
+  id         String @id @default(cuid())
+  customerId String @unique
+  holderName String
+
+  ibanEncrypted String
+  /// `IR06017***************0001` — safe to render and to log.
+  ibanMasked    String
+  ibanBankName  String?
+
+  cardEncrypted String
+  /// First six and last four only, e.g. `6037-99**-****-1234`.
+  cardMasked    String
+  cardBankName  String?
+
+  /// When the customer confirmed that both belong to them personally.
+  ownershipAttestedAt DateTime
+  /// Set once a bank inquiry has actually confirmed the holder. Nothing does
+  /// that yet, so the UI shows these details as self-declared.
+  verifiedAt          DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

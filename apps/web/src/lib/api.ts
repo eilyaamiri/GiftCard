@@ -20,13 +20,19 @@ const SERVER_API_URL = process.env.API_INTERNAL_URL || API_URL || "http://localh
 /** Set by POST /api/auth/otp/verify. HttpOnly — never readable from JS. */
 export const AUTH_SESSION_COOKIE = "barat_session";
 
+/** Field-level errors from the API's `VALIDATION_ERROR` envelope. */
+export type ApiErrorDetail = { readonly path: string; readonly message: string };
+
 export class ApiClientError extends Error {
-  constructor(public readonly status: number, message: string, public readonly code?: string) { super(message); this.name = "ApiClientError"; }
+  constructor(public readonly status: number, message: string, public readonly code?: string, public readonly details: readonly ApiErrorDetail[] = []) { super(message); this.name = "ApiClientError"; }
 
   get isUnauthenticated(): boolean { return this.status === 401; }
   get isNotFound(): boolean { return this.status === 404; }
   /** The API uses 409 for OTP cooldown / bad-or-expired code, 429 for throttling. */
   get isRateLimited(): boolean { return this.status === 429; }
+
+  /** The message for one field, so a form can point at the input that is wrong. */
+  detailFor(path: string): string | undefined { return this.details.find((detail) => detail.path === path)?.message; }
 }
 
 const isServer = typeof window === "undefined";
@@ -50,7 +56,15 @@ async function request<T>(path: string, init?: RequestInit, schema?: z.ZodType<T
     const envelope = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
     const message = typeof envelope["message"] === "string" ? envelope["message"] : "ارتباط با سرویس ممکن نیست";
     const code = typeof envelope["code"] === "string" ? envelope["code"] : undefined;
-    throw new ApiClientError(response.status, message, code);
+    const details = Array.isArray(envelope["details"])
+      ? (envelope["details"] as unknown[]).flatMap((entry) => {
+          const detail = typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>) : {};
+          return typeof detail["path"] === "string" && typeof detail["message"] === "string"
+            ? [{ path: detail["path"], message: detail["message"] }]
+            : [];
+        })
+      : [];
+    throw new ApiClientError(response.status, message, code, details);
   }
   return schema ? schema.parse(body) : body as T;
 }
@@ -75,15 +89,56 @@ function pagedSchema<TItem>(item: z.ZodType<TItem>) {
   return z.object({ items: z.array(item), meta: pageMetaSchema });
 }
 
+/**
+ * The customer's own payout details, as the API hands them back.
+ *
+ * There is deliberately no field here that could carry a full IBAN or card
+ * number: the API stores both encrypted and returns only the masked forms, so a
+ * schema that accepted a raw value would be describing a response that cannot
+ * exist.
+ */
+export const bankAccountSchema = z.object({
+  /** Snapshot of the profile name; the customer cannot type a different one. */
+  holderName: z.string().min(1),
+  maskedIban: z.string().min(1),
+  ibanBankName: z.string().nullable(),
+  maskedCardNumber: z.string().min(1),
+  cardBankName: z.string().nullable(),
+  ownershipAttestedAt: isoDateTimeSchema,
+  /** Self-declared until a bank inquiry confirms the holder. */
+  isVerified: z.boolean(),
+  updatedAt: isoDateTimeSchema,
+});
+export type BankAccount = z.infer<typeof bankAccountSchema>;
+
 export const accountProfileSchema = z.object({
   customer: customerDtoSchema,
   preferredLanguage: z.string(),
   marketingOptIn: z.boolean(),
   /** True until first and last name are present; checkout is gated on it. */
   requiresProfileCompletion: z.boolean(),
+  bankAccount: bankAccountSchema.nullable(),
   updatedAt: isoDateTimeSchema,
 });
 export type AccountProfile = z.infer<typeof accountProfileSchema>;
+
+export const updateAccountEmailSchema = z.object({
+  email: z.string().trim().toLowerCase().max(254).pipe(z.email("ایمیل معتبر وارد کنید.")),
+});
+export type UpdateAccountEmail = z.infer<typeof updateAccountEmailSchema>;
+
+/**
+ * Loose on shape, strict on meaning — the same split the API makes. Spaces,
+ * dashes and Persian digits are normal input; the checksums that decide whether
+ * a number is real run server-side, so the browser cannot be the only thing
+ * standing between a typo and a payout.
+ */
+export const saveBankAccountSchema = z.object({
+  iban: z.string().trim().min(20).max(40),
+  cardNumber: z.string().trim().min(16).max(25),
+  ownershipConfirmed: z.boolean(),
+});
+export type SaveBankAccount = z.infer<typeof saveBankAccountSchema>;
 
 export const updateAccountProfileSchema = z.object({
   firstName: z.string().trim().min(1).max(60).nullable().optional(),
@@ -215,6 +270,9 @@ export const api = {
    * here takes a customer id — there is no parameter that could carry one. */
   accountProfile: () => request<AccountProfile>("/api/account/profile", undefined, accountProfileSchema),
   updateAccountProfile: (payload: UpdateAccountProfile) => request<AccountProfile>("/api/account/profile", { method: "PATCH", body: JSON.stringify(payload) }, accountProfileSchema),
+  updateAccountEmail: (payload: UpdateAccountEmail) => request<AccountProfile>("/api/account/email", { method: "PATCH", body: JSON.stringify(payload) }, accountProfileSchema),
+  saveBankAccount: (payload: SaveBankAccount) => request<BankAccount>("/api/account/bank-account", { method: "PUT", body: JSON.stringify(payload) }, bankAccountSchema),
+  removeBankAccount: () => request<{ removed: boolean }>("/api/account/bank-account", { method: "DELETE" }, z.object({ removed: z.boolean() })),
   accountOrders: (params?: { readonly page?: number; readonly pageSize?: number }) => request<Paged<AccountOrder>>(`/api/account/orders${pageQuery(params)}`, undefined, accountOrdersSchema),
   accountOrder: (orderId: string) => request<AccountOrder>(`/api/account/orders/${encodeURIComponent(orderId)}`, undefined, accountOrderSchema),
   accountPayments: (params?: { readonly page?: number; readonly pageSize?: number }) => request<Paged<AccountPayment>>(`/api/account/payments${pageQuery(params)}`, undefined, accountPaymentsSchema),

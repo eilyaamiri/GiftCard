@@ -2,30 +2,36 @@
  * constructor-injected. With `emitDecoratorMetadata`, a type-only import erases the
  * class from `design:paramtypes` (it becomes `Function`) and Nest can no longer
  * resolve the dependency at runtime. They must stay value imports. */
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   listPageRequestSchema,
+  saveBankAccountRequestSchema,
   supportReplySchema,
   supportRequestSchema,
+  updateAccountEmailRequestSchema,
   updateProfileRequestSchema,
   type ListPageRequest,
+  type SaveBankAccountRequest,
   type SupportReply,
   type SupportRequest,
+  type UpdateAccountEmailRequest,
   type UpdateProfileRequest,
 } from '../identity/identity.schemas';
 import type { IdentityActor } from '../identity/identity.tokens';
 import { CurrentCustomer, RequestMetadata } from '../identity/rbac/current-actor.decorator';
 import { CustomerScoped } from '../identity/rbac/roles.decorator';
 import { AccountService } from './account.service';
+import { BankDetailsService } from './bank-details.service';
 import { SupportService, type SupportTicketDto } from './support.service';
 import type {
   AccountOrderDto,
   AccountPaymentDto,
   AccountRefundDto,
+  BankAccountDto,
   CustomerProfileDto,
   PagedResult,
 } from './customers.types';
@@ -46,6 +52,7 @@ export class AccountController {
   constructor(
     private readonly account: AccountService,
     private readonly support: SupportService,
+    private readonly bankDetails: BankDetailsService,
   ) {}
 
   @Get('profile')
@@ -63,6 +70,43 @@ export class AccountController {
     @RequestMetadata() actor: IdentityActor,
   ): Promise<CustomerProfileDto> {
     return this.account.updateProfile(customerId, body, actor);
+  }
+
+  @Patch('email')
+  @Throttle({ short: { ttl: 60_000, limit: 5 } })
+  @ApiOperation({ summary: 'Change the e-mail on the account' })
+  @ApiOkResponse({
+    description: 'The new address is stored unverified; the response stays masked',
+  })
+  async updateEmail(
+    @CurrentCustomer() customerId: string,
+    @Body(zodPipe(updateAccountEmailRequestSchema)) body: UpdateAccountEmailRequest,
+    @RequestMetadata() actor: IdentityActor,
+  ): Promise<CustomerProfileDto> {
+    return this.account.updateEmail(customerId, body, actor);
+  }
+
+  @Put('bank-account')
+  @Throttle({ short: { ttl: 60_000, limit: 5 } })
+  @ApiOperation({ summary: "The customer's own IBAN and card for refunds" })
+  @ApiOkResponse({
+    description: 'Stored encrypted; only the masked forms are ever returned',
+  })
+  async saveBankAccount(
+    @CurrentCustomer() customerId: string,
+    @Body(zodPipe(saveBankAccountRequestSchema)) body: SaveBankAccountRequest,
+    @RequestMetadata() actor: IdentityActor,
+  ): Promise<BankAccountDto> {
+    return this.bankDetails.save(customerId, body, actor);
+  }
+
+  @Delete('bank-account')
+  @ApiOperation({ summary: 'Remove the stored payout details' })
+  async removeBankAccount(
+    @CurrentCustomer() customerId: string,
+    @RequestMetadata() actor: IdentityActor,
+  ): Promise<{ removed: boolean }> {
+    return this.bankDetails.remove(customerId, actor);
   }
 
   @Get('orders')

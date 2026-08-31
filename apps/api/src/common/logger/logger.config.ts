@@ -60,7 +60,11 @@ export const REDACT_PATHS: string[] = [
   'cvv',
   'nationalId',
   'privateKey',
+  'iban',
+  'ibanEncrypted',
+  'cardEncrypted',
   'GIFT_CARD_ENCRYPTION_KEY',
+  'BANK_DETAILS_ENCRYPTION_KEY',
   'SESSION_JWT_SECRET',
   'ZARINPAL_MERCHANT_ID',
 
@@ -79,6 +83,9 @@ export const REDACT_PATHS: string[] = [
   '*.cardNumber',
   '*.nationalId',
   '*.privateKey',
+  '*.iban',
+  '*.ibanEncrypted',
+  '*.cardEncrypted',
 
   /* --- provider payloads we persist for audit ---------------------------- */
   'requestPayload.merchant_id',
