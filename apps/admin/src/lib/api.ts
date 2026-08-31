@@ -51,9 +51,17 @@ async function forwardedCookieHeader(): Promise<Record<string, string>> {
 
 async function request<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
   const base = (isServer ? SERVER_API_URL : BROWSER_API_URL).replace(/\/$/, "");
+  const headers = new Headers(init?.headers);
+  /* The browser must supply the multipart boundary for FormData. Setting
+   * Content-Type here would omit it and make Nest see no uploaded file. */
+  if (!(init?.body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  const forwarded = await forwardedCookieHeader();
+  for (const [key, value] of Object.entries(forwarded)) headers.set(key, value);
   const response = await fetch(`${base}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(await forwardedCookieHeader()), ...init?.headers },
+    headers,
     credentials: "include",
     cache: "no-store",
   });
@@ -112,6 +120,14 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(payload ?? {}) }, schema),
   put: <T>(path: string, payload?: unknown, schema?: z.ZodType<T>) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(payload ?? {}) }, schema),
+  uploadProductImage: (productId: string, file: File) => {
+    const form = new FormData();
+    form.append("image", file);
+    return request<unknown>(`/api/admin/catalog/products/${productId}/image`, {
+      method: "POST",
+      body: form,
+    });
+  },
   del: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, { method: "DELETE" }, schema),
 };
 

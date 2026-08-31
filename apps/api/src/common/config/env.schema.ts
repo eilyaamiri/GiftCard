@@ -97,6 +97,8 @@ export const envSchema = z
       .string()
       .min(32, 'SESSION_JWT_SECRET must be at least 32 characters'),
     GIFT_CARD_ENCRYPTION_KEY: base64Key32,
+    /** Persistent local storage for catalog product images. */
+    PRODUCT_IMAGE_DIR: z.string().trim().min(1).default('/var/lib/baratpay/product-images'),
 
     /* ------------------------------------------------------------ OTP policy */
     OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),

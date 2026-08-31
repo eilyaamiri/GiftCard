@@ -1,4 +1,8 @@
-import { Inject, Injectable } from '@nestjs/common';
+/* eslint-disable @typescript-eslint/consistent-type-imports -- AppConfigService is
+ * constructor-injected; emitDecoratorMetadata needs the runtime class value. */
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import Decimal from 'decimal.js';
 import { Prisma } from '@barat/database';
 import type {
@@ -14,6 +18,7 @@ import type {
 } from '@barat/contracts';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
+import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
 import {
@@ -127,9 +132,36 @@ export interface SkuQuoteTarget {
 
 type DecimalLike = { toFixed(decimalPlaces?: number): string };
 
+const IMAGE_VARIANTS = [
+  { extension: 'jpg', contentType: 'image/jpeg' },
+  { extension: 'png', contentType: 'image/png' },
+  { extension: 'webp', contentType: 'image/webp' },
+  { extension: 'gif', contentType: 'image/gif' },
+] as const;
+
+function imagePath(root: string, productId: string, extension: string): string {
+  return path.join(root, `${productId}.${extension}`);
+}
+
+function imageExtension(file: { mimetype: string; buffer: Buffer }): (typeof IMAGE_VARIANTS)[number]['extension'] | null {
+  const signatures: Record<string, readonly number[]> = {
+    'image/jpeg': [0xff, 0xd8, 0xff],
+    'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    'image/gif': [0x47, 0x49, 0x46, 0x38],
+    'image/webp': [0x52, 0x49, 0x46, 0x46],
+  };
+  const signature = signatures[file.mimetype];
+  if (!signature || signature.some((byte, index) => file.buffer[index] !== byte)) return null;
+  if (file.mimetype === 'image/webp' && file.buffer.toString('ascii', 8, 12) !== 'WEBP') return null;
+  return IMAGE_VARIANTS.find((variant) => variant.contentType === file.mimetype)?.extension ?? null;
+}
+
 @Injectable()
 export class CatalogService {
-  constructor(@Inject(CATALOG_DATABASE) private readonly db: CatalogDatabase) {}
+  constructor(
+    @Inject(CATALOG_DATABASE) private readonly db: CatalogDatabase,
+    @Optional() private readonly config?: AppConfigService,
+  ) {}
 
   /* ------------------------------------------------------------------ public */
 
@@ -500,6 +532,52 @@ export class CatalogService {
     const data = updateProductSchema.parse(input);
     await this.assertExists(this.db.product.count({ where: { id } }), 'product');
     return this.db.product.update({ where: { id }, data });
+  }
+
+  /** Store a validated raster image outside the database and expose only its
+   * same-origin API URL. SVG is intentionally not accepted: it is executable
+   * content when served inline, and a product image must never become an XSS
+   * upload primitive. */
+  async adminUploadProductImage(
+    id: string,
+    file: { mimetype: string; buffer: Buffer },
+  ) {
+    await this.assertExists(this.db.product.count({ where: { id } }), 'product');
+    const extension = imageExtension(file);
+    if (!extension) {
+      throw DomainErrors.validation([
+        { path: 'file', message: 'تصویر باید یک فایل معتبر JPG، PNG، WebP یا GIF باشد.' },
+      ]);
+    }
+
+    const root = this.config?.productImageDir ?? path.join(process.cwd(), 'data', 'product-images');
+    await fs.mkdir(root, { recursive: true });
+    await Promise.all(
+      IMAGE_VARIANTS.filter((variant) => variant.extension !== extension).map((variant) =>
+        fs.rm(imagePath(root, id, variant.extension), { force: true }),
+      ),
+    );
+    await fs.writeFile(imagePath(root, id, extension), file.buffer, { mode: 0o640 });
+
+    return this.db.product.update({
+      where: { id },
+      data: { imageUrl: `/api/catalog/products/${id}/image` },
+    });
+  }
+
+  async productImage(id: string): Promise<{ buffer: Buffer; contentType: string }> {
+    await this.assertExists(this.db.product.count({ where: { id } }), 'product');
+    for (const variant of IMAGE_VARIANTS) {
+      try {
+        return {
+          buffer: await fs.readFile(imagePath(this.config?.productImageDir ?? path.join(process.cwd(), 'data', 'product-images'), id, variant.extension)),
+          contentType: variant.contentType,
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    }
+    throw DomainErrors.notFound('product image');
   }
 
   async adminCreateSku(input: CreateSkuInput) {

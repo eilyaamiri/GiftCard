@@ -1,4 +1,18 @@
-import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query } from '@nestjs/common';
+import {
+  Body,
+  BadRequestException,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { z } from 'zod';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
@@ -158,6 +172,25 @@ export class CatalogAdminController {
     @Body(zodPipe(updateProductSchema)) body: UpdateProductInput,
   ) {
     return this.catalog.adminUpdateProduct(params.id, body);
+  }
+
+  @Post('products/:id/image')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_request, file, callback) => {
+        callback(null, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype));
+      },
+    }),
+  )
+  uploadProductImage(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @UploadedFile() file: { mimetype: string; buffer: Buffer } | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException('A valid image file is required');
+    }
+    return this.catalog.adminUploadProductImage(params.id, file);
   }
 
   @Post('skus')

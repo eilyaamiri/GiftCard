@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Query, StreamableFile, Header } from '@nestjs/common';
 import { z } from 'zod';
 import { getProductRequestSchema, listProductsRequestSchema } from '@barat/contracts';
 import type {
@@ -52,6 +52,13 @@ export class CatalogController {
     @Query(zodPipe(listProductsQuerySchema)) query: ListProductsRequest,
   ): Promise<ListProductsResponse> {
     return this.catalog.listProducts(query);
+  }
+
+  @Get('products/:id/image')
+  @Header('Cache-Control', 'public, max-age=3600, must-revalidate')
+  async productImage(@Param('id') id: string): Promise<StreamableFile> {
+    const image = await this.catalog.productImage(id);
+    return new StreamableFile(image.buffer, { type: image.contentType });
   }
 
   @Get('products/:slug')

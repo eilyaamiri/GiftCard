@@ -15,6 +15,7 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
   const [titleFa, setTitleFa] = useState(product?.titleFa ?? "");
   const [category, setCategory] = useState(product?.category ?? "");
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [descriptionFa, setDescriptionFa] = useState(product?.descriptionFa ?? "");
   const [redemptionNotesFa, setRedemptionNotesFa] = useState(product?.redemptionNotesFa ?? "");
   const [sortOrder, setSortOrder] = useState(String(product?.sortOrder ?? 0));
@@ -39,10 +40,14 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
       isActive,
     };
     try {
+      let savedProduct: { id: string };
       if (isEdit && product) {
-        await api.put(`/api/admin/catalog/products/${product.id}`, payload);
+        savedProduct = await api.put<{ id: string }>(`/api/admin/catalog/products/${product.id}`, payload);
       } else {
-        await api.post("/api/admin/catalog/products", payload);
+        savedProduct = await api.post<{ id: string }>("/api/admin/catalog/products", payload);
+      }
+      if (imageFile) {
+        await api.uploadProductImage(savedProduct.id, imageFile);
       }
       router.push("/catalog");
       router.refresh();
@@ -79,6 +84,15 @@ export function ProductForm({ product }: { product?: AdminProduct }) {
         <label>
           آدرس تصویر (اختیاری)
           <input value={imageUrl} onChange={(event) => setImageUrl(event.target.value)} maxLength={2000} dir="ltr" type="url" />
+        </label>
+        <label>
+          بارگذاری تصویر محصول (اختیاری)
+          <input
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+          />
+          <small>JPG، PNG، WebP یا GIF — حداکثر ۵ مگابایت. تصویر بارگذاری‌شده بر آدرس تصویر اولویت دارد.</small>
         </label>
         <label>
           ترتیب نمایش

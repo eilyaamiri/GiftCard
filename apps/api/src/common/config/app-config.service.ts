@@ -104,6 +104,12 @@ export class AppConfigService {
     return this.get('SESSION_JWT_SECRET');
   }
 
+  /* ------------------------------------------------------------ file storage */
+
+  get productImageDir(): string {
+    return this.get('PRODUCT_IMAGE_DIR');
+  }
+
   /* ---------------------------------------------------------------- OTP policy */
 
   get otp(): {
