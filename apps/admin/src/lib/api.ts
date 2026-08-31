@@ -160,6 +160,14 @@ export const BACK_OFFICE_ROLES = [
 
 export const OPERATOR_ROLES = ["ADMIN", "OPS_MANAGER", "OPERATOR"] as const satisfies readonly StaffRole[];
 
+export const SUPPORT_TICKET_ROLES = [
+  "ADMIN",
+  "MANAGEMENT",
+  "OPS_MANAGER",
+  "OPERATOR",
+  "SUPPORT",
+] as const satisfies readonly StaffRole[];
+
 /** Mirrors the explicit roles on `/api/customers/*`; VIEWER is intentionally absent. */
 export const CUSTOMER_VIEW_ROLES = [
   "ADMIN",

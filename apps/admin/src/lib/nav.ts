@@ -8,6 +8,7 @@ import {
   OPERATOR_ROLES,
   QUEUE_VIEW_ROLES,
   REPORT_ROLES,
+  SUPPORT_TICKET_ROLES,
 } from "@/lib/api";
 
 export interface NavItem {
@@ -61,6 +62,7 @@ export const ADMIN_NAV: NavSection[] = [
     title: "عملیات و بازرسی",
     items: [
       { href: "/work-queue", label: "صف کارها", icon: "list-checks", roles: QUEUE_VIEW_ROLES },
+      { href: "/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy", roles: SUPPORT_TICKET_ROLES },
       { href: "/gift-card-requests", label: "درخواست‌های کد گیفت‌کارت", icon: "gift", roles: QUEUE_VIEW_ROLES },
       { href: "/sla", label: "SLA و کیفیت", icon: "line-chart", roles: QUEUE_VIEW_ROLES },
       { href: "/reports", label: "گزارش‌ها", icon: "line-chart", roles: REPORT_ROLES },
@@ -76,6 +78,7 @@ export const OPERATOR_NAV: NavSection[] = [
     items: [
       { href: "/operator", label: "میز من", icon: "layout-dashboard", roles: OPERATOR_ROLES },
       { href: "/operator/tasks", label: "تسک‌ها", icon: "list-checks", roles: OPERATOR_ROLES },
+      { href: "/operator/support", label: "پشتیبانی و تیکت‌ها", icon: "life-buoy", roles: OPERATOR_ROLES },
       { href: "/operator/gift-card-requests", label: "درخواست‌های کد من", icon: "gift", roles: OPERATOR_ROLES },
       { href: "/operator/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog", roles: OPERATOR_ROLES },
       { href: "/operator/performance", label: "عملکرد و SLA", icon: "line-chart", roles: OPERATOR_ROLES },

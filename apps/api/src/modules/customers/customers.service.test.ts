@@ -22,6 +22,7 @@ function buildRig(
   seed: {
     identity?: { type: string; valueNormalized: string; customerId: string };
     customerCode?: { code: string; id: string };
+    nameMatches?: Array<{ customerId: string }>;
   } = {},
 ): Rig {
   const audits: Array<Record<string, unknown>> = [];
@@ -63,6 +64,7 @@ function buildRig(
         },
       ]),
     },
+    customerProfile: { findMany: vi.fn(async () => seed.nameMatches ?? []) },
     order: { findUnique: vi.fn(async () => null) },
     payment: { findMany: vi.fn(async () => []) },
   } as unknown as CustomersDatabase;
@@ -126,6 +128,30 @@ describe('CustomersService.search', () => {
     );
 
     expect(result.items[0]!.matchedOn).toBe('CUSTOMER_CODE');
+  });
+
+  it('finds a customer by name, normalising Arabic letter forms', async () => {
+    const rig = buildRig({ nameMatches: [{ customerId: 'customer-1' }] });
+
+    const result = await rig.service.search(
+      { query: 'علي رضايي', page: 1, pageSize: 20 } as never,
+      staff,
+      actor,
+    );
+
+    expect(result.items[0]!.matchedOn).toBe('NAME');
+  });
+
+  it('does not run a name lookup for a term too short to be a name', async () => {
+    const rig = buildRig({ nameMatches: [{ customerId: 'customer-1' }] });
+
+    const result = await rig.service.search(
+      { query: 'ab', page: 1, pageSize: 20 } as never,
+      staff,
+      actor,
+    );
+
+    expect(result.items).toHaveLength(0);
   });
 
   it('returns nothing rather than everything when there is no match', async () => {

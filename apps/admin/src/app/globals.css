@@ -221,6 +221,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(22px, 2.5vw, 30px); letter-s
 .customer-note p { margin: 6px 0; color: var(--ink); font-size: 11px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .customer-note small { color: var(--slate); font-size: 9px; }
 .table-subline { display: block; margin-top: 4px; color: var(--slate); font-size: 9px; }
+.report-filter-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.report-filter-tabs a { min-height: 38px; display: inline-flex; align-items: center; padding: 0 13px; color: var(--slate); background: white; border: 1px solid var(--line); border-radius: 10px; text-decoration: none; font-size: 11px; font-weight: 700; }
+.report-filter-tabs a:hover, .report-filter-tabs a:focus-visible, .report-filter-tabs a.active { color: var(--teal); border-color: var(--teal); background: var(--teal-light); outline: none; }
+.support-conversation { display: grid; gap: 12px; }
+.support-message { width: min(82%, 680px); padding: 13px 15px; border: 1px solid var(--line); border-radius: 14px 14px 4px 14px; background: var(--soft); }
+.support-message-staff { justify-self: end; border-radius: 14px 14px 14px 4px; border-color: #bce9e6; background: var(--teal-light); }
+.support-message header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.support-message header strong { color: var(--ink); font-size: 11px; }
+.support-message header span { color: var(--slate); font-size: 9px; }
+.support-message p { margin: 9px 0 0; color: var(--ink); font-size: 12px; line-height: 2; white-space: pre-wrap; overflow-wrap: anywhere; }
+.support-ticket-workspace .section-label h2 { margin: 0; font-size: 14px; }
+.support-ticket-workspace .kv-row a { color: var(--teal); font-size: 12px; font-weight: 700; text-decoration: none; }
+@media (max-width: 620px) { .support-message { width: 94%; } .support-message header { align-items: flex-start; flex-direction: column; gap: 3px; } }
 @media (max-width: 900px) { .customer-search-grid { grid-template-columns: 1fr 1fr; } .customer-search-grid .primary-btn { grid-column: 1 / -1; justify-self: start; } .customer-kpis { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 520px) { .customer-search-grid { grid-template-columns: 1fr; } .customer-search-grid .primary-btn { grid-column: auto; width: 100%; } .customer-kpis { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 520px) { .report-filter-grid, .report-capability-grid { grid-template-columns: 1fr; } .report-filter-heading { align-items: flex-start; flex-direction: column; } }

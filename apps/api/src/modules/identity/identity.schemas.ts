@@ -33,7 +33,7 @@ export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
 
 export const customerSearchRequestSchema = z
   .object({
-    /** Free-text term matched against mobile, e-mail, customerCode. */
+    /** Free-text term matched against mobile, e-mail, customer code or customer name. */
     query: z.string().trim().min(3).max(254).optional(),
     orderNumber: z.string().trim().min(3).max(64).optional(),
     /** Payment reference (`providerRefId`) shown to the customer by their bank. */
@@ -52,6 +52,16 @@ export const createCustomerNoteRequestSchema = z.object({
   isPinned: z.boolean().default(false),
 });
 export type CreateCustomerNoteRequest = z.infer<typeof createCustomerNoteRequestSchema>;
+
+export const supportReplySchema = z.object({
+  message: z.string().trim().min(3).max(2000),
+});
+export type SupportReply = z.infer<typeof supportReplySchema>;
+
+export const closeSupportTicketSchema = z.object({
+  resolutionNote: z.string().trim().min(3).max(2000),
+});
+export type CloseSupportTicket = z.infer<typeof closeSupportTicketSchema>;
 
 export const listPageRequestSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

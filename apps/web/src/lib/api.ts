@@ -138,12 +138,40 @@ export type AccountRefund = z.infer<typeof accountRefundSchema>;
 
 export const supportTicketSchema = z.object({
   id: idSchema,
+  workItemId: idSchema,
   code: z.string().min(1),
   subject: z.string(),
   status: z.string(),
+  customerId: idSchema,
+  customerName: z.string().nullable(),
+  customerCode: z.string(),
   orderId: idSchema.nullable(),
+  orderNumber: z.string().nullable(),
+  ownerStaffId: idSchema.nullable(),
+  ownerStaffName: z.string().nullable(),
   createdAt: isoDateTimeSchema,
+  firstResponseDueAt: isoDateTimeSchema,
+  nextResponseDueAt: isoDateTimeSchema,
+  firstRespondedAt: isoDateTimeSchema.nullable(),
+  lastRespondedAt: isoDateTimeSchema.nullable(),
+  firstResponseBreached: z.boolean(),
+  responseBreached: z.boolean(),
   resolutionNote: z.string().nullable(),
+  messages: z.array(z.object({
+    id: idSchema,
+    authorType: z.enum(["CUSTOMER", "STAFF"]),
+    authorName: z.string(),
+    body: z.string(),
+    createdAt: isoDateTimeSchema,
+  })),
+  ownershipHistory: z.array(z.object({
+    id: idSchema,
+    previousOwnerName: z.string().nullable(),
+    newOwnerName: z.string(),
+    changedByName: z.string(),
+    reason: z.string(),
+    createdAt: isoDateTimeSchema,
+  })),
 });
 export type SupportTicket = z.infer<typeof supportTicketSchema>;
 
@@ -193,6 +221,8 @@ export const api = {
   accountRefunds: (params?: { readonly page?: number; readonly pageSize?: number }) => request<Paged<AccountRefund>>(`/api/account/refunds${pageQuery(params)}`, undefined, accountRefundsSchema),
   supportRequests: () => request<readonly SupportTicket[]>("/api/account/support", undefined, supportTicketsSchema),
   createSupportRequest: (payload: CreateSupportRequest) => request<SupportTicket>("/api/account/support", { method: "POST", body: JSON.stringify(payload) }, supportTicketSchema),
+  supportRequest: (ticketId: string) => request<SupportTicket>(`/api/account/support/${encodeURIComponent(ticketId)}`, undefined, supportTicketSchema),
+  replySupportRequest: (ticketId: string, message: string) => request<SupportTicket>(`/api/account/support/${encodeURIComponent(ticketId)}/messages`, { method: "POST", body: JSON.stringify({ message }) }, supportTicketSchema),
 
   get: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, undefined, schema),
   /** `headers` exists for the money path: POST /api/orders is rejected outright without an `Idempotency-Key`. */

@@ -155,6 +155,11 @@ enum DeliveryStatus {
   DELIVERY_FAILED
 }
 
+enum SupportMessageAuthorType {
+  CUSTOMER
+  STAFF
+}
+
 enum GiftCardRequestKind {
   CODE
   CODE_PIN
@@ -343,6 +348,7 @@ model Customer {
   orders            Order[]
   payments          Payment[]
   workItems         WorkItem[]
+  supportMessages   SupportMessage[]
 
   @@index([status, createdAt])
   @@index([createdAt])
@@ -535,6 +541,11 @@ model StaffUser {
   pricingRulesCreated         PricingRule[]              @relation("PricingRuleCreator")
   fxRatesCreated              FxRate[]                   @relation("FxRateCreator")
   featureFlagsUpdated         FeatureFlag[]              @relation("FeatureFlagUpdater")
+  supportTicketsOwned         SupportTicket[]            @relation("SupportTicketOwner")
+  supportMessagesAuthored     SupportMessage[]           @relation("SupportMessageStaffAuthor")
+  supportOwnershipFrom        SupportOwnershipEvent[]    @relation("SupportOwnershipPrevious")
+  supportOwnershipTo          SupportOwnershipEvent[]    @relation("SupportOwnershipNew")
+  supportOwnershipChanged     SupportOwnershipEvent[]    @relation("SupportOwnershipChanger")
 
   @@index([role, isActive])
   @@index([teamId])
@@ -1178,6 +1189,7 @@ model WorkItem {
   checklist    FulfillmentChecklist?
   fulfillments Fulfillment[]
   giftCardCodeRequests GiftCardCodeRequest[]
+  supportTicket SupportTicket?
 
   @@index([queueId, status, priority])
   @@index([assignedToStaffId, status])
@@ -1186,7 +1198,62 @@ model WorkItem {
   @@index([type, status])
 }
 
-/// Versioned definition of the checklist for a work item type.
+model SupportTicket {
+  id                 String   @id @default(cuid())
+  workItemId         String   @unique
+  ownerStaffId       String?
+  firstResponseDueAt DateTime
+  nextResponseDueAt  DateTime
+  firstRespondedAt   DateTime?
+  lastRespondedAt    DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  workItem WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  owner    StaffUser? @relation("SupportTicketOwner", fields: [ownerStaffId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+  ownershipEvents SupportOwnershipEvent[]
+
+  @@index([ownerStaffId, nextResponseDueAt])
+  @@index([firstResponseDueAt])
+}
+
+model SupportMessage {
+  id            String                   @id @default(cuid())
+  ticketId      String
+  authorType    SupportMessageAuthorType
+  customerId    String?
+  staffId       String?
+  body          String
+  createdAt     DateTime @default(now())
+
+  ticket  SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  staff StaffUser? @relation("SupportMessageStaffAuthor", fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([ticketId, createdAt])
+  @@index([staffId, createdAt])
+}
+
+model SupportOwnershipEvent {
+  id              String   @id @default(cuid())
+  ticketId        String
+  previousStaffId String?
+  newStaffId      String
+  changedByStaffId String
+  reason          String
+  createdAt       DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  previousStaff StaffUser? @relation("SupportOwnershipPrevious", fields: [previousStaffId], references: [id], onDelete: SetNull)
+  newStaff StaffUser @relation("SupportOwnershipNew", fields: [newStaffId], references: [id])
+  changedBy StaffUser @relation("SupportOwnershipChanger", fields: [changedByStaffId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@index([newStaffId, createdAt])
+}
+
 model TaskChecklistTemplate {
   id           String       @id @default(cuid())
   workItemType WorkItemType

@@ -19,6 +19,7 @@ import {
   MessageSquareWarning,
   HelpCircle,
   RotateCcw,
+  LifeBuoy,
   type LucideIcon,
 } from "lucide-react";
 
@@ -43,6 +44,7 @@ export const ICONS: Record<string, LucideIcon> = {
   "message-square-warning": MessageSquareWarning,
   "help-circle": HelpCircle,
   "rotate-ccw": RotateCcw,
+  "life-buoy": LifeBuoy,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Badge, formatJalaliDate } from "@barat/ui";
 import { AccountNav } from "@/components/account-nav";
 import { api } from "@/lib/api";
@@ -28,8 +29,9 @@ export default async function AccountSupportPage({ searchParams }: { searchParam
           <div className="grid" style={{ gap: 12 }}>
             {tickets.map((ticket) => {
               const view = supportStatusView(ticket.status);
+              const lastMessage = ticket.messages.at(-1);
               return (
-                <div key={ticket.id} className="card pad">
+                <Link key={ticket.id} className="card pad support-ticket-link" href={`/account/support/${encodeURIComponent(ticket.id)}`}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                     <strong>{ticket.subject}</strong>
                     <Badge tone={view.tone}>{view.label}</Badge>
@@ -38,8 +40,12 @@ export default async function AccountSupportPage({ searchParams }: { searchParam
                     شمارهٔ پیگیری: {ticket.code} · {formatJalaliDate(ticket.createdAt)}
                     {ticket.orderId ? ` · سفارش ${orderNumbers.get(ticket.orderId) ?? ""}` : ""}
                   </p>
-                  {ticket.resolutionNote ? <p style={{ margin: "8px 0 0" }}>{ticket.resolutionNote}</p> : null}
-                </div>
+                  <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                    {ticket.ownerStaffName ? `کارشناس: ${ticket.ownerStaffName}` : "در انتظار تخصیص کارشناس"}
+                    {ticket.lastRespondedAt ? ` · آخرین پاسخ: ${formatJalaliDate(ticket.lastRespondedAt)}` : ""}
+                  </p>
+                  {lastMessage ? <p style={{ margin: "8px 0 0" }}>{lastMessage.body}</p> : null}
+                </Link>
               );
             })}
           </div>

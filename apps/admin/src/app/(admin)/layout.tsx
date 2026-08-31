@@ -17,6 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const profileShortcuts = [
     { href: "/dashboard", label: "داشبورد", icon: "layout-dashboard" },
     { href: "/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog" },
+    { href: "/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy" },
     { href: "/work-queue", label: "صف کارها", icon: "list-checks" },
     { href: "/settings", label: "تنظیمات", icon: "settings" },
   ].filter((shortcut) => visibleHrefs.has(shortcut.href)).slice(0, 3);

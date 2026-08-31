@@ -17,7 +17,7 @@ export const customerSearchHitSchema = z.object({
   fullName: z.string().nullable(),
   orderCount: z.number().int().nonnegative(),
   createdAt: isoDateTimeSchema,
-  matchedOn: z.enum(["CUSTOMER_CODE", "MOBILE", "EMAIL", "ORDER_NUMBER", "PAYMENT_REF"]),
+  matchedOn: z.enum(["CUSTOMER_CODE", "MOBILE", "EMAIL", "NAME", "ORDER_NUMBER", "PAYMENT_REF"]),
 });
 
 const accountOrderSchema = z.object({
@@ -43,6 +43,12 @@ export const customer360Schema = z.object({
   orders: z.array(accountOrderSchema),
   payments: z.array(accountPaymentSchema),
   refunds: z.array(accountRefundSchema),
+  tickets: z.array(z.object({
+    id: z.string().min(1), workItemId: z.string().min(1), code: z.string(), subject: z.string(), status: z.string(),
+    orderId: z.string().nullable(), orderNumber: z.string().nullable(), ownerStaffId: z.string().nullable(), ownerStaffName: z.string().nullable(),
+    createdAt: isoDateTimeSchema, firstResponseDueAt: isoDateTimeSchema, nextResponseDueAt: isoDateTimeSchema,
+    firstRespondedAt: nullableDate, lastRespondedAt: nullableDate,
+  })),
   totals: z.object({ orderCount: z.number().int().nonnegative(), paidOrderCount: z.number().int().nonnegative(), lifetimePaidIrr: z.string().regex(/^\d+$/u) }),
 });
 

@@ -7,6 +7,7 @@ import { AccountService } from './account.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CUSTOMERS_DATABASE } from './customers.tokens';
+import { SupportController } from './support.controller';
 import { SupportService } from './support.service';
 
 /**
@@ -18,7 +19,7 @@ import { SupportService } from './support.service';
  */
 @Module({
   imports: [AuditModule],
-  controllers: [AccountController, CustomersController],
+  controllers: [AccountController, CustomersController, SupportController],
   providers: [
     { provide: CUSTOMERS_DATABASE, useValue: prisma },
     AccountService,

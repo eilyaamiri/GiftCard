@@ -38,8 +38,8 @@ export class CustomersController {
   @Get('search')
   @Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR', 'FINANCE', 'SUPPORT')
   @Throttle({ medium: { ttl: 60_000, limit: 30 } })
-  @ApiOperation({ summary: 'Find a customer by mobile, e-mail, code, order number or payment ref' })
-  @ApiOkResponse({ description: 'Exact matches only; every search is written to the audit log' })
+  @ApiOperation({ summary: 'Find a customer by name, mobile, e-mail, code, order number or payment ref' })
+  @ApiOkResponse({ description: 'Identity matches are exact; name matches are partial; every search is audited' })
   async search(
     @Query(zodPipe(customerSearchRequestSchema)) query: CustomerSearchRequest,
     @CurrentStaff() staff: AuthenticatedStaff,
@@ -50,7 +50,7 @@ export class CustomersController {
 
   @Get(':customerId')
   @Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR', 'FINANCE', 'SUPPORT')
-  @ApiOperation({ summary: 'Full customer view: profile, flags, notes, orders, payments, refunds' })
+  @ApiOperation({ summary: 'Full customer view: profile, flags, notes, orders, payments, refunds and tickets' })
   @ApiOkResponse({ description: 'Read-only. Viewing is audited.' })
   async customer360(
     @Param('customerId') customerId: string,

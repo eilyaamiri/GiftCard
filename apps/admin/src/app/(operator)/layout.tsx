@@ -16,6 +16,7 @@ export default async function OperatorLayout({ children }: { children: React.Rea
         profileShortcuts={[
           { href: "/operator", label: "میز من", icon: "layout-dashboard" },
           { href: "/operator/tasks", label: "تسک‌های من", icon: "list-checks" },
+          { href: "/operator/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy" },
           { href: "/operator/performance", label: "عملکرد من", icon: "line-chart" },
         ]}
       >

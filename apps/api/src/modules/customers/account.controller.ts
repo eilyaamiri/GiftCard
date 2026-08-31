@@ -9,9 +9,11 @@ import { Throttle } from '@nestjs/throttler';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import {
   listPageRequestSchema,
+  supportReplySchema,
   supportRequestSchema,
   updateProfileRequestSchema,
   type ListPageRequest,
+  type SupportReply,
   type SupportRequest,
   type UpdateProfileRequest,
 } from '../identity/identity.schemas';
@@ -106,6 +108,27 @@ export class AccountController {
     @CurrentCustomer() customerId: string,
   ): Promise<readonly SupportTicketDto[]> {
     return this.support.list(customerId);
+  }
+
+  @Get('support/:ticketId')
+  @ApiOperation({ summary: "A customer's support ticket and conversation" })
+  async supportRequest(
+    @CurrentCustomer() customerId: string,
+    @Param('ticketId') ticketId: string,
+  ): Promise<SupportTicketDto> {
+    return this.support.getForCustomer(customerId, ticketId);
+  }
+
+  @Post('support/:ticketId/messages')
+  @Throttle({ short: { ttl: 60_000, limit: 10 } })
+  @ApiOperation({ summary: 'Reply to a support ticket' })
+  async replyToSupportRequest(
+    @CurrentCustomer() customerId: string,
+    @Param('ticketId') ticketId: string,
+    @Body(zodPipe(supportReplySchema)) body: SupportReply,
+    @RequestMetadata() actor: IdentityActor,
+  ): Promise<SupportTicketDto> {
+    return this.support.replyAsCustomer(customerId, ticketId, body, actor);
   }
 
   @Post('support')

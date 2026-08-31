@@ -22,6 +22,7 @@ export function Customer360View({
 }) {
   const customer = data.customer;
   const fullName = [customer.firstName, customer.lastName].filter(Boolean).join(" ") || "بدون نام ثبت‌شده";
+  const ticketBasePath = basePath.startsWith("/operator") ? "/operator/support" : "/support";
 
   return (
     <div>
@@ -42,6 +43,9 @@ export function Customer360View({
         <div className="workspace-main">
           <Section title="سفارش‌ها" caption={`${number(data.orders.length)} رکورد`}>
             {data.orders.length === 0 ? <Empty text="سفارشی ثبت نشده است." /> : <div className="table-wrap"><table><thead><tr><th>شماره سفارش</th><th>وضعیت</th><th>مبلغ</th><th>ثبت</th><th>پرداخت</th><th>تحویل</th></tr></thead><tbody>{data.orders.map((order) => <tr key={order.id}><td><span className="order-id">{order.orderNumber}</span></td><td>{order.status}</td><td>{tomanFromIrr(order.totalAmountIrr)}</td><td>{formatDateTime(order.createdAt)}</td><td>{order.paidAt ? formatDateTime(order.paidAt) : "—"}</td><td>{order.fulfilledAt ? formatDateTime(order.fulfilledAt) : "—"}</td></tr>)}</tbody></table></div>}
+          </Section>
+          <Section title="تیکت‌های پشتیبانی" caption={`${number(data.tickets.length)} تیکت`}>
+            {data.tickets.length === 0 ? <Empty text="تیکتی ثبت نشده است." /> : <div className="table-wrap"><table><thead><tr><th>شماره تیکت</th><th>موضوع</th><th>وضعیت</th><th>سفارش</th><th>مالک فعلی</th><th>مهلت پاسخ</th></tr></thead><tbody>{data.tickets.map((ticket) => <tr key={ticket.id}><td><Link href={`${ticketBasePath}/${encodeURIComponent(ticket.id)}`} className="order-id">{ticket.code}</Link></td><td>{ticket.subject}</td><td>{ticket.status}</td><td>{ticket.orderNumber ?? "—"}</td><td>{ticket.ownerStaffName ?? "بدون مالک"}</td><td>{formatDateTime(ticket.nextResponseDueAt)}</td></tr>)}</tbody></table></div>}
           </Section>
           <Section title="پرداخت‌ها" caption={`${number(data.payments.length)} رکورد`}>
             {data.payments.length === 0 ? <Empty text="پرداختی ثبت نشده است." /> : <div className="table-wrap"><table><thead><tr><th>سفارش</th><th>درگاه</th><th>وضعیت</th><th>مبلغ</th><th>کارت ماسک‌شده</th><th>مرجع</th><th>تأیید</th></tr></thead><tbody>{data.payments.map((payment) => <tr key={payment.id}><td>{payment.orderNumber}</td><td>{payment.provider}</td><td>{payment.status}</td><td>{tomanFromIrr(payment.amountIrr)}</td><td>{payment.maskedCard ?? "—"}</td><td>{payment.providerRefId ?? "—"}</td><td>{payment.verifiedAt ? formatDateTime(payment.verifiedAt) : "—"}</td></tr>)}</tbody></table></div>}

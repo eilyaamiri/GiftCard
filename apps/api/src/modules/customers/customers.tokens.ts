@@ -22,4 +22,9 @@ export type CustomersDatabase = Pick<
   | 'refund'
   | 'workItem'
   | 'queue'
+  | 'staffUser'
+  | 'supportTicket'
+  | 'supportMessage'
+  | 'supportOwnershipEvent'
+  | '$transaction'
 >;

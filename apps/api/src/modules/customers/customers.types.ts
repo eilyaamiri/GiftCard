@@ -71,7 +71,7 @@ export interface CustomerSearchHit {
   readonly orderCount: number;
   readonly createdAt: string;
   /** Which field produced the match, for the operator's own confidence. */
-  readonly matchedOn: 'CUSTOMER_CODE' | 'MOBILE' | 'EMAIL' | 'ORDER_NUMBER' | 'PAYMENT_REF';
+  readonly matchedOn: 'CUSTOMER_CODE' | 'MOBILE' | 'EMAIL' | 'NAME' | 'ORDER_NUMBER' | 'PAYMENT_REF';
 }
 
 export interface Customer360Dto {
@@ -96,6 +96,22 @@ export interface Customer360Dto {
   readonly orders: readonly AccountOrderDto[];
   readonly payments: readonly AccountPaymentDto[];
   readonly refunds: readonly AccountRefundDto[];
+  readonly tickets: ReadonlyArray<{
+    readonly id: string;
+    readonly workItemId: string;
+    readonly code: string;
+    readonly subject: string;
+    readonly status: string;
+    readonly orderId: string | null;
+    readonly orderNumber: string | null;
+    readonly ownerStaffId: string | null;
+    readonly ownerStaffName: string | null;
+    readonly createdAt: string;
+    readonly firstResponseDueAt: string;
+    readonly nextResponseDueAt: string;
+    readonly firstRespondedAt: string | null;
+    readonly lastRespondedAt: string | null;
+  }>;
   readonly totals: {
     readonly orderCount: number;
     readonly paidOrderCount: number;

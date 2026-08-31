@@ -124,6 +124,29 @@ export class CustomersService {
       if (byCode) {
         remember(byCode.id, 'CUSTOMER_CODE');
       }
+
+      const normalizedName = normalizeName(term);
+      if (normalizedName.length >= 3) {
+        const parts = normalizedName.split(' ').filter(Boolean);
+        const nameRows = await this.database.customerProfile.findMany({
+          where: parts.length > 1
+            ? {
+                OR: [
+                  { AND: [{ firstName: { contains: parts[0], mode: 'insensitive' } }, { lastName: { contains: parts.slice(1).join(' '), mode: 'insensitive' } }] },
+                  { AND: [{ firstName: { contains: parts.at(-1), mode: 'insensitive' } }, { lastName: { contains: parts.slice(0, -1).join(' '), mode: 'insensitive' } }] },
+                ],
+              }
+            : {
+                OR: [
+                  { firstName: { contains: normalizedName, mode: 'insensitive' } },
+                  { lastName: { contains: normalizedName, mode: 'insensitive' } },
+                ],
+              },
+          select: { customerId: true },
+          take: 50,
+        });
+        for (const profile of nameRows) remember(profile.customerId, 'NAME');
+      }
     }
 
     await this.audit.record({
@@ -204,7 +227,7 @@ export class CustomersService {
       throw DomainErrors.notFound('Customer');
     }
 
-    const [customer, profile, flags, notes, orders, payments, refunds, totals] = await Promise.all([
+    const [customer, profile, flags, notes, orders, payments, refunds, tickets, totals] = await Promise.all([
       this.customers.customerDto(customerId),
       this.database.customerProfile.findUnique({
         where: { customerId },
@@ -267,6 +290,31 @@ export class CustomersService {
           requestedAt: true,
           processedAt: true,
           order: { select: { orderNumber: true } },
+        },
+      }),
+      this.database.supportTicket.findMany({
+        where: { workItem: { customerId } },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          workItemId: true,
+          ownerStaffId: true,
+          firstResponseDueAt: true,
+          nextResponseDueAt: true,
+          firstRespondedAt: true,
+          lastRespondedAt: true,
+          createdAt: true,
+          owner: { select: { fullName: true } },
+          workItem: {
+            select: {
+              code: true,
+              title: true,
+              status: true,
+              orderId: true,
+              order: { select: { orderNumber: true } },
+            },
+          },
         },
       }),
       this.lifetimeTotals(customerId),
@@ -341,6 +389,22 @@ export class CustomersService {
           processedAt: refund.processedAt?.toISOString() ?? null,
         }),
       ),
+      tickets: tickets.map((ticket) => ({
+        id: ticket.id,
+        workItemId: ticket.workItemId,
+        code: ticket.workItem.code,
+        subject: ticket.workItem.title,
+        status: ticket.workItem.status,
+        orderId: ticket.workItem.orderId,
+        orderNumber: ticket.workItem.order?.orderNumber ?? null,
+        ownerStaffId: ticket.ownerStaffId,
+        ownerStaffName: ticket.owner?.fullName ?? null,
+        createdAt: ticket.createdAt.toISOString(),
+        firstResponseDueAt: ticket.firstResponseDueAt.toISOString(),
+        nextResponseDueAt: ticket.nextResponseDueAt.toISOString(),
+        firstRespondedAt: ticket.firstRespondedAt?.toISOString() ?? null,
+        lastRespondedAt: ticket.lastRespondedAt?.toISOString() ?? null,
+      })),
       totals,
     };
   }
@@ -454,6 +518,17 @@ export class CustomersService {
 
     return { cleared: true };
   }
+}
+
+/** Normalises common Persian/Arabic keyboard variants without altering display data. */
+function normalizeName(value: string): string {
+  return value
+    .normalize('NFKC')
+    .replaceAll('ي', 'ی')
+    .replaceAll('ك', 'ک')
+    .replace(/[ً-ٰٟ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** Runs a strict normaliser as a probe: an invalid value is simply "not this kind". */

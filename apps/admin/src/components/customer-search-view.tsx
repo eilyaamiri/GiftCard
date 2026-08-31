@@ -8,6 +8,7 @@ const MATCH_LABEL: Record<CustomerSearchHit["matchedOn"], string> = {
   CUSTOMER_CODE: "کد مشتری",
   MOBILE: "شماره تماس",
   EMAIL: "ایمیل",
+  NAME: "نام مشتری",
   ORDER_NUMBER: "شماره سفارش",
   PAYMENT_REF: "مرجع پرداخت",
 };
@@ -42,11 +43,11 @@ export async function CustomerSearchView({
 
       <form action={basePath} method="get" className="card panel customer-search-form">
         <div className="customer-search-grid">
-          <label>نوع جست‌وجو<select name="kind" defaultValue={kind}><option value="query">موبایل، ایمیل یا کد مشتری</option><option value="orderNumber">شماره سفارش</option><option value="paymentRef">مرجع پرداخت</option></select></label>
+          <label>نوع جست‌وجو<select name="kind" defaultValue={kind}><option value="query">نام، موبایل، ایمیل یا کد مشتری</option><option value="orderNumber">شماره سفارش</option><option value="paymentRef">مرجع پرداخت</option></select></label>
           <label>عبارت دقیق<input type="search" name="q" defaultValue={value} minLength={3} maxLength={254} required placeholder="حداقل ۳ نویسه" /></label>
           <button className="primary-btn" type="submit">جست‌وجوی مشتری</button>
         </div>
-        <p className="panel-caption customer-search-note">برای حفاظت از حریم خصوصی، API فقط تطبیق دقیق انجام می‌دهد؛ مقادیر تماس در نتیجه ماسک می‌شوند.</p>
+        <p className="panel-caption customer-search-note">نام با تطبیق بخشی جست‌وجو می‌شود؛ شناسه‌های تماس فقط با تطبیق دقیق بررسی و در نتیجه ماسک می‌شوند.</p>
       </form>
 
       {error ? <div className="card panel report-section"><p className="empty-hint">{error}</p></div> : null}
