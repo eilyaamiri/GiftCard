@@ -99,13 +99,13 @@ export function ProductDetail({ product }: { readonly product: ProductDetailDto 
           <div className="summary-line"><span>محصول</span><strong>{product.titleFa}</strong></div>
           <div className="summary-line"><span>منطقه</span><strong><Ltr>{region}</Ltr></strong></div>
           <div className="summary-line"><span>مبلغ</span><strong><Ltr>{selected.denominationLabel}</Ltr></strong></div>
-          <div className="summary-total">
+          <div className="summary-total product-summary-total">
             <span>قیمت نهایی</span>
-            <span className="muted" style={{ fontSize: 13, fontWeight: 700 }}>پس از «دریافت قیمت» نمایش داده می‌شود</span>
+            <span className="summary-total-placeholder">پس از دریافت نرخ معتبر ارز نمایش داده می‌شود</span>
           </div>
-          {error ? <div className="alert warn" style={{ marginTop: 14 }}>{error}</div> : null}
+          {error ? <div className="alert warn" style={{ marginTop: 14 }} role="alert">{error}</div> : null}
           <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={getPrice} disabled={loading || !selected.isAvailable}>
-            {loading ? "در حال محاسبه..." : "دریافت قیمت نهایی"}
+            {loading ? "در حال محاسبه..." : error ? "تلاش دوباره برای دریافت قیمت" : "دریافت قیمت نهایی"}
           </button>
           <p className="muted" style={{ fontSize: 12, marginTop: 10, display: "flex", gap: 6, alignItems: "center" }}>
             <ShieldCheck size={14} /> تحویل امن پس از تأیید پرداخت
