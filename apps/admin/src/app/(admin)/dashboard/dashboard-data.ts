@@ -22,7 +22,7 @@ const fxHealthSchema = z.object({ providers: z.array(fxProviderHealthSchema) });
 const MAX_PAGES = 25; // 100/page cap × 25 = 2,500 orders — well past today's 80-row seed.
 
 /** Pages through every admin order once, newest pageSize (100) at a time. */
-async function fetchAllOrders(): Promise<OrderSummaryDto[]> {
+export async function fetchAllOrders(): Promise<OrderSummaryDto[]> {
   const items: OrderSummaryDto[] = [];
   let page = 1;
   for (;;) {
