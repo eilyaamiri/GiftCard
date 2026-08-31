@@ -14,11 +14,24 @@ const nextConfig: NextConfig = {
 
   transpilePackages: ['@barat/ui', '@barat/contracts'],
 
+  /*
+   * Empty means "same origin". The staff session cookie is SameSite=Strict, so a
+   * browser call to a different site would never carry it — in production nginx
+   * serves the API under /api on this very host, and the rewrite below gives
+   * development the same shape instead of a cross-origin request that CORS and
+   * the cookie policy would both reject.
+   */
   env: {
-    NEXT_PUBLIC_API_URL: process.env['API_PUBLIC_URL'] ?? 'http://localhost:4000',
+    NEXT_PUBLIC_API_URL: process.env['API_PUBLIC_URL'] ?? '',
   },
 
   typedRoutes: true,
+
+  async rewrites() {
+    if (process.env.NODE_ENV === 'production') return [];
+    const target = process.env['API_INTERNAL_URL'] ?? 'http://localhost:4000';
+    return [{ source: '/api/:path*', destination: `${target}/api/:path*` }];
+  },
 
   async headers() {
     return [

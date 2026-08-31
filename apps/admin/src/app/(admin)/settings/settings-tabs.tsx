@@ -2,19 +2,15 @@
 
 import { useState } from "react";
 
-const featureFlags = [
-  { key: "auto_fx_requote", label: "Requote خودکار در نوسان FX", desc: "اگر نرخ بیش از آستانه حرکت کند، Quote جدید صادر شود", enabled: true },
-  { key: "manual_fx_override_alert", label: "هشدار override فعال روی صفحهٔ استعلام", desc: "به مشتری/اپراتور نمایش داده شود که نرخ override فعال است", enabled: true },
-  { key: "supplier_direct_email_notice", label: "نمایش پیام «کد در اختیار اپراتور نیست»", desc: "برای تأمین‌کنندگانی مثل Reloadly/Runa که مستقیماً ایمیل می‌زنند", enabled: false },
-];
-
-const staffUsers = [
-  { name: "سارا احمدی", role: "ADMIN", email: "sara@baratpay.example" },
-  { name: "نیلوفر کریمی", role: "OPS_MANAGER", email: "niloofar@baratpay.example" },
-  { name: "محمد رضایی", role: "OPERATOR", email: "mohammad@baratpay.example" },
-  { name: "کیان مرادی", role: "FINANCE", email: "kian@baratpay.example" },
-];
-
+/**
+ * None of these three tabs have a backing endpoint yet:
+ *   - feature flags: no `/api/admin/flags` (or similar) route exists
+ *   - staff list: no `/api/admin/staff` route exists
+ *   - queue config: no `/api/admin/queues` route exists
+ * A toggle that flips in the browser but writes nothing to the server is a
+ * lie dressed as a setting, so every tab below says plainly that it is not
+ * wired instead of simulating a working control.
+ */
 export function SettingsTabs() {
   const [tab, setTab] = useState<"flags" | "staff" | "queues">("flags");
 
@@ -28,43 +24,13 @@ export function SettingsTabs() {
 
       {tab === "flags" && (
         <div className="card panel">
-          {featureFlags.map((flag) => (
-            <div className="toggle-row" key={flag.key}>
-              <div>
-                <strong>{flag.label}</strong>
-                <span>{flag.desc}</span>
-              </div>
-              <label className="switch">
-                <input type="checkbox" defaultChecked={flag.enabled} />
-                <span className="slider" />
-              </label>
-            </div>
-          ))}
+          <p className="empty-hint">API هنوز endpoint ای برای پرچم‌های ویژگی ارائه نمی‌دهد — این تب پس از افزودن آن وصل خواهد شد.</p>
         </div>
       )}
 
       {tab === "staff" && (
-        <div className="card list-card">
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>نام</th>
-                  <th>نقش</th>
-                  <th>ایمیل</th>
-                </tr>
-              </thead>
-              <tbody>
-                {staffUsers.map((user) => (
-                  <tr key={user.email}>
-                    <td>{user.name}</td>
-                    <td><span className="tag-pill bp-ltr">{user.role}</span></td>
-                    <td className="bp-ltr">{user.email}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <div className="card panel">
+          <p className="empty-hint">فهرست کارکنان از سرویس در دسترس نیست؛ فقط کاربر واردشده از session واقعی قابل نمایش است.</p>
         </div>
       )}
 

@@ -8,6 +8,10 @@ import type { FxStaffActor } from './fx.types';
 export const FX_OVERRIDE_ROLES: readonly StaffRole[] = ['ADMIN', 'FINANCE'];
 
 interface RequestWithStaff {
+  /** Attached by RolesGuard via AuthContextService. The canonical principal. */
+  actor?: unknown;
+  /* Names this guard used to look for. Nothing has ever set them; kept only so
+   * a future guard that does keeps working. */
   user?: unknown;
   staffUser?: unknown;
 }
@@ -17,7 +21,12 @@ function readActor(candidate: unknown): FxStaffActor | null {
     return null;
   }
   const record = candidate as Record<string, unknown>;
-  const id = record['id'] ?? record['staffUserId'] ?? record['sub'];
+  /* A customer session must never reach an FX write. It carries no role, so the
+   * check below would reject it anyway; refusing by type states the intent. */
+  if ('type' in record && record['type'] !== 'STAFF') {
+    return null;
+  }
+  const id = record['id'] ?? record['staffId'] ?? record['staffUserId'] ?? record['sub'];
   const role = record['role'];
   if (typeof id !== 'string' || id.trim() === '' || typeof role !== 'string') {
     return null;
@@ -31,16 +40,17 @@ function readActor(candidate: unknown): FxStaffActor | null {
 /**
  * Server-side authorisation for the FX override endpoints.
  *
- * The shared staff session guard is owned by workstream B5 and does not exist
- * yet, so this guard reads the staff principal the session middleware attaches
- * to the request and fails closed when it is absent. When the shared guard
- * lands, this one keeps the role check and drops the principal extraction.
+ * The shared session guard now exists: RolesGuard resolves the session and
+ * attaches the principal as `request.actor`. This guard reads that actor and
+ * fails closed when it is absent. It runs after RolesGuard, so the route must
+ * also carry `@Roles(...)` — without it RolesGuard returns early, no actor is
+ * attached, and every override is rejected as unauthenticated.
  */
 @Injectable()
 export class FxOverrideGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const request = context.switchToHttp().getRequest<RequestWithStaff>();
-    const actor = readActor(request.user) ?? readActor(request.staffUser);
+    const actor = readActor(request.actor) ?? readActor(request.user) ?? readActor(request.staffUser);
 
     if (!actor) {
       throw DomainErrors.unauthenticated();
@@ -54,7 +64,7 @@ export class FxOverrideGuard implements CanActivate {
 
 /** Resolve the authenticated staff actor for auditing. Never trust the body. */
 export function requireStaffActor(request: RequestWithStaff): FxStaffActor {
-  const actor = readActor(request.user) ?? readActor(request.staffUser);
+  const actor = readActor(request.actor) ?? readActor(request.user) ?? readActor(request.staffUser);
   if (!actor) {
     throw DomainErrors.unauthenticated();
   }

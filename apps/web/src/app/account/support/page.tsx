@@ -1,38 +1,50 @@
-"use client";
-import { useState } from "react";
-import { Input, Label, Textarea, Select } from "@barat/ui";
+import { Badge, formatJalaliDate } from "@barat/ui";
 import { AccountNav } from "@/components/account-nav";
+import { api } from "@/lib/api";
+import { supportStatusView } from "@/lib/status";
+import { SupportForm } from "./support-form";
 
-export default function AccountSupportPage() {
-  const [sent, setSent] = useState(false);
+export const dynamic = "force-dynamic";
+
+export default async function AccountSupportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const params = await searchParams;
+  const rawOrderId = params["orderId"];
+  const defaultOrderId = Array.isArray(rawOrderId) ? rawOrderId[0] : rawOrderId;
+
+  const [tickets, orders] = await Promise.all([api.supportRequests(), api.accountOrders({ pageSize: 50 })]);
+  const orderNumbers = new Map(orders.items.map((order) => [order.id, order.orderNumber]));
 
   return (
     <main className="page container" style={{ maxWidth: 560 }}>
       <div className="eyebrow">حساب کاربری</div>
       <h1 className="h2">پشتیبانی</h1>
       <AccountNav />
-      {sent ? (
-        <div className="card pad" style={{ textAlign: "center" }}>
-          <h3>پیام شما ارسال شد</h3>
-          <p className="muted">تیم پشتیبانی به‌زودی با شما در تماس خواهد بود.</p>
-        </div>
-      ) : (
-        <form className="card pad" onSubmit={(e) => { e.preventDefault(); setSent(true); }}>
-          <div className="field">
-            <Label htmlFor="orderNumber">شماره سفارش (اختیاری)</Label>
-            <Input id="orderNumber" ltr placeholder="ORD-XXXXXXXX" />
+
+      <SupportForm orders={orders.items} defaultOrderId={defaultOrderId} />
+
+      {tickets.length > 0 ? (
+        <>
+          <h2 className="h2" style={{ fontSize: 20, marginBlockStart: 26 }}>درخواست‌های شما</h2>
+          <div className="grid" style={{ gap: 12 }}>
+            {tickets.map((ticket) => {
+              const view = supportStatusView(ticket.status);
+              return (
+                <div key={ticket.id} className="card pad">
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <strong>{ticket.subject}</strong>
+                    <Badge tone={view.tone}>{view.label}</Badge>
+                  </div>
+                  <p className="muted" style={{ margin: "6px 0 0", fontSize: 12 }}>
+                    شمارهٔ پیگیری: {ticket.code} · {formatJalaliDate(ticket.createdAt)}
+                    {ticket.orderId ? ` · سفارش ${orderNumbers.get(ticket.orderId) ?? ""}` : ""}
+                  </p>
+                  {ticket.resolutionNote ? <p style={{ margin: "8px 0 0" }}>{ticket.resolutionNote}</p> : null}
+                </div>
+              );
+            })}
           </div>
-          <div className="field">
-            <Label htmlFor="topic">موضوع</Label>
-            <Select id="topic" placeholder="انتخاب کنید" options={[{ value: "order", label: "پیگیری سفارش" }, { value: "payment", label: "مشکل پرداخت" }, { value: "other", label: "سایر" }]} />
-          </div>
-          <div className="field">
-            <Label htmlFor="message" required>پیام</Label>
-            <Textarea id="message" required placeholder="مشکل خود را شرح دهید..." />
-          </div>
-          <button type="submit" className="btn btn-primary">ارسال پیام</button>
-        </form>
-      )}
+        </>
+      ) : null}
     </main>
   );
 }

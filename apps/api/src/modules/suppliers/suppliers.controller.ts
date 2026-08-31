@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Post, Query, Req } from '@nestjs/common';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
+import { Roles } from '../identity/rbac/roles.decorator';
 import { requireStaff } from '../workitems/staff-context';
 import {
   checkPurchaseStatusBodySchema,
@@ -18,6 +19,11 @@ import type {
   SupplierView,
 } from './suppliers.types';
 
+/**
+ * `@Roles` is what authenticates these routes: without it the global RolesGuard
+ * returns early, no actor is ever attached, and `requireStaff` rejects everyone.
+ */
+@Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR')
 @Controller('operator/suppliers')
 export class SuppliersController {
   constructor(@Inject(SuppliersService) private readonly suppliers: SuppliersService) {}

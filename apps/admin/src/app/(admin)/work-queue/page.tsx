@@ -1,21 +1,71 @@
+import Link from "next/link";
+import { toPersianDigits } from "@barat/ui";
+import type { QueueKey } from "@barat/contracts";
+import { QUEUE_VIEW_ROLES } from "@/lib/api";
+import { requireRole } from "@/lib/session";
+import { ErrorNotice } from "../../(operator)/_components/error-notice";
+import {
+  ACTIVE_STATUSES,
+  QUEUE_KEY_LABEL,
+  WORK_ITEM_STATUS_LABEL,
+  isOverdue,
+  workItems,
+  type WorkItemSummary,
+} from "../../(operator)/_lib/work-items";
+
 export const metadata = { title: "صف کارها | پنل ادمین برات پی" };
 
-const queues = [
-  { name: "تحویل دستی گیفت‌کارت", key: "GIFT_CARD_MANUAL", total: 14, unassigned: 4, overdue: 1, slaMinutes: 15 },
-  { name: "پرداخت SaaS", key: "SAAS_PAYMENT", total: 6, unassigned: 1, overdue: 0, slaMinutes: 30 },
-  { name: "ابزارهای AI", key: "AI_TOOLS", total: 5, unassigned: 2, overdue: 0, slaMinutes: 30 },
-  { name: "دامنه و هاستینگ", key: "DOMAIN_HOSTING", total: 3, unassigned: 0, overdue: 0, slaMinutes: 60 },
-  { name: "پیگیری تأمین‌کننده", key: "SUPPLIER_ISSUE", total: 4, unassigned: 1, overdue: 2, slaMinutes: 45 },
-  { name: "نیازمند اطلاعات مشتری", key: "CUSTOMER_INFO_REQUIRED", total: 3, unassigned: 0, overdue: 1, slaMinutes: 120 },
-  { name: "نتیجهٔ نامشخص تأمین‌کننده", key: "UNKNOWN_OUTCOME", total: 2, unassigned: 2, overdue: 0, slaMinutes: 30 },
-  { name: "بررسی بازگشت‌وجه", key: "REFUND_REVIEW", total: 2, unassigned: 0, overdue: 0, slaMinutes: 240 },
-];
+interface QueueRow {
+  readonly key: QueueKey;
+  readonly open: number;
+  readonly unassigned: number;
+  readonly inProgress: number;
+  readonly overdue: number;
+}
 
-export default function WorkQueuePage() {
-  const totals = queues.reduce(
-    (acc, q) => ({ total: acc.total + q.total, unassigned: acc.unassigned + q.unassigned, overdue: acc.overdue + q.overdue }),
-    { total: 0, unassigned: 0, overdue: 0 },
+export default async function WorkQueuePage() {
+  await requireRole(QUEUE_VIEW_ROLES);
+
+  let items: WorkItemSummary[];
+  try {
+    items = await workItems.list({ take: 200 });
+  } catch (error) {
+    return <ErrorNotice error={error} title="صف کارها بارگذاری نشد" />;
+  }
+
+  const open = items.filter(
+    (item) => item.status === "UNASSIGNED" || ACTIVE_STATUSES.includes(item.status),
   );
+
+  const byQueue = new Map<QueueKey, QueueRow>();
+  for (const item of open) {
+    const row = byQueue.get(item.queueKey) ?? {
+      key: item.queueKey,
+      open: 0,
+      unassigned: 0,
+      inProgress: 0,
+      overdue: 0,
+    };
+    byQueue.set(item.queueKey, {
+      key: row.key,
+      open: row.open + 1,
+      unassigned: row.unassigned + (item.status === "UNASSIGNED" ? 1 : 0),
+      inProgress: row.inProgress + (item.status === "IN_PROGRESS" ? 1 : 0),
+      overdue: row.overdue + (isOverdue(item) ? 1 : 0),
+    });
+  }
+
+  const queues = [...byQueue.values()].sort((a, b) => b.open - a.open);
+  const totals = queues.reduce(
+    (acc, queue) => ({
+      open: acc.open + queue.open,
+      unassigned: acc.unassigned + queue.unassigned,
+      overdue: acc.overdue + queue.overdue,
+    }),
+    { open: 0, unassigned: 0, overdue: 0 },
+  );
+
+  const unassigned = open.filter((item) => item.status === "UNASSIGNED");
 
   return (
     <div>
@@ -28,37 +78,98 @@ export default function WorkQueuePage() {
       </div>
 
       <div className="stat-strip">
-        <div className="card stat-tile"><span>کل تسک‌های باز</span><strong>{totals.total.toLocaleString("fa-IR")}</strong></div>
-        <div className="card stat-tile"><span>بدون تخصیص</span><strong>{totals.unassigned.toLocaleString("fa-IR")}</strong></div>
-        <div className="card stat-tile"><span>عقب‌افتاده از SLA</span><strong className="freshness-bad">{totals.overdue.toLocaleString("fa-IR")}</strong></div>
-        <div className="card stat-tile"><span>تعداد صف فعال</span><strong>{queues.length.toLocaleString("fa-IR")}</strong></div>
+        <div className="card stat-tile">
+          <span>کل کارهای باز</span>
+          <strong>{toPersianDigits(totals.open)}</strong>
+        </div>
+        <div className="card stat-tile">
+          <span>بدون تخصیص</span>
+          <strong>{toPersianDigits(totals.unassigned)}</strong>
+        </div>
+        <div className="card stat-tile">
+          <span>عقب‌افتاده از موعد</span>
+          <strong className={totals.overdue > 0 ? "freshness-bad" : ""}>{toPersianDigits(totals.overdue)}</strong>
+        </div>
+        <div className="card stat-tile">
+          <span>صف‌های دارای کار باز</span>
+          <strong>{toPersianDigits(queues.length)}</strong>
+        </div>
       </div>
 
       <div className="card list-card">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>صف</th>
-                <th>کل تسک</th>
-                <th>بدون تخصیص</th>
-                <th>عقب‌افتاده</th>
-                <th>SLA هدف</th>
-              </tr>
-            </thead>
-            <tbody>
-              {queues.map((queue) => (
-                <tr key={queue.key}>
-                  <td>{queue.name}</td>
-                  <td>{queue.total.toLocaleString("fa-IR")}</td>
-                  <td>{queue.unassigned.toLocaleString("fa-IR")}</td>
-                  <td>{queue.overdue > 0 ? <span className="badge badge-danger">{queue.overdue.toLocaleString("fa-IR")} عقب‌افتاده</span> : <span className="muted">۰</span>}</td>
-                  <td className="bp-ltr">{queue.slaMinutes}m</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="panel-heading">
+          <h2 className="panel-title">صف‌ها</h2>
+          <span className="panel-caption">فقط کارهای باز شمرده می‌شوند</span>
         </div>
+        {queues.length === 0 ? (
+          <p className="empty-hint">هیچ کار بازی در هیچ صفی وجود ندارد.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>صف</th>
+                  <th>کل باز</th>
+                  <th>بدون تخصیص</th>
+                  <th>در حال انجام</th>
+                  <th>عقب‌افتاده</th>
+                </tr>
+              </thead>
+              <tbody>
+                {queues.map((queue) => (
+                  <tr key={queue.key}>
+                    <td>{QUEUE_KEY_LABEL[queue.key]}</td>
+                    <td>{toPersianDigits(queue.open)}</td>
+                    <td>{toPersianDigits(queue.unassigned)}</td>
+                    <td>{toPersianDigits(queue.inProgress)}</td>
+                    <td>
+                      {queue.overdue > 0 ? (
+                        <span className="badge badge-danger">{toPersianDigits(queue.overdue)} عقب‌افتاده</span>
+                      ) : (
+                        <span className="muted">{toPersianDigits(0)}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="card list-card" style={{ marginBlockStart: 16 }}>
+        <div className="panel-heading">
+          <h2 className="panel-title">کارهای بدون تخصیص</h2>
+          <span className="panel-caption">{toPersianDigits(unassigned.length)} مورد</span>
+        </div>
+        {unassigned.length === 0 ? (
+          <p className="empty-hint">هیچ کاری بدون تخصیص نمانده است.</p>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>شناسه</th>
+                  <th>عنوان</th>
+                  <th>صف</th>
+                  <th>وضعیت</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unassigned.slice(0, 25).map((item) => (
+                  <tr key={item.id}>
+                    <td className="bp-ltr">
+                      <Link href={`/operator/tasks/${item.id}`}>{item.code}</Link>
+                    </td>
+                    <td>{item.title}</td>
+                    <td>{QUEUE_KEY_LABEL[item.queueKey]}</td>
+                    <td>{WORK_ITEM_STATUS_LABEL[item.status]}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

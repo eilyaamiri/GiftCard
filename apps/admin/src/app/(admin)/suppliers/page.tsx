@@ -1,21 +1,38 @@
+import Link from "next/link";
+import { ApiClientError, CATALOG_WRITE_ROLES, api } from "@/lib/api";
+import { requireRole } from "@/lib/session";
+import { INTEGRATION_MODE_LABELS, adminSupplierListSchema } from "../catalog/_lib/catalog-contracts";
+import { formatCount } from "../catalog/_lib/format";
+
 export const metadata = { title: "تأمین‌کنندگان | پنل ادمین برات پی" };
 
-const suppliers = [
-  { name: "Tillo", assetType: "کد + پین خام", healthy: true, offers: 6 },
-  { name: "Reloadly", assetType: "ایمیل مستقیم به مشتری", healthy: true, offers: 5 },
-  { name: "Runa", assetType: "لینک URL", healthy: false, offers: 3 },
-  { name: "Giftbit", assetType: "لینک URL / ایمیل مستقیم", healthy: true, offers: 4 },
-];
+export default async function SuppliersPage() {
+  await requireRole(CATALOG_WRITE_ROLES);
 
-export default function SuppliersPage() {
+  let list;
+  try {
+    list = await api.get("/api/admin/catalog/suppliers?pageSize=100&includeInactive=true", adminSupplierListSchema);
+  } catch (error) {
+    if (!(error instanceof ApiClientError)) throw error;
+    return (
+      <div>
+        <PageHeading />
+        <div className="card panel">
+          <p className="empty-hint">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div className="page-heading">
-        <div>
-          <p className="eyebrow">کاتالوگ و تأمین</p>
-          <h1>تأمین‌کنندگان</h1>
-        </div>
-        <p className="muted">نوع دارایی تحویل تعیین می‌کند اپراتور کد وارد می‌کند یا خیر</p>
+      <PageHeading count={list.meta.total} />
+
+      <div className="toolbar">
+        <span />
+        <Link href="/suppliers/new" className="primary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+          + افزودن تأمین‌کننده
+        </Link>
       </div>
 
       <div className="card list-card">
@@ -24,26 +41,53 @@ export default function SuppliersPage() {
             <thead>
               <tr>
                 <th>تأمین‌کننده</th>
-                <th>نوع دارایی تحویل</th>
+                <th>کد</th>
+                <th>نوع اتصال</th>
                 <th>تعداد Offer</th>
-                <th>وضعیت اتصال</th>
+                <th>وضعیت</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
-              {suppliers.map((supplier) => (
-                <tr key={supplier.name}>
-                  <td>{supplier.name}</td>
-                  <td>{supplier.assetType}</td>
-                  <td>{supplier.offers.toLocaleString("fa-IR")}</td>
+              {list.items.map((supplier) => (
+                <tr key={supplier.id}>
                   <td>
-                    <span className={`badge ${supplier.healthy ? "badge-success" : "badge-danger"}`}>{supplier.healthy ? "متصل" : "قطع/کند"}</span>
+                    <Link href={`/suppliers/${supplier.id}`} className="order-id">
+                      {supplier.name}
+                    </Link>
+                  </td>
+                  <td className="bp-ltr">{supplier.code}</td>
+                  <td>{INTEGRATION_MODE_LABELS[supplier.integrationMode]}</td>
+                  <td>{formatCount(supplier._count?.offers ?? 0)}</td>
+                  <td>
+                    <span className={`badge ${supplier.isActive ? "badge-success" : "badge-danger"}`}>
+                      {supplier.isActive ? "فعال" : "غیرفعال"}
+                    </span>
+                  </td>
+                  <td>
+                    <Link href={`/suppliers/${supplier.id}`} className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                      مدیریت
+                    </Link>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        {list.items.length === 0 ? <p className="empty-hint">هنوز تأمین‌کننده‌ای ثبت نشده است.</p> : null}
       </div>
+    </div>
+  );
+}
+
+function PageHeading({ count }: { count?: number }) {
+  return (
+    <div className="page-heading">
+      <div>
+        <p className="eyebrow">کاتالوگ و تأمین</p>
+        <h1>تأمین‌کنندگان</h1>
+      </div>
+      <p className="muted">{count === undefined ? "" : `${formatCount(count)} تأمین‌کننده`}</p>
     </div>
   );
 }

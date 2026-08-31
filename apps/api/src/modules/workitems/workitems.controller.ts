@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
+import { Roles } from '../identity/rbac/roles.decorator';
 import { requireStaff } from './staff-context';
 import {
   completeWorkItemBodySchema,
@@ -13,6 +14,16 @@ import {
 import { WorkItemsService } from './workitems.service';
 import type { WorkItemSummary } from './workitems.types';
 
+/**
+ * Without `@Roles` the global RolesGuard short-circuits, nothing resolves the
+ * session, and `requireStaff` — which reads the actor the guard attaches — fails
+ * closed on every request. The decorator is what authenticates these routes; it
+ * is not decoration.
+ *
+ * Fulfilment is an operations job: finance, support and viewer roles have no
+ * business claiming or completing work items.
+ */
+@Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR')
 @Controller('operator/work-items')
 export class WorkItemsController {
   constructor(@Inject(WorkItemsService) private readonly workItems: WorkItemsService) {}

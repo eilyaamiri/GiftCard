@@ -1,34 +1,41 @@
-"use client";
-import { useMemo, useState } from "react";
-import { ProductCard, products as sample } from "@/components/marketing";
+import Link from "next/link";
+import { EmptyState, ErrorState } from "@barat/ui";
+import { PackageSearch } from "lucide-react";
+import { api, ApiClientError } from "@/lib/api";
+import { GiftCardsCatalog } from "./gift-cards-catalog";
 
-const categories = ["همه", "بازی و سرگرمی", "خرید و اپلیکیشن", "استریمینگ"];
-const catalog = [...sample, { brand: "NETFLIX", title: "گیفت‌کارت نتفلیکس", region: "TR", price: "۹۸۰٬۰۰۰ تومان", tone: "steam" }, { brand: "XBOX", title: "گیفت‌کارت ایکس‌باکس", region: "US", price: "۱٬۴۲۰٬۰۰۰ تومان", tone: "play" }, { brand: "AMAZON", title: "گیفت‌کارت آمازون", region: "US", price: "۲٬۳۱۰٬۰۰۰ تومان", tone: "google" }];
+export const dynamic = "force-dynamic";
 
-export default function GiftCardsPage() {
-  const [category, setCategory] = useState("همه");
-  const [region, setRegion] = useState("همه");
-  const regions = useMemo(() => ["همه", ...new Set(catalog.map((p) => p.region))], []);
-  const filtered = catalog.filter((p) => region === "همه" || p.region === region);
+export default async function GiftCardsPage() {
+  let items;
+  try {
+    ({ items } = await api.products("pageSize=100"));
+  } catch (error) {
+    return (
+      <main className="page container">
+        <ErrorState
+          title="فهرست گیفت‌کارت‌ها در دسترس نیست"
+          description={error instanceof ApiClientError ? error.message : "ارتباط با سرویس ممکن نیست. لطفاً دوباره تلاش کنید."}
+          action={<Link className="btn btn-primary" href="/gift-cards">تلاش دوباره</Link>}
+        />
+      </main>
+    );
+  }
 
   return (
     <main className="page container">
       <div className="eyebrow">کاتالوگ</div>
       <h1 className="h2">گیفت‌کارت‌های محبوب</h1>
       <p className="muted">پرتکرارترین کارت‌های دیجیتال جهان، با قیمت شفاف و تحویل مطمئن.</p>
-      <div className="filterbar" role="group" aria-label="فیلتر دسته‌بندی">
-        {categories.map((c) => (
-          <button key={c} type="button" className={`chip ${category === c ? "active" : ""}`} aria-pressed={category === c} onClick={() => setCategory(c)}>{c}</button>
-        ))}
-      </div>
-      <div className="filterbar" role="group" aria-label="فیلتر منطقه">
-        {regions.map((r) => (
-          <button key={r} type="button" className={`chip ${region === r ? "active" : ""}`} aria-pressed={region === r} onClick={() => setRegion(r)}>{r}</button>
-        ))}
-      </div>
-      <div className="grid catalog-grid">
-        {filtered.map((p) => <ProductCard key={p.brand} product={p} />)}
-      </div>
+      {items.length === 0 ? (
+        <EmptyState
+          icon={<PackageSearch />}
+          title="در حال حاضر گیفت‌کارتی موجود نیست"
+          description="کاتالوگ به‌زودی به‌روزرسانی می‌شود. لطفاً بعداً دوباره سر بزنید."
+        />
+      ) : (
+        <GiftCardsCatalog products={items} />
+      )}
     </main>
   );
 }

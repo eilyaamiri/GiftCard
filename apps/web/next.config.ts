@@ -13,12 +13,26 @@ const nextConfig: NextConfig = {
 
   transpilePackages: ['@barat/ui', '@barat/contracts'],
 
-  /** Only NEXT_PUBLIC_* values may reach the browser. Never a secret. */
+  /*
+   * Only NEXT_PUBLIC_* values may reach the browser. Never a secret.
+   *
+   * Empty means "same origin". The customer session cookie is Secure and
+   * SameSite=Lax, and the API's CORS allowlist names the production origins
+   * only, so a cross-origin browser call would be rejected twice over. In
+   * production nginx serves the API under /api on this very host, and the
+   * rewrite below gives development the same shape.
+   */
   env: {
-    NEXT_PUBLIC_API_URL: process.env['API_PUBLIC_URL'] ?? 'http://localhost:4000',
+    NEXT_PUBLIC_API_URL: process.env['API_PUBLIC_URL'] ?? '',
   },
 
   typedRoutes: true,
+
+  async rewrites() {
+    if (process.env.NODE_ENV === 'production') return [];
+    const target = process.env['API_INTERNAL_URL'] ?? 'http://localhost:4000';
+    return [{ source: '/api/:path*', destination: `${target}/api/:path*` }];
+  },
 
   async headers() {
     return [

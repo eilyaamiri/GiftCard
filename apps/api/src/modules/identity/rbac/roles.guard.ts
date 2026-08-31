@@ -15,9 +15,14 @@ import { PUBLIC_METADATA_KEY, ROLES_METADATA_KEY } from './roles.decorator';
  * Server-side RBAC.
  *
  * A route decorated with `@Roles(...)` requires a staff session whose CURRENT
- * database role is in the list. Customer sessions can never satisfy it, and a
- * missing decorator is not treated as "allow all" — the caller still has to be
- * authenticated unless the route is `@Public()`.
+ * database role is in the list. Customer sessions can never satisfy it.
+ *
+ * A route with NO `@Roles` decorator passes straight through this guard. That is
+ * deliberate — customer routes authenticate with their own guards, not with
+ * staff roles — but it means this guard authenticates nothing on its own. Any
+ * staff route that omits `@Roles` gets no session resolved and therefore no
+ * `request.actor`, which is how the operator endpoints once ended up rejecting
+ * every caller. If a staff route needs a principal, it needs `@Roles`.
  */
 @Injectable()
 export class RolesGuard implements CanActivate {

@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
+import { Roles } from '../identity/rbac/roles.decorator';
 import { requireStaff } from '../workitems/staff-context';
 import {
   FulfillmentService,
@@ -26,6 +27,7 @@ import {
  * curl by an authenticated operator is subject to exactly the same checks as the
  * button in the panel, which is the property the security review asks for.
  */
+@Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR')
 @Controller('operator/fulfillment')
 export class FulfillmentController {
   constructor(@Inject(FulfillmentService) private readonly fulfillment: FulfillmentService) {}

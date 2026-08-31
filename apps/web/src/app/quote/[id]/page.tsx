@@ -1,84 +1,92 @@
-"use client";
-import { use, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { CountdownTimer, Ltr } from "@barat/ui";
-import { RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { Ltr, toPersianDigits } from "@barat/ui";
+import type { QuoteSnapshot } from "@barat/contracts";
+import { api, ApiClientError } from "@/lib/api";
+import { tomanFromIrr } from "@/app/checkout/purchase";
+import { QuoteActions } from "./quote-actions";
+
+export const dynamic = "force-dynamic";
 
 /**
- * POC note: this page is wired to render a `QuoteSnapshot` shape identical to
- * `@barat/contracts` `GetQuoteResponse`. Until quotes.ts pricing endpoints are
- * live, a deterministic demo snapshot is derived from the route id so the
- * countdown / expiry / re-quote flows are fully exercised end to end.
+ * The quoted price, exactly as the server froze it.
+ *
+ * Every figure on this page is a field of the snapshot. Nothing is added up in
+ * the browser: `finalAmountIrr` is the number the customer will be charged and
+ * the number they acknowledge, so recomputing it here could only ever introduce
+ * a disagreement with the row the API will check the acknowledgement against.
  */
-function buildDemoQuote(id: string) {
-  const now = Date.now();
-  return {
-    quoteNumber: `Q-${id.slice(-8).toUpperCase()}`,
-    expiresAt: new Date(now + 5 * 60 * 1000).toISOString(),
-    lines: [
-      { label: "ارزش گیفت‌کارت", amount: "۲٬۸۰۰٬۰۰۰ تومان" },
-      { label: "کارمزد پرداخت", amount: "۴۵٬۰۰۰ تومان" },
-      { label: "کارمزد خدمت", amount: "۷۵٬۰۰۰ تومان" },
-    ],
-    total: "۲٬۹۲۰٬۰۰۰ تومان",
-  };
-}
+export default async function QuotePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
 
-export default function QuotePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
-  const router = useRouter();
-  const quote = useMemo(() => buildDemoQuote(id), [id]);
-  const [expired, setExpired] = useState(false);
-  const [accepting, setAccepting] = useState(false);
-
-  async function accept() {
-    setAccepting(true);
-    await new Promise((r) => setTimeout(r, 500));
-    router.push(`/checkout/ORD-${id.slice(-8).toUpperCase()}` as never);
+  let quote: QuoteSnapshot;
+  try {
+    quote = (await api.quote(id)).quote;
+  } catch (error) {
+    return <QuoteUnavailable error={error} />;
   }
 
   return (
     <main className="page container" style={{ maxWidth: 640 }}>
       <div className="eyebrow">پیش‌فاکتور</div>
       <h1 className="h2">بررسی قیمت</h1>
-      <p className="muted">شماره پیش‌فاکتور <Ltr>{quote.quoteNumber}</Ltr></p>
+      <p className="muted">
+        شماره پیش‌فاکتور <Ltr>{quote.quoteNumber}</Ltr>
+      </p>
 
-      <div className="card pad" style={{ marginTop: 18 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span className="muted" style={{ fontSize: 13 }}>اعتبار قیمت</span>
-          {expired ? (
-            <span className="chip" style={{ background: "#FCE9E9", color: "#D94A4A", borderColor: "#D94A4A" }}>قیمت منقضی شد</span>
-          ) : (
-            <CountdownTimer expiresAt={quote.expiresAt} onExpire={() => setExpired(true)} />
-          )}
-        </div>
-
-        {expired ? (
-          <div className="alert warn" style={{ marginBottom: 16 }}>
-            مهلت این قیمت به پایان رسید. برای دریافت نرخ روز، پیش‌فاکتور جدیدی بسازید.
+      <div className="card pad" style={{ marginBlockStart: 18 }}>
+        <QuoteActions quote={quote}>
+          {quote.components.map((component) => (
+            <div className="summary-line" key={`${component.kind}-${component.sortOrder}`}>
+              <span>{component.labelFa}</span>
+              <strong>
+                <Ltr>{tomanFromIrr(component.amountIrr)}</Ltr>
+              </strong>
+            </div>
+          ))}
+          {quote.discountAmount !== "0" ? (
+            <div className="summary-line">
+              <span>تخفیف</span>
+              <strong>
+                <Ltr>{tomanFromIrr(quote.discountAmount)}</Ltr>
+              </strong>
+            </div>
+          ) : null}
+          <div className="summary-total">
+            <span>مبلغ قابل پرداخت</span>
+            <Ltr>{tomanFromIrr(quote.finalAmountIrr)}</Ltr>
           </div>
-        ) : null}
+          <p className="muted" style={{ fontSize: 12, marginBlockStart: 10 }}>
+            تعداد {toPersianDigits(quote.quantity)} · نرخ ارز این پیش‌فاکتور تا پایان مهلت ثابت می‌ماند.
+          </p>
+        </QuoteActions>
+      </div>
 
-        {quote.lines.map((line) => (
-          <div className="summary-line" key={line.label}>
-            <span>{line.label}</span>
-            <strong><Ltr>{line.amount}</Ltr></strong>
-          </div>
-        ))}
-        <div className="summary-total">
-          <span>مبلغ قابل پرداخت</span>
-          <Ltr>{quote.total}</Ltr>
+      <p className="muted" style={{ fontSize: 12, marginBlockStart: 14 }}>
+        اگر مهلت تمام شود، قیمت جدیدی با نرخ روز محاسبه و پیش از پرداخت به شما نشان داده می‌شود.
+      </p>
+    </main>
+  );
+}
+
+function QuoteUnavailable({ error }: { error: unknown }) {
+  const notFound = error instanceof ApiClientError && (error.isNotFound || error.isUnauthenticated);
+  if (!notFound) throw error;
+
+  return (
+    <main className="page container" style={{ maxWidth: 520 }}>
+      <div className="card pad" style={{ textAlign: "center" }}>
+        <h1 className="h2">این پیش‌فاکتور در دسترس نیست</h1>
+        <p className="muted">
+          ممکن است مهلت آن تمام شده باشد یا با حساب دیگری ساخته شده باشد. برای دیدن قیمت روز، دوباره از صفحهٔ محصول اقدام کنید.
+        </p>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBlockStart: 18 }}>
+          <Link className="btn btn-primary" href="/gift-cards">
+            انتخاب محصول
+          </Link>
+          <Link className="btn btn-outline" href="/login">
+            ورود به حساب
+          </Link>
         </div>
-
-        {expired ? (
-          <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 18 }} onClick={() => router.back()}>
-            <RefreshCw size={16} /> دریافت قیمت جدید
-          </button>
-        ) : (
-          <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 18 }} onClick={accept} disabled={accepting}>
-            {accepting ? "در حال ثبت..." : "تأیید و ادامه پرداخت"}
-          </button>
-        )}
       </div>
     </main>
   );

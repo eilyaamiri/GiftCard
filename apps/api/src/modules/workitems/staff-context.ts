@@ -16,6 +16,10 @@ export interface StaffContext {
 }
 
 interface RequestWithStaff {
+  /** Set by RolesGuard via AuthContextService. The only trustworthy source. */
+  actor?: unknown;
+  /* Historic names. Nothing in the identity layer has ever set these, but they
+   * are still read so a future guard using either keeps working. */
   staff?: unknown;
   user?: unknown;
 }
@@ -35,6 +39,12 @@ function parse(candidate: unknown): StaffContext | null {
     return null;
   }
   const record = candidate as Record<string, unknown>;
+  /* A customer session is an actor too. It carries no role, so the role check
+   * below would already reject it, but refusing it by type keeps the intent
+   * explicit: this is a staff-only door. */
+  if ('type' in record && record['type'] !== 'STAFF') {
+    return null;
+  }
   const id = record['id'] ?? record['staffId'];
   const role = record['role'];
   if (typeof id !== 'string' || id.length === 0) {
@@ -49,7 +59,7 @@ function parse(candidate: unknown): StaffContext | null {
 /** Read the staff principal, or reject the request. */
 export function requireStaff(request: unknown): StaffContext {
   const typed = request as RequestWithStaff;
-  const staff = parse(typed.staff) ?? parse(typed.user);
+  const staff = parse(typed.actor) ?? parse(typed.staff) ?? parse(typed.user);
   if (!staff) {
     throw DomainErrors.unauthenticated();
   }

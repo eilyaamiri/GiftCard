@@ -25,7 +25,8 @@ import {
   type FxOverrideDeleteQuery,
   type FxOverrideRequest,
 } from './fx.dto';
-import { FxOverrideGuard, requireStaffActor } from './fx-staff.guard';
+import { Roles } from '../identity/rbac/roles.decorator';
+import { FX_OVERRIDE_ROLES, FxOverrideGuard, requireStaffActor } from './fx-staff.guard';
 
 @ApiTags('fx')
 @Controller('fx')
@@ -73,6 +74,7 @@ export class FxController {
    * the authenticated session — the request body never names the actor.
    */
   @Post('override')
+  @Roles(...FX_OVERRIDE_ROLES)
   @UseGuards(FxOverrideGuard)
   @ApiOperation({ summary: 'Pin a manual FX rate (ADMIN/FINANCE, audited)' })
   @ApiOkResponse({ description: 'The persisted override snapshot' })
@@ -95,6 +97,7 @@ export class FxController {
   }
 
   @Delete('override')
+  @Roles(...FX_OVERRIDE_ROLES)
   @UseGuards(FxOverrideGuard)
   @ApiOperation({ summary: 'Expire the active manual FX override (ADMIN/FINANCE, audited)' })
   @ApiOkResponse({ description: 'Number of override rows expired' })

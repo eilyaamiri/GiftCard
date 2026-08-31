@@ -1,14 +1,21 @@
+import { ShieldAlert } from "lucide-react";
+import { AUDIT_ROLES } from "@/lib/api";
+import { requireRole } from "@/lib/session";
+
 export const metadata = { title: "گزارش رخدادها | پنل ادمین برات پی" };
 
-const events = [
-  { actor: "سارا احمدی", action: "FX_RATE_OVERRIDE_SET", target: "USD_IRR", time: "۱۰:۱۲", detail: "override به مدت ۳۰ دقیقه با دلیل ثبت‌شده" },
-  { actor: "محمد رضایی", action: "GIFT_CARD_ASSET_SAVED", target: "WI-77410", time: "۱۰:۰۸", detail: "کد و پین ذخیره و رمزنگاری شد" },
-  { actor: "سیستم", action: "AMOUNT_MISMATCH", target: "ORDER-BP-10429", time: "۰۹:۵۰", detail: "عدم تطابق مبلغ Quote و Payment — سفارش متوقف شد" },
-  { actor: "نیلوفر کریمی", action: "PRICING_RULE_UPDATED", target: "targetMarginBps", time: "۰۹:۳۰", detail: "از ۷۵۰ به ۸۰۰ bps تغییر یافت" },
-  { actor: "سیستم", action: "PAYMENT_VERIFIED", target: "PAY-55021", time: "۰۹:۲۲", detail: "صحت‌سنجی سمت سرور موفق" },
-];
+/**
+ * The API has an internal, write-only audit module (apps/api/src/modules/audit)
+ * that records events like GIFT_CARD_CODE_VIEWED and FX_RATE_OVERRIDE_SET, but
+ * there is no controller exposing a read endpoint (confirmed against the live
+ * route table on 2026-08-31: no `Mapped {/api/admin/audit...}` line exists).
+ * A page that invents rows here would look exactly like a real append-only log
+ * while actually being fiction, which is worse than admitting it isn't wired
+ * yet — so this renders an honest empty state instead.
+ */
+export default async function AuditPage() {
+  await requireRole(AUDIT_ROLES);
 
-export default function AuditPage() {
   return (
     <div>
       <div className="page-heading">
@@ -19,31 +26,14 @@ export default function AuditPage() {
         <p className="muted">Append-only — هیچ رکوردی ویرایش یا حذف نمی‌شود</p>
       </div>
 
-      <div className="card list-card">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>زمان</th>
-                <th>عامل</th>
-                <th>رخداد</th>
-                <th>هدف</th>
-                <th>جزئیات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {events.map((event, index) => (
-                <tr key={index}>
-                  <td className="bp-ltr muted">{event.time}</td>
-                  <td>{event.actor}</td>
-                  <td className="bp-ltr" style={{ color: "var(--teal)", fontWeight: 700 }}>{event.action}</td>
-                  <td className="bp-ltr">{event.target}</td>
-                  <td className="muted">{event.detail}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      <div className="card panel" style={{ textAlign: "center" }}>
+        <ShieldAlert size={28} style={{ color: "var(--slate)", marginBottom: 10 }} />
+        <p className="empty-hint" style={{ padding: "8px 20px 0" }}>
+          رخدادها در پایگاه‌داده ثبت می‌شوند، اما سرویس هنوز endpoint خواندنی برای این گزارش ارائه نمی‌دهد.
+        </p>
+        <p className="empty-hint" style={{ padding: "0 20px 8px" }}>
+          به‌محض افزوده‌شدن یک مسیر مثل GET /api/admin/audit-log به API، این صفحه به آن متصل خواهد شد.
+        </p>
       </div>
     </div>
   );
