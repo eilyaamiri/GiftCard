@@ -18,6 +18,7 @@ import {
   type WorkItemSummary,
 } from "../../../_lib/work-items";
 import { FulfillmentPanel } from "./fulfillment-panel";
+import { GiftCardRequestForm } from "./gift-card-request-form";
 import { TASK_GUIDANCE } from "./task-guidance";
 import { TaskLifecyclePanel } from "./task-lifecycle-panel";
 
@@ -120,6 +121,17 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
               ))}
             </ol>
           </div>
+
+          {item.type === "MANUAL_GIFT_CARD_FULFILLMENT" && isMine && !isClosed ? (
+            <div className="card workspace-card">
+              <div className="section-label">
+                <h3>درخواست کد گیفت‌کارت</h3>
+                <span>اتصال به {item.code}</span>
+              </div>
+              <p className="muted">اگر برای تکمیل این تسک به کد یا پین تأمین‌کننده نیاز دارید، درخواست را برای ادمین ارسال کنید.</p>
+              <GiftCardRequestForm workItemId={item.id} />
+            </div>
+          ) : null}
 
           {workspaceResult.workspace ? (
             <FulfillmentPanel

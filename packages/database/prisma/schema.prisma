@@ -155,6 +155,17 @@ enum DeliveryStatus {
   DELIVERY_FAILED
 }
 
+enum GiftCardRequestKind {
+  CODE
+  CODE_PIN
+}
+
+enum GiftCardRequestStatus {
+  OPEN
+  FULFILLED
+  CANCELLED
+}
+
 enum StaffRole {
   ADMIN
   MANAGEMENT
@@ -514,6 +525,8 @@ model StaffUser {
   fulfillmentsPerformed       Fulfillment[]              @relation("FulfillmentOperator")
   fulfillmentsApproved        Fulfillment[]              @relation("FulfillmentApprover")
   giftCardAssetsEntered       GiftCardAsset[]            @relation("GiftCardAssetEnteredBy")
+  giftCardRequestsCreated     GiftCardCodeRequest[]      @relation("GiftCardCodeRequestCreator")
+  giftCardRequestsFulfilled   GiftCardCodeRequest[]      @relation("GiftCardCodeRequestFulfiller")
   checklistItemsVerified      FulfillmentChecklistItem[] @relation("ChecklistItemVerifier")
   reconciliationIssuesOwned   ReconciliationIssue[]      @relation("ReconciliationAssignee")
   reconciliationIssuesClosed  ReconciliationIssue[]      @relation("ReconciliationResolver")
@@ -993,6 +1006,7 @@ model Order {
   workItems            WorkItem[]
   fulfillments         Fulfillment[]
   giftCardAssets       GiftCardAsset[]
+  giftCardCodeRequests GiftCardCodeRequest[]
   deliveryAttempts     DeliveryAttempt[]
   reconciliationIssues ReconciliationIssue[]
 
@@ -1163,6 +1177,7 @@ model WorkItem {
 
   checklist    FulfillmentChecklist?
   fulfillments Fulfillment[]
+  giftCardCodeRequests GiftCardCodeRequest[]
 
   @@index([queueId, status, priority])
   @@index([assignedToStaffId, status])
@@ -1296,6 +1311,42 @@ model Fulfillment {
 /// no code at all. The application enforces: assetType in (CODE, CODE_PIN)
 /// requires `encryptedCode`; CODE_PIN additionally requires `encryptedPin`;
 /// URL requires `deliveryUrl`; PROVIDER_DIRECT_EMAIL requires `recipientEmail`.
+/// An operator's tracked request for an administrator to supply a gift-card
+/// credential. This row contains metadata only: code/PIN plaintext is accepted by
+/// the fulfillment service and immediately encrypted into `GiftCardAsset`.
+model GiftCardCodeRequest {
+  id            String                @id @default(cuid())
+  requestNumber String                @unique
+  workItemId    String
+  orderId       String
+  kind          GiftCardRequestKind
+  status        GiftCardRequestStatus @default(OPEN)
+
+  /// Equals workItemId only while OPEN. This prevents duplicate active requests.
+  openWorkItemKey String? @unique
+
+  requestedByStaffId String
+  fulfilledByStaffId String?
+  giftCardAssetId    String? @unique
+  requestReason      String?
+  responseNote       String?
+  requestedAt        DateTime @default(now())
+  fulfilledAt        DateTime?
+  cancelledAt        DateTime?
+  updatedAt          DateTime @updatedAt
+
+  workItem   WorkItem     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  order      Order        @relation(fields: [orderId], references: [id])
+  requestedBy StaffUser  @relation("GiftCardCodeRequestCreator", fields: [requestedByStaffId], references: [id])
+  fulfilledBy StaffUser? @relation("GiftCardCodeRequestFulfiller", fields: [fulfilledByStaffId], references: [id], onDelete: SetNull)
+  giftCardAsset GiftCardAsset? @relation(fields: [giftCardAssetId], references: [id], onDelete: SetNull)
+
+  @@index([status, requestedAt])
+  @@index([requestedByStaffId, requestedAt])
+  @@index([orderId])
+  @@index([workItemId])
+}
+
 model GiftCardAsset {
   id            String            @id @default(cuid())
   fulfillmentId String?
@@ -1339,6 +1390,7 @@ model GiftCardAsset {
   enteredBy   StaffUser?   @relation("GiftCardAssetEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
 
   deliveryAttempts DeliveryAttempt[]
+  giftCardRequest GiftCardCodeRequest?
 
   @@index([orderId])
   @@index([status, createdAt])
