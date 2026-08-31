@@ -1,0 +1,48 @@
+{
+  "name": "@barat/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Barat Pay design system — Vazirmatn, RTL primitives and shared components. Source is owned by workstream B7.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css",
+    "./fonts": "./src/fonts.ts",
+    "./fonts/*": "./fonts/*"
+  },
+  "files": ["src", "fonts"],
+  "scripts": {
+    "lint": "eslint src",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@barat/contracts": "workspace:*",
+    "clsx": "2.1.1",
+    "date-fns-jalali": "4.4.0-0",
+    "lucide-react": "1.37.0",
+    "tailwind-merge": "3.6.0",
+    "vazirmatn": "33.0.3"
+  },
+  "peerDependencies": {
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@barat/config": "workspace:*",
+    "@tailwindcss/postcss": "4.3.3",
+    "@types/node": "26.4.0",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "next": "16.3.3",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

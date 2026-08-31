@@ -1,0 +1,4 @@
+# Prisma migrations live here.
+#
+# Generate one with:  pnpm db:migrate
+# Never edit an applied migration; add a new one.

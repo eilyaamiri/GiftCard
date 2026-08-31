@@ -1,0 +1,30 @@
+{
+  "name": "@barat/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Shared tsconfig bases, ESLint preset and Tailwind design tokens for Barat Pay",
+  "exports": {
+    "./tsconfig/base.json": "./tsconfig/base.json",
+    "./tsconfig/library.json": "./tsconfig/library.json",
+    "./tsconfig/nestjs.json": "./tsconfig/nestjs.json",
+    "./tsconfig/nextjs.json": "./tsconfig/nextjs.json",
+    "./eslint": "./eslint/index.mjs",
+    "./tailwind/theme.css": "./tailwind/theme.css",
+    "./tailwind/tokens": {
+      "types": "./tailwind/tokens.d.ts",
+      "default": "./tailwind/tokens.js"
+    }
+  },
+  "files": ["tsconfig", "eslint", "tailwind"],
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.9.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0"
+  }
+}

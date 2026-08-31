@@ -1,0 +1,40 @@
+{
+  "name": "international-commerce",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Barat Pay — Iranian gift-card + international-payment platform (POC monorepo)",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.24.0",
+  "engines": {
+    "node": "24.x",
+    "pnpm": "11.24.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:e2e": "turbo run test:e2e",
+    "clean": "turbo run clean && rm -rf node_modules/.cache .turbo",
+    "format": "prettier --write \"**/*.{ts,tsx,js,mjs,cjs,json,md,css,yaml,yml}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,mjs,cjs,json,md,css,yaml,yml}\"",
+    "db:generate": "pnpm --filter @barat/database db:generate",
+    "db:migrate": "pnpm --filter @barat/database db:migrate",
+    "db:push": "pnpm --filter @barat/database db:push",
+    "db:seed": "pnpm --filter @barat/database db:seed",
+    "db:studio": "pnpm --filter @barat/database db:studio",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:reset": "docker compose down -v && docker compose up -d"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.9.1",
+    "prettier": "3.9.6",
+    "tsx": "4.23.13",
+    "turbo": "2.10.12",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.68.0"
+  }
+}
