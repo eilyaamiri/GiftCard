@@ -2,7 +2,7 @@
  * constructor-injected. With `emitDecoratorMetadata`, a type-only import erases the
  * class from `design:paramtypes` (it becomes `Function`) and Nest can no longer
  * resolve the dependency at runtime. They must stay value imports. */
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import type {
   IdentityType,
@@ -60,7 +60,9 @@ interface ResolvedCustomer {
  * returned by an endpoint, never audited and never logged — AGENTS.md rule 10.
  */
 @Injectable()
-export class OtpService {
+export class OtpService implements OnModuleInit {
+  private readonly logger = new Logger(OtpService.name);
+
   constructor(
     @Inject(IDENTITY_DATABASE) private readonly database: IdentityDatabase,
     private readonly config: AppConfigService,
@@ -70,6 +72,18 @@ export class OtpService {
     private readonly sessions: SessionService,
     private readonly customers: CustomerReadService,
   ) {}
+
+  onModuleInit(): void {
+    if (this.config.otpDevFixedCode) {
+      /* Deliberately does not print the code. A boot log is not the place for a
+       * working credential, and whoever set it already knows the value. */
+      this.logger.warn(
+        'OTP_DEV_FIXED_CODE is set: every login code is a fixed value, so anyone who knows it ' +
+          'can sign in as any mobile number. This is a demo configuration and must never reach ' +
+          'a deployment that handles real customers.',
+      );
+    }
+  }
 
   /* ------------------------------------------------------------------ request */
 
@@ -89,7 +103,11 @@ export class OtpService {
       policy.resendSeconds,
     );
 
-    const code = generateOtp(policy.length);
+    /* On a demo deployment with no SMS gateway the operator can pin the code.
+     * This replaces the source of randomness and nothing else: the value below
+     * is hashed, stored, expired, attempt-counted and consumed exactly as a
+     * random one would be, so the verify path has no idea which it got. */
+    const code = this.config.otpDevFixedCode ?? generateOtp(policy.length);
     const codeHash = await argon2.hash(code, { type: argon2.argon2id });
     const expiresAt = new Date(now.getTime() + policy.ttlSeconds * 1000);
 

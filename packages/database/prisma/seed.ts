@@ -360,6 +360,41 @@ async function seedStaff(): Promise<{ operatorIds: string[]; managerId: string; 
   return { operatorIds, managerId, adminId };
 }
 
+/**
+ * Puts the operators and the ops manager into every queue.
+ *
+ * `WorkItemsService.claim` refuses an OPERATOR who is not a member of the
+ * item's queue — correct, but with no memberships seeded it meant a plain
+ * operator was refused on every claim, which reads as a broken permission
+ * system rather than as missing data. Higher roles skip the check, so this
+ * gap was invisible to anyone testing as an admin.
+ *
+ * The ops manager gets `canAssign`; operators do not, because handing work to
+ * somebody else is a supervisory act.
+ */
+async function seedQueueMemberships(
+  queueIds: Record<QueueKey, string>,
+  operatorIds: string[],
+  managerId: string,
+): Promise<void> {
+  const members = [
+    ...operatorIds.map((staffUserId) => ({ staffUserId, canAssign: false })),
+    { staffUserId: managerId, canAssign: true },
+  ];
+
+  for (const queueId of Object.values(queueIds)) {
+    for (const member of members) {
+      await prisma.queueMembership.upsert({
+        where: {
+          queueId_staffUserId: { queueId, staffUserId: member.staffUserId },
+        },
+        create: { queueId, staffUserId: member.staffUserId, canAssign: member.canAssign },
+        update: { canAssign: member.canAssign },
+      });
+    }
+  }
+}
+
 async function seedChecklistTemplates(): Promise<void> {
   // Mirrors apps/api/src/modules/fulfillment/checklist-templates.ts. Duplicated
   // as literal seed data (not imported) because packages/database must never
@@ -1425,10 +1460,20 @@ async function seedFunnel(params: {
         // Fulfillment path
         // -----------------------------------------------------------------
         const workItemId = `seed_workitem_${pad(i, 3)}`;
-        const operatorId = pick(operatorIds, i - 1);
+
+        /* Every work item used to arrive already assigned, so the operator
+         * queue was empty of anything claimable and the claim path — the whole
+         * point of the workspace — could not be exercised on seeded data. Leave
+         * the unfulfilled tail unassigned so there is work waiting to be picked
+         * up. Deterministic: the same orders are open on every rebuild. */
+        const isUnclaimed = !paidAndFulfilled && i % 2 === 1;
+
+        const operatorId = isUnclaimed ? null : pick(operatorIds, i - 1);
         const workItemStatus = paidAndFulfilled
           ? WorkItemStatus.COMPLETED
-          : WorkItemStatus.IN_PROGRESS;
+          : isUnclaimed
+            ? WorkItemStatus.UNASSIGNED
+            : WorkItemStatus.IN_PROGRESS;
 
         await prisma.workItem.upsert({
           where: { id: workItemId },
@@ -1442,13 +1487,26 @@ async function seedFunnel(params: {
             status: workItemStatus,
             activeOrderKey: paidAndFulfilled ? null : orderId,
             assignedToStaffId: operatorId,
-            assignedAt: createdAt,
-            startedAt: createdAt,
+            /* An unclaimed item has never been assigned or started; the claim
+             * endpoint is what stamps those. Backdating them here would let the
+             * queue show work that is simultaneously waiting and in progress. */
+            assignedAt: isUnclaimed ? null : createdAt,
+            startedAt: isUnclaimed ? null : createdAt,
             completedAt: paidAndFulfilled ? atOffset(1000 + i * 30 + 600) : null,
             title: `Fulfil ${sku.title} (${sku.denominationLabel}) for ${orderNumber}`,
             createdAt,
           },
-          update: {},
+          /* An empty `update` makes re-running the seed a no-op on rows that
+           * already exist, so a demo database can never pick up a change to
+           * what the seed considers correct. Restating the assignment fields
+           * keeps this convergent: re-seeding returns the queue to its intended
+           * shape instead of leaving whatever a previous version wrote. */
+          update: {
+            status: workItemStatus,
+            assignedToStaffId: operatorId,
+            assignedAt: isUnclaimed ? null : createdAt,
+            startedAt: isUnclaimed ? null : createdAt,
+          },
         });
 
         const checklistId = `seed_checklist_${pad(i, 3)}`;
@@ -1679,8 +1737,9 @@ async function main(): Promise<void> {
   console.log('[seed] starting deterministic demo seed...');
 
   await seedFeatureFlags();
-  await seedQueues();
+  const queueIds = await seedQueues();
   const { operatorIds, managerId, adminId } = await seedStaff();
+  await seedQueueMemberships(queueIds, operatorIds, managerId);
   await seedChecklistTemplates();
   const pricingRuleId = await seedPricingRule(adminId);
   const fxRateId = await seedFxRate(adminId);

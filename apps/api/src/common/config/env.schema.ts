@@ -104,6 +104,24 @@ export const envSchema = z
     OTP_RESEND_SECONDS: positiveInt.max(900).default(60),
     OTP_MAX_ATTEMPTS: positiveInt.max(20).default(5),
     OTP_MAX_REQUESTS_PER_HOUR: positiveInt.max(100).default(10),
+    /**
+     * DEMO ONLY. When set, every login code issued is this exact value instead
+     * of a random one, so the storefront can be exercised without an SMS
+     * gateway wired up.
+     *
+     * It replaces only the source of randomness. The code is still hashed with
+     * argon2id, still single-use, still expires, still counts failed attempts
+     * and still locks out — nothing on the verify path is bypassed or weakened,
+     * because there is no branch there at all. What it does destroy is the one
+     * property OTP exists for: possession of the phone. Anyone who knows this
+     * value can sign in as any mobile number.
+     *
+     * The interlock below refuses to boot if this is set while ZarinPal is on,
+     * so it cannot be left behind on a deployment that takes real money.
+     */
+    OTP_DEV_FIXED_CODE: blankAsUndefined(
+      z.string().regex(/^\d+$/u, 'OTP_DEV_FIXED_CODE must contain digits only'),
+    ),
 
     /* ---------------------------------------------------------------- ZarinPal */
     ZARINPAL_ENABLED: booleanFromEnv.default(false),
@@ -152,6 +170,32 @@ export const envSchema = z
         code: 'custom',
         path: ['OTP_RESEND_SECONDS'],
         message: 'OTP_RESEND_SECONDS must not exceed OTP_TTL_SECONDS',
+      });
+    }
+
+    /* A fixed login code and a live payment gateway must never coexist. Taking
+     * real money is the clearest signal that a deployment is not a demo, so it
+     * is the signal this interlock uses: refusing to boot is the only failure
+     * mode loud enough to stop the value being forgotten in an env file. */
+    if (env.OTP_DEV_FIXED_CODE && env.ZARINPAL_ENABLED) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OTP_DEV_FIXED_CODE'],
+        message:
+          'OTP_DEV_FIXED_CODE must not be set while ZARINPAL_ENABLED is true — a fixed login code ' +
+          'lets anyone sign in as any mobile number, which is not survivable on a deployment ' +
+          'that accepts payments',
+      });
+    }
+
+    /* A code shorter or longer than OTP_LENGTH would be rejected by the login
+     * form before it ever reached the API, which reads as "the fixed code does
+     * not work" rather than as a misconfiguration. */
+    if (env.OTP_DEV_FIXED_CODE && env.OTP_DEV_FIXED_CODE.length !== env.OTP_LENGTH) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OTP_DEV_FIXED_CODE'],
+        message: `OTP_DEV_FIXED_CODE must be exactly OTP_LENGTH (${env.OTP_LENGTH}) digits`,
       });
     }
 

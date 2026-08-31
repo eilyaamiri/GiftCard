@@ -122,6 +122,16 @@ export class AppConfigService {
     };
   }
 
+  /**
+   * The fixed login code for a demo deployment with no SMS gateway, or null.
+   *
+   * See OTP_DEV_FIXED_CODE in env.schema.ts for what this gives up. The schema
+   * refuses to boot if it is set alongside a live payment gateway.
+   */
+  get otpDevFixedCode(): string | null {
+    return this.get('OTP_DEV_FIXED_CODE') ?? null;
+  }
+
   /* ------------------------------------------------------------- FX and quotes */
 
   get fxStaleThresholdSeconds(): number {
