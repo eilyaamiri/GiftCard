@@ -1,5 +1,4 @@
 import { AppShell } from "@/components/app-shell";
-import { LogoutButton } from "@/app/login/logout-button";
 import { OPERATOR_NAV } from "@/lib/nav";
 import { OPERATOR_ROLES, STAFF_ROLE_LABELS } from "@/lib/api";
 import { requireRole } from "@/lib/session";
@@ -17,7 +16,6 @@ export default async function OperatorLayout({ children }: { children: React.Rea
       >
         {children}
       </AppShell>
-      <LogoutButton />
     </>
   );
 }

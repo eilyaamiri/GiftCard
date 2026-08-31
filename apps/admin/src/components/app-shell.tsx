@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { NavSection } from "@/lib/nav";
 import { Icon } from "@/components/icon-map";
+import { LogoutButton } from "@/app/login/logout-button";
 
 /**
  * Shared admin/operator shell: 260px navy sidebar + 74px topbar.
@@ -69,6 +70,20 @@ export function AppShell({
         <header className="topbar">
           <p className="topbar-title">{title}</p>
           <div className="topbar-actions">
+            <details className="staff-profile">
+              <summary className="staff-profile-trigger">
+                <span className="avatar">{staffName.slice(0, 1)}</span>
+                <span className="staff-profile-copy">
+                  <strong>{staffName}</strong>
+                  <small>{staffRoleLabel}</small>
+                </span>
+                <span className="staff-profile-chevron" aria-hidden="true">⌄</span>
+              </summary>
+              <div className="staff-profile-menu">
+                <div className="staff-profile-label">حساب کاربری</div>
+                <LogoutButton />
+              </div>
+            </details>
             <label className="search">
               <Icon name="search" size={16} />
               <input type="search" placeholder="جست‌وجوی سفارش، مشتری، کد پیگیری…" aria-label="جست‌وجوی سراسری" />

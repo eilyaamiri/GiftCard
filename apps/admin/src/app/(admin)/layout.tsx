@@ -1,5 +1,4 @@
 import { AppShell } from "@/components/app-shell";
-import { LogoutButton } from "@/app/login/logout-button";
 import { ADMIN_NAV } from "@/lib/nav";
 import { BACK_OFFICE_ROLES, STAFF_ROLE_LABELS, hasRole } from "@/lib/api";
 import { requireRole } from "@/lib/session";
@@ -24,7 +23,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       >
         {children}
       </AppShell>
-      <LogoutButton />
     </>
   );
 }

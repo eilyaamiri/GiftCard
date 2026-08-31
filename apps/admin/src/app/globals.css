@@ -42,7 +42,21 @@ button { cursor: pointer; }
 .main-shell { min-width: 0; flex: 1; }
 .topbar { height: 74px; background: var(--paper); border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 34px; }
 .topbar-title { font-size: 18px; font-weight: 800; color: var(--ink); }
-.topbar-actions { display: flex; align-items: center; gap: 12px; }
+.staff-profile { position: relative; direction: rtl; }
+.staff-profile summary { list-style: none; }
+.staff-profile summary::-webkit-details-marker { display: none; }
+.staff-profile-trigger { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 4px 8px 4px 10px; color: var(--ink); background: white; border: 1px solid transparent; border-radius: 11px; cursor: pointer; }
+.staff-profile-trigger:hover, .staff-profile[open] .staff-profile-trigger { border-color: var(--line); background: var(--soft); }
+.staff-profile-trigger .avatar { width: 32px; height: 32px; }
+.staff-profile-copy { display: grid; gap: 1px; text-align: right; }
+.staff-profile-copy strong { max-width: 175px; overflow: hidden; color: var(--ink); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.staff-profile-copy small { color: var(--slate); font-size: 9px; }
+.staff-profile-chevron { margin-inline-start: 2px; color: var(--slate); font-size: 16px; line-height: 1; }
+.staff-profile-menu { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; width: 190px; display: grid; gap: 8px; padding: 10px; background: white; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 32px #0b1d331c; }
+.staff-profile-label { padding: 3px 5px; color: var(--slate); font-size: 9px; }
+.profile-logout-button { width: 100%; min-height: 38px; padding: 0 10px; color: var(--red); background: #fffafa; border: 1px solid #f3dada; border-radius: 8px; font-family: inherit; font-size: 11px; font-weight: 800; cursor: pointer; }
+.profile-logout-button:hover { background: #fdeceb; }
+.profile-logout-button:disabled { cursor: progress; opacity: .65; }
 .search { width: min(300px, 31vw); height: 40px; display: flex; align-items: center; gap: 8px; padding: 0 12px; color: var(--slate); background: var(--soft); border: 1px solid transparent; border-radius: 10px; }
 .search:focus-within { border-color: #8adcd9; background: white; outline: none; }
 .search input { min-width: 0; width: 100%; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 12px; }

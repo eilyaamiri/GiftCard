@@ -28,24 +28,9 @@ export function LogoutButton() {
       type="button"
       onClick={onLogout}
       disabled={pending}
-      style={{
-        position: "fixed",
-        insetBlockStart: "17px",
-        insetInlineStart: "34px",
-        zIndex: 20,
-        minHeight: "40px",
-        padding: "0 14px",
-        color: "#6b7c93",
-        background: "#ffffff",
-        border: "1px solid #e6ebf0",
-        borderRadius: "10px",
-        fontFamily: "inherit",
-        fontSize: "12px",
-        fontWeight: 700,
-        cursor: pending ? "progress" : "pointer",
-      }}
+      className="profile-logout-button"
     >
-      {pending ? "در حال خروج…" : "خروج"}
+      {pending ? "در حال خروج…" : "خروج از حساب"}
     </button>
   );
 }
