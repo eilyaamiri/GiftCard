@@ -69,7 +69,7 @@ export default async function CheckoutPage({ params }: { params: Promise<{ order
             <div className="alert" style={{ marginBlockStart: 14 }}>
               این سفارش در مرحلهٔ پرداخت نیست. وضعیت آن را از صفحهٔ پیگیری دنبال کنید.
             </div>
-            <Link className="btn btn-outline" style={{ width: "100%", marginBlockStart: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" }} href={`/orders/${order.orderNumber}`}>
+            <Link className="btn btn-outline" style={{ width: "100%", marginBlockStart: 18 }} href={`/orders/${order.orderNumber}`}>
               پیگیری سفارش
             </Link>
           </>
@@ -85,7 +85,7 @@ function OrderMissing() {
       <div className="card pad" style={{ textAlign: "center" }}>
         <h1 className="h2">این سفارش پیدا نشد</h1>
         <p className="muted">شماره سفارش را بررسی کنید یا از فهرست سفارش‌هایتان وارد شوید.</p>
-        <Link className="btn btn-primary" style={{ marginBlockStart: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" }} href="/orders">
+        <Link className="btn btn-primary" style={{ marginBlockStart: 18 }} href="/orders">
           سفارش‌های من
         </Link>
       </div>

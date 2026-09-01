@@ -58,7 +58,10 @@ export function StartPayment({
           {error}
         </div>
       ) : null}
-      <button type="button" className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18 }} onClick={() => void start()} disabled={busy}>
+      {/* The top margin lives in CSS, not here: this button is stacked under an
+        * alert on the checkout page but sits in a flex row on the order page,
+        * where a margin would knock it out of line with its neighbours. */}
+      <button type="button" className="btn btn-primary payment-start" onClick={() => void start()} disabled={busy}>
         <Lock size={16} aria-hidden="true" /> {busy ? busyLabel : label}
       </button>
     </>
