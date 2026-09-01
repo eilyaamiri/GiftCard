@@ -237,6 +237,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
 
   async updateChecklistItem(input: {
     itemId: string;
+    type?: ChecklistItemRecord['type'];
     status: ChecklistItemStatus;
     verifiedByStaffId?: string | null;
     verifiedAt?: Date | null;
@@ -247,6 +248,9 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
       return;
     }
     item.status = input.status;
+    if (input.type !== undefined) {
+      item.type = input.type;
+    }
     if (input.verifiedByStaffId !== undefined) {
       item.verifiedByStaffId = input.verifiedByStaffId;
     }

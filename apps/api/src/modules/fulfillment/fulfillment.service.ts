@@ -16,7 +16,6 @@ import {
 import { maskEmail } from './mask-recipient';
 import {
   ASSET_DELIVERY_TRANSPORT,
-  COST_VARIANCE_APPROVAL_KEY,
   FULFILLMENT_STORE,
   MANAGER_APPROVAL_ROLE_SET,
   type AssetDeliveryTransport,
@@ -119,7 +118,7 @@ export class FulfillmentService {
   }): Promise<FulfillmentWorkspace> {
     const context = await this.loadContext(input.workItemId);
     this.assertCanOperate(context, input.staff);
-    const state = await this.checklists.confirmBooleanItem({
+    const state = await this.checklists.confirmItem({
       context,
       itemKey: input.itemKey,
       staffId: input.staff.id,
@@ -425,7 +424,7 @@ export class FulfillmentService {
       action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_APPROVED,
       entity: 'Fulfillment',
       entityId: fulfillment.id,
-      before: { approvedByStaffId: null, checklistItem: COST_VARIANCE_APPROVAL_KEY },
+      before: { approvedByStaffId: null },
       after: {
         orderId: context.orderId,
         approvedBy: input.staff.id,

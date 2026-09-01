@@ -1,6 +1,6 @@
 import type { QueueKey, WorkItemType } from '@barat/contracts';
 
-import { COST_VARIANCE_APPROVAL_KEY, SYSTEM_VERIFIED_KEYS, type ChecklistItemDefinition } from './fulfillment.types';
+import { SYSTEM_VERIFIED_KEYS, type ChecklistItemDefinition } from './fulfillment.types';
 
 /**
  * Shipped checklist templates.
@@ -11,11 +11,13 @@ import { COST_VARIANCE_APPROVAL_KEY, SYSTEM_VERIFIED_KEYS, type ChecklistItemDef
  * live only in the database, so changing a constant here never rewrites history
  * for checklists that were already created.
  *
- * Item type semantics (enforced in `ChecklistService`):
- *   SYSTEM_VERIFIED  – derived from real state on every read. Not clickable.
- *   REQUIRED_FIELD   – passes as soon as the field it points at has a value.
- *   BOOLEAN          – a human confirmation; records verifiedBy / verifiedAt.
- *   MANAGER_APPROVAL – needs a second person holding a manager role.
+ * Every active item can be confirmed manually by the operator. SYSTEM_VERIFIED
+ * and REQUIRED_FIELD items may also pass from their underlying state or value;
+ * neither type is restricted to system-only confirmation.
+ *
+ * Manager approvals are deliberately not checklist items. Financial controls such
+ * as an out-of-tolerance supplier cost remain independent send gates, so an
+ * operator's checklist confirmation cannot bypass them.
  */
 
 /** REQUIRED_FIELD keys that read from order state instead of operator input. */
@@ -81,14 +83,6 @@ export const DEFAULT_GIFT_CARD_MANUAL_CHECKLIST: readonly ChecklistItemDefinitio
     type: 'BOOLEAN',
     isBlocking: true,
     sortOrder: 70,
-  },
-  {
-    key: COST_VARIANCE_APPROVAL_KEY,
-    label: 'Supplier cost variance approved by a manager',
-    labelFa: 'اختلاف هزینهٔ تأمین‌کننده توسط مدیر تأیید شده است',
-    type: 'MANAGER_APPROVAL',
-    isBlocking: true,
-    sortOrder: 80,
   },
 ];
 
@@ -157,14 +151,6 @@ export const DEFAULT_INTERNATIONAL_PAYMENT_CHECKLIST: readonly ChecklistItemDefi
     isBlocking: true,
     sortOrder: 80,
   },
-  {
-    key: COST_VARIANCE_APPROVAL_KEY,
-    label: 'Cost variance approved by a manager',
-    labelFa: 'اختلاف هزینه توسط مدیر تأیید شده است',
-    type: 'MANAGER_APPROVAL',
-    isBlocking: true,
-    sortOrder: 90,
-  },
 ];
 
 interface ShippedTemplate {
@@ -194,14 +180,6 @@ const GENERIC_CHECKLIST: readonly ChecklistItemDefinition[] = [
     type: 'BOOLEAN',
     isBlocking: true,
     sortOrder: 20,
-  },
-  {
-    key: COST_VARIANCE_APPROVAL_KEY,
-    label: 'Cost variance approved by a manager',
-    labelFa: 'اختلاف هزینه توسط مدیر تأیید شده است',
-    type: 'MANAGER_APPROVAL',
-    isBlocking: true,
-    sortOrder: 30,
   },
 ];
 

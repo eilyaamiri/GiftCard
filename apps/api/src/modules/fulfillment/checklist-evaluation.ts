@@ -3,7 +3,6 @@ import type { ChecklistItemStatus, ChecklistStatus, OrderStatus } from '@barat/c
 import { REQUIRED_FIELD_CONTEXT_SOURCES } from './checklist-templates';
 import { assessCostVariance, type CostVarianceAssessment } from './cost-variance';
 import {
-  COST_VARIANCE_APPROVAL_KEY,
   SYSTEM_VERIFIED_KEYS,
   type ChecklistItemRecord,
   type ChecklistRecord,
@@ -122,44 +121,28 @@ function deriveRequiredFieldStatus(item: ChecklistItemRecord, context: Fulfillme
   return item.hasValue ? 'PASSED' : 'PENDING';
 }
 
-function deriveManagerApprovalStatus(
-  item: ChecklistItemRecord,
-  context: FulfillmentContext,
-  variance: CostVarianceAssessment | null,
-): ChecklistItemStatus {
-  if (item.key !== COST_VARIANCE_APPROVAL_KEY) {
-    // A bespoke approval item is driven by an explicit manager action.
-    return item.status;
-  }
-
-  const fulfillment = context.fulfillment;
-  if (fulfillment === null || !isNonEmpty(fulfillment.actualSupplierCost) || variance === null) {
-    // Nothing has been spent yet, so there is nothing to approve. The blocking
-    // ACTUAL_COST_PRESENT item is what holds the send back at this point.
-    return 'NOT_APPLICABLE';
-  }
-
-  if (!variance.requiresApproval) {
-    return 'NOT_APPLICABLE';
-  }
-
-  return fulfillment.approvedByStaffId !== null && fulfillment.approvedAt !== null ? 'PASSED' : 'WAITING_APPROVAL';
-}
-
 export function deriveItemStatus(
   item: ChecklistItemRecord,
   context: FulfillmentContext,
-  variance: CostVarianceAssessment | null,
 ): ChecklistItemStatus {
+  // A named operator confirmation is an explicit checklist decision. It may
+  // satisfy an item before the system can derive it, without changing any of
+  // the independent payment, order, asset, cost or delivery send gates. Once
+  // confirmed, ChecklistService persists the item as BOOLEAN, so it stays
+  // reversible instead of being re-derived immediately after an untick.
+  if (item.verifiedByStaffId !== null && item.verifiedAt !== null) {
+    return item.status;
+  }
+
   switch (item.type) {
     case 'SYSTEM_VERIFIED':
       return deriveSystemVerifiedStatus(item.key, context);
     case 'REQUIRED_FIELD':
       return deriveRequiredFieldStatus(item, context);
-    case 'MANAGER_APPROVAL':
-      return deriveManagerApprovalStatus(item, context, variance);
     case 'BOOLEAN':
-      // Human confirmation: whatever the operator recorded stands.
+      return item.status;
+    case 'MANAGER_APPROVAL':
+      // Legacy manager-only rows are omitted from active checklists below.
       return item.status;
     default:
       return item.status;
@@ -169,24 +152,28 @@ export function deriveItemStatus(
 export function evaluateChecklist(input: {
   checklist: ChecklistRecord;
   context: FulfillmentContext;
-  variance: CostVarianceAssessment | null;
   isLocked: boolean;
 }): ChecklistEvaluation {
-  const { checklist, context, variance, isLocked } = input;
+  const { checklist, context, isLocked } = input;
+
+  // Manager-only rows from an older template are no longer part of any active
+  // checklist. The financial cost-variance gate remains enforced independently
+  // in `computeSendBlockers`; hiding a legacy row cannot release that gate.
+  const activeRecords = checklist.items.filter((record) => record.type !== 'MANAGER_APPROVAL');
 
   // A locked checklist is frozen: it is the record of what was true at the moment
   // the asset went out. Re-deriving it later would rewrite history.
   if (isLocked) {
     return {
-      items: checklist.items.map((record) => ({ record, status: record.status, changed: false })),
+      items: activeRecords.map((record) => ({ record, status: record.status, changed: false })),
       checklistStatus: checklist.status,
       blockedReason: checklist.blockedReason,
       unsatisfiedKeys: [],
     };
   }
 
-  const items = checklist.items.map((record) => {
-    const status = deriveItemStatus(record, context, variance);
+  const items = activeRecords.map((record) => {
+    const status = deriveItemStatus(record, context);
     return { record, status, changed: status !== record.status };
   });
 

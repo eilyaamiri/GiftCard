@@ -405,7 +405,6 @@ async function seedChecklistTemplates(): Promise<void> {
     PROVIDER_REFERENCE_PRESENT: 'PROVIDER_REFERENCE_PRESENT',
     GIFT_CARD_ASSET_PRESENT: 'GIFT_CARD_ASSET_PRESENT',
   } as const;
-  const COST_VARIANCE_APPROVAL_KEY = 'COST_VARIANCE_APPROVAL';
 
   const giftCardManual = [
     {
@@ -463,14 +462,6 @@ async function seedChecklistTemplates(): Promise<void> {
       type: 'BOOLEAN',
       isBlocking: true,
       sortOrder: 70,
-    },
-    {
-      key: COST_VARIANCE_APPROVAL_KEY,
-      label: 'Supplier cost variance approved by a manager',
-      labelFa: 'اختلاف هزینهٔ تأمین‌کننده توسط مدیر تأیید شده است',
-      type: 'MANAGER_APPROVAL',
-      isBlocking: true,
-      sortOrder: 80,
     },
   ];
 
@@ -539,14 +530,6 @@ async function seedChecklistTemplates(): Promise<void> {
       isBlocking: true,
       sortOrder: 80,
     },
-    {
-      key: COST_VARIANCE_APPROVAL_KEY,
-      label: 'Cost variance approved by a manager',
-      labelFa: 'اختلاف هزینه توسط مدیر تأیید شده است',
-      type: 'MANAGER_APPROVAL',
-      isBlocking: true,
-      sortOrder: 90,
-    },
   ];
 
   const generic = [
@@ -565,14 +548,6 @@ async function seedChecklistTemplates(): Promise<void> {
       type: 'BOOLEAN',
       isBlocking: true,
       sortOrder: 20,
-    },
-    {
-      key: COST_VARIANCE_APPROVAL_KEY,
-      label: 'Cost variance approved by a manager',
-      labelFa: 'اختلاف هزینه توسط مدیر تأیید شده است',
-      type: 'MANAGER_APPROVAL',
-      isBlocking: true,
-      sortOrder: 30,
     },
   ];
 
@@ -1529,7 +1504,6 @@ async function seedFunnel(params: {
           'ACTUAL_COST_PRESENT',
           'GIFT_CARD_ASSET_PRESENT',
           'ASSET_MATCHES_ORDER',
-          'COST_VARIANCE_APPROVAL',
         ];
         for (const [k, key] of checklistKeys.entries()) {
           const status = paidAndFulfilled
@@ -1545,12 +1519,7 @@ async function seedFunnel(params: {
               key,
               label: key,
               labelFa: key,
-              type:
-                key === 'COST_VARIANCE_APPROVAL'
-                  ? 'MANAGER_APPROVAL'
-                  : key.endsWith('PRESENT')
-                    ? 'SYSTEM_VERIFIED'
-                    : 'BOOLEAN',
+              type: key.endsWith('PRESENT') ? 'SYSTEM_VERIFIED' : 'BOOLEAN',
               status,
               isBlocking: true,
               sortOrder: k * 10,

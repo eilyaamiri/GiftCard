@@ -49,9 +49,10 @@ function toItemView(item: ChecklistItemRecord, status: ChecklistItemStatus): Che
     verifiedByStaffId: item.verifiedByStaffId,
     verifiedAt: item.verifiedAt,
     note: item.note,
-    // Only BOOLEAN and operator-supplied REQUIRED_FIELD items are clickable.
-    // SYSTEM_VERIFIED is derived; MANAGER_APPROVAL needs a manager action.
-    isOperatorEditable: item.type === 'BOOLEAN' || item.type === 'REQUIRED_FIELD',
+    // Every active checklist item may also be confirmed by the operator. The
+    // send gate still validates payment, order, asset, cost and delivery state
+    // independently, so this controls checklist completion only.
+    isOperatorEditable: true,
   };
 }
 
@@ -120,7 +121,7 @@ export class ChecklistService {
   async refresh(context: FulfillmentContext, record: ChecklistRecord): Promise<ChecklistState> {
     const isLocked = isChecklistLocked(record);
     const variance = assessContextCostVariance(context);
-    const evaluation = evaluateChecklist({ checklist: record, context, variance, isLocked });
+    const evaluation = evaluateChecklist({ checklist: record, context, isLocked });
 
     if (!isLocked) {
       for (const item of evaluation.items) {
@@ -130,9 +131,12 @@ export class ChecklistService {
         await this.store.updateChecklistItem({
           itemId: item.record.id,
           status: item.status,
-          // A derived item is not attributable to a person; clear any stale
-          // verifier so the audit trail never credits a human for a machine check.
-          ...(item.record.type === 'SYSTEM_VERIFIED' ? { verifiedByStaffId: null, verifiedAt: null } : {}),
+          // A state-derived pass is not attributable to a person. Preserve a
+          // manual operator confirmation, but clear stale attribution when an
+          // unconfirmed system item changes because its underlying state changed.
+          ...(item.record.type === 'SYSTEM_VERIFIED' && item.record.verifiedByStaffId === null
+            ? { verifiedByStaffId: null, verifiedAt: null }
+            : {}),
         });
       }
 
@@ -169,13 +173,15 @@ export class ChecklistService {
   }
 
   /**
-   * Records a human confirmation on a BOOLEAN item.
+   * Records a human confirmation on any active checklist item.
    *
-   * Refuses SYSTEM_VERIFIED and MANAGER_APPROVAL items outright — a tick on those
-   * would be a lie about who verified what, and the whole gate rests on that
-   * distinction being real rather than a UI convention.
+   * SYSTEM_VERIFIED and REQUIRED_FIELD rows can initially pass from their
+   * underlying state, but neither is system-only: once an operator confirms one,
+   * it becomes a normal BOOLEAN item with a named verifier and timestamp. Manager-
+   * only rows from old templates are excluded from the active checklist and remain
+   * separate from the independent cost-variance gate.
    */
-  async confirmBooleanItem(input: {
+  async confirmItem(input: {
     context: FulfillmentContext;
     itemKey: string;
     staffId: string;
@@ -194,14 +200,15 @@ export class ChecklistService {
     if (item === undefined) {
       throw DomainErrors.notFound(`checklist item ${input.itemKey}`);
     }
-    if (item.type !== 'BOOLEAN') {
-      throw DomainErrors.forbidden(`checklist item ${item.key} of type ${item.type} is not operator-checkable`);
+    if (item.type === 'MANAGER_APPROVAL') {
+      throw DomainErrors.notFound(`checklist item ${input.itemKey}`);
     }
 
     const status: ChecklistItemStatus = input.checked ? 'PASSED' : 'PENDING';
     const at = new Date();
     await this.store.updateChecklistItem({
       itemId: item.id,
+      type: 'BOOLEAN',
       status,
       verifiedByStaffId: input.checked ? input.staffId : null,
       verifiedAt: input.checked ? at : null,
