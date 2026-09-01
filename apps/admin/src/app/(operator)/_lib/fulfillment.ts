@@ -241,14 +241,16 @@ export const CHECKLIST_ITEM_STATUS_LABEL: Record<ChecklistItemStatus, string> = 
   PASSED: "تأیید شد",
   FAILED: "ناموفق",
   NOT_APPLICABLE: "بی‌مورد",
-  WAITING_APPROVAL: "در انتظار تأیید مدیر",
+  WAITING_APPROVAL: "در انتظار",
 };
 
 export const CHECKLIST_ITEM_TYPE_LABEL: Record<ChecklistItemType, string> = {
   BOOLEAN: "اپراتور",
-  SYSTEM_VERIFIED: "سیستم",
-  REQUIRED_FIELD: "فیلد الزامی",
-  MANAGER_APPROVAL: "تأیید مدیر",
+  SYSTEM_VERIFIED: "سیستم یا اپراتور",
+  REQUIRED_FIELD: "فیلد یا اپراتور",
+  // Kept only so responses containing a historical enum value can be parsed;
+  // manager-only rows are filtered out by the API and are never rendered.
+  MANAGER_APPROVAL: "اپراتور",
 };
 
 export const DELIVERY_STATUS_LABEL: Record<DeliveryStatus, string> = {

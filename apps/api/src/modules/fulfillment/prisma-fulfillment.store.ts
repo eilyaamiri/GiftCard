@@ -367,6 +367,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
 
   async updateChecklistItem(input: {
     itemId: string;
+    type?: ChecklistItemType;
     status: ChecklistItemStatus;
     verifiedByStaffId?: string | null;
     verifiedAt?: Date | null;
@@ -375,6 +376,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     await this.db.fulfillmentChecklistItem.update({
       where: { id: input.itemId },
       data: {
+        ...(input.type === undefined ? {} : { type: input.type }),
         status: input.status,
         ...(input.verifiedByStaffId === undefined ? {} : { verifiedByStaffId: input.verifiedByStaffId }),
         ...(input.verifiedAt === undefined ? {} : { verifiedAt: input.verifiedAt }),

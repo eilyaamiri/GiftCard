@@ -89,13 +89,22 @@ function ChecklistRow({
   const [draft, setDraft] = useState("");
   const passed = isSatisfied(item);
   const editable = canOperate && item.isOperatorEditable && !busy;
-  const needsValue = item.type === "REQUIRED_FIELD" && !item.hasValue;
+  const manuallyConfirmed = item.verifiedByStaffId !== null;
+  const nextChecked = !passed || !manuallyConfirmed;
+  const needsValue = item.type === "REQUIRED_FIELD" && !item.hasValue && !passed;
 
   return (
     <div className={`check-row${passed ? "" : " pending"}`}>
-      <span className="check-box" style={item.isOperatorEditable ? undefined : { opacity: 0.9 }}>
+      <button
+        type="button"
+        className="check-box"
+        aria-label={passed && manuallyConfirmed ? `لغو تأیید ${item.labelFa}` : `تأیید ${item.labelFa}`}
+        aria-pressed={passed}
+        disabled={!editable}
+        onClick={() => onCheck(item.key, nextChecked)}
+      >
         {passed ? <Check size={13} strokeWidth={3} /> : null}
-      </span>
+      </button>
       <div className="check-copy" style={{ display: "grid", gap: 6 }}>
         <strong>{item.labelFa}</strong>
         <span>
@@ -104,26 +113,24 @@ function ChecklistRow({
           {item.note ? ` · ${item.note}` : ""}
         </span>
 
-        {item.type === "BOOLEAN" ? (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="button"
-              className="secondary-btn"
-              disabled={!editable || item.status === "PASSED"}
-              onClick={() => onCheck(item.key, true)}
-            >
-              تأیید
-            </button>
-            <button
-              type="button"
-              className="secondary-btn"
-              disabled={!editable || item.status !== "PASSED"}
-              onClick={() => onCheck(item.key, false)}
-            >
-              برگرداندن
-            </button>
-          </div>
-        ) : null}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={!editable || (passed && manuallyConfirmed)}
+            onClick={() => onCheck(item.key, nextChecked)}
+          >
+            {manuallyConfirmed ? "تأیید شد" : "تأیید دستی"}
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            disabled={!editable || item.status !== "PASSED" || item.verifiedByStaffId === null}
+            onClick={() => onCheck(item.key, false)}
+          >
+            برگرداندن
+          </button>
+        </div>
 
         {item.type === "REQUIRED_FIELD" && needsValue ? (
           <div style={{ display: "flex", gap: 8 }}>
@@ -146,10 +153,6 @@ function ChecklistRow({
               ثبت
             </button>
           </div>
-        ) : null}
-
-        {item.type === "MANAGER_APPROVAL" && !passed ? (
-          <span>تأیید این مورد فقط از سوی مدیر عملیات یا مدیر سیستم و از پنل «اختلاف هزینه» انجام می‌شود.</span>
         ) : null}
       </div>
       <span className="check-type">{CHECKLIST_ITEM_TYPE_LABEL[item.type]}</span>

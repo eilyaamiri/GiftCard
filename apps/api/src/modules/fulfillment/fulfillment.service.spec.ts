@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import type { StaffContext } from '../workitems/staff-context';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { ChecklistService } from './checklist.service';
+import { SHIPPED_CHECKLIST_TEMPLATES } from './checklist-templates';
 import { FulfillmentService } from './fulfillment.service';
 import { GiftCardAssetService, GIFT_CARD_AUDIT_ACTIONS } from './gift-card-asset.service';
 import { SEND_BLOCKERS } from './checklist-evaluation';
@@ -89,6 +90,91 @@ beforeEach(() => {
   process.env['GIFT_CARD_ENCRYPTION_KEY'] = randomBytes(32).toString('base64');
 });
 
+describe('operator checklist confirmation', () => {
+  it('ships no manager-only rows in any task checklist template', () => {
+    for (const template of Object.values(SHIPPED_CHECKLIST_TEMPLATES)) {
+      expect(template.definition.some((item) => item.type === 'MANAGER_APPROVAL')).toBe(false);
+      expect(template.definition.some((item) => item.key === 'COST_VARIANCE_APPROVAL')).toBe(false);
+    }
+  });
+
+  it('lets the operator manually confirm system-derived and required-field items', async () => {
+    const h = harness({ hasVerifiedPayment: false, deliveryEmail: null });
+
+    const initial = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
+    expect(initial.checklist.items.every((item) => item.isOperatorEditable)).toBe(true);
+    expect(initial.checklist.items.some((item) => item.type === 'MANAGER_APPROVAL')).toBe(false);
+    expect(initial.checklist.items.find((item) => item.key === 'PAYMENT_VERIFIED')?.status).toBe('PENDING');
+    expect(initial.checklist.items.find((item) => item.key === 'DELIVERY_EMAIL_PRESENT')?.status).toBe('PENDING');
+
+    await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'PAYMENT_VERIFIED',
+      checked: true,
+    });
+    const confirmed = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'DELIVERY_EMAIL_PRESENT',
+      checked: true,
+    });
+
+    for (const key of ['PAYMENT_VERIFIED', 'DELIVERY_EMAIL_PRESENT']) {
+      const item = confirmed.checklist.items.find((candidate) => candidate.key === key);
+      expect(item?.status).toBe('PASSED');
+      expect(item?.type).toBe('BOOLEAN');
+      expect(item?.verifiedByStaffId).toBe(OPERATOR.id);
+      expect(item?.verifiedAt).not.toBeNull();
+    }
+
+    // Manual checklist confirmation never replaces the authoritative payment gate.
+    expect(confirmed.sendBlockers).toContain(SEND_BLOCKERS.PAYMENT_NOT_VERIFIED);
+  });
+
+  it('turns a system-passed item into a reversible operator confirmation', async () => {
+    const h = harness();
+    const confirmed = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'PAYMENT_VERIFIED',
+      checked: true,
+    });
+    expect(confirmed.checklist.items.find((item) => item.key === 'PAYMENT_VERIFIED')?.type).toBe('BOOLEAN');
+
+    const returned = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'PAYMENT_VERIFIED',
+      checked: false,
+    });
+    const item = returned.checklist.items.find((candidate) => candidate.key === 'PAYMENT_VERIFIED');
+    expect(item?.status).toBe('PENDING');
+    expect(item?.verifiedByStaffId).toBeNull();
+  });
+
+  it('lets the operator return a manual confirmation to pending', async () => {
+    const h = harness({ hasVerifiedPayment: false });
+    await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'PAYMENT_VERIFIED',
+      checked: true,
+    });
+
+    const returned = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'PAYMENT_VERIFIED',
+      checked: false,
+    });
+    const item = returned.checklist.items.find((candidate) => candidate.key === 'PAYMENT_VERIFIED');
+    expect(item?.status).toBe('PENDING');
+    expect(item?.verifiedByStaffId).toBeNull();
+    expect(item?.verifiedAt).toBeNull();
+  });
+});
+
 describe('send gate', () => {
   it('refuses to send while a blocking checklist item is unticked, even when the service is called directly', async () => {
     const h = harness();
@@ -146,8 +232,10 @@ describe('cost variance', () => {
     const workspace = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
     expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
     expect(workspace.costVariance?.varianceBps).toBe(2_000);
-    const approvalItem = workspace.checklist.items.find((item) => item.key === 'COST_VARIANCE_APPROVAL');
-    expect(approvalItem?.status).toBe('WAITING_APPROVAL');
+    // Cost variance is an independent financial gate, not a manager-only
+    // checklist row. It remains blocked until the dedicated approval succeeds.
+    expect(workspace.checklist.items.some((item) => item.type === 'MANAGER_APPROVAL')).toBe(false);
+    expect(workspace.checklist.items.some((item) => item.key === 'COST_VARIANCE_APPROVAL')).toBe(false);
 
     await expect(h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR })).rejects.toThrow();
     expect(h.transport.getSendCount()).toBe(0);

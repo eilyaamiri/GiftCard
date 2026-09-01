@@ -46,9 +46,6 @@ export const SYSTEM_VERIFIED_KEYS = {
 
 export type SystemVerifiedKey = (typeof SYSTEM_VERIFIED_KEYS)[keyof typeof SYSTEM_VERIFIED_KEYS];
 
-/** The manager-approval item raised when supplier cost exceeds tolerance. */
-export const COST_VARIANCE_APPROVAL_KEY = 'COST_VARIANCE_APPROVAL';
-
 /* ============================================================================
  * Read models
  * ==========================================================================*/
@@ -67,7 +64,7 @@ export interface ChecklistItemView {
   readonly verifiedByStaffId: string | null;
   readonly verifiedAt: Date | null;
   readonly note: string | null;
-  /** SYSTEM_VERIFIED and MANAGER_APPROVAL items are not operator-clickable. */
+  /** Every active item is operator-clickable; legacy manager rows are omitted. */
   readonly isOperatorEditable: boolean;
 }
 
@@ -275,6 +272,7 @@ export interface FulfillmentStore {
   }): Promise<ChecklistRecord>;
   updateChecklistItem(input: {
     itemId: string;
+    type?: ChecklistItemType;
     status: ChecklistItemStatus;
     verifiedByStaffId?: string | null;
     verifiedAt?: Date | null;
