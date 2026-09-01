@@ -15,7 +15,7 @@ import {
   createQuoteResponseSchema,
   verifyPaymentResponseSchema,
 } from "@barat/contracts";
-import { formatToman } from "@barat/ui";
+import { formatIrr, formatToman } from "@barat/ui";
 import { ApiClientError, api } from "@/lib/api";
 
 /**
@@ -140,9 +140,19 @@ function randomToken(): string {
  * IRR arrives as a decimal string because it is a BigInt server-side. It goes
  * to `BigInt`, never to `Number` — a 64-bit rial total loses precision as a
  * double, and that is a financial bug, not a rounding nit.
+ *
+ * Every amount we quote is a whole number of Toman — totals by pricing rule, and
+ * the customer's breakdown lines because the API rounds them before they leave.
+ * The Rial fallback is for the amounts that are not ours to round: a partial
+ * refund is entered by staff and can legitimately land on an odd rial. Showing
+ * it as Rial states it exactly, where `formatToman` would (rightly) throw and
+ * take the page down with it, as it once did on the quote breakdown.
+ *
+ * The same fallback as the admin panel's `tomanFromIrr`, deliberately.
  */
 export function tomanFromIrr(irr: string): string {
-  return formatToman(BigInt(irr));
+  const value = BigInt(irr);
+  return value % 10n === 0n ? formatToman(value) : formatIrr(value);
 }
 
 /**

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Badge, EmptyState, Ltr, formatJalaliDate, formatToman, toPersianDigits } from "@barat/ui";
+import { Badge, EmptyState, Ltr, formatJalaliDate, toPersianDigits } from "@barat/ui";
 import { Receipt } from "lucide-react";
 import { AccountNav } from "@/components/account-nav";
 import { api } from "@/lib/api";
+import { tomanFromIrr } from "@/app/checkout/purchase";
 import { paymentStatusView, refundStatusView } from "@/lib/status";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ export default async function AccountPaymentsPage({ searchParams }: { searchPara
                   <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>{formatJalaliDate(payment.createdAt)}</p>
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <Ltr className="price">{formatToman(BigInt(payment.amountIrr))}</Ltr>
+                  <Ltr className="price">{tomanFromIrr(payment.amountIrr)}</Ltr>
                   <Badge tone={view.tone}>{view.label}</Badge>
                 </div>
               </div>
@@ -80,7 +81,7 @@ export default async function AccountPaymentsPage({ searchParams }: { searchPara
                     </p>
                   </div>
                   <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                    <Ltr className="price">{formatToman(BigInt(refund.amountIrr))}</Ltr>
+                    <Ltr className="price">{tomanFromIrr(refund.amountIrr)}</Ltr>
                     <Badge tone={view.tone}>{view.label}</Badge>
                   </div>
                 </div>

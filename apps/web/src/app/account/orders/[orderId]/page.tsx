@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Badge, Ltr, formatIrr, formatJalaliDate, formatToman } from "@barat/ui";
+import { Badge, Ltr, formatIrr, formatJalaliDate } from "@barat/ui";
 import { AccountNav } from "@/components/account-nav";
 import { orderStatusView } from "@/lib/status";
 import { api, ApiClientError } from "@/lib/api";
+import { tomanFromIrr } from "@/app/checkout/purchase";
 import { StartPayment } from "@/app/checkout/[orderNumber]/start-payment";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +36,7 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
       <div className="card pad">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <Badge tone={view.tone}>{view.label}</Badge>
-          <Ltr className="price">{formatToman(BigInt(order.totalAmountIrr))}</Ltr>
+          <Ltr className="price">{tomanFromIrr(order.totalAmountIrr)}</Ltr>
         </div>
         <div className="summary-line" style={{ marginBlockStart: 14 }}>
           <span>مبلغ به ریال</span>
