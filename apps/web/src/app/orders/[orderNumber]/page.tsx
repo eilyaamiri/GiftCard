@@ -45,7 +45,7 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
           <p className="muted" style={{ marginBlockStart: 0 }}>
             این سفارش هنوز پرداخت نشده است. تا زمانی که پرداخت توسط بانک تأیید نشود، آماده‌سازی آغاز نمی‌شود.
           </p>
-          <Link className="btn btn-primary" style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }} href={`/checkout/${order.orderNumber}`}>
+          <Link className="btn btn-primary" href={`/checkout/${order.orderNumber}`}>
             ادامه پرداخت
           </Link>
         </div>
@@ -162,7 +162,7 @@ function OrderMissing() {
       <div className="card pad" style={{ textAlign: "center" }}>
         <h1 className="h2">این سفارش پیدا نشد</h1>
         <p className="muted">شماره سفارش را بررسی کنید یا از فهرست سفارش‌هایتان وارد شوید.</p>
-        <Link className="btn btn-primary" style={{ marginBlockStart: 18, display: "inline-flex", alignItems: "center", justifyContent: "center" }} href="/orders">
+        <Link className="btn btn-primary" style={{ marginBlockStart: 18 }} href="/orders">
           سفارش‌های من
         </Link>
       </div>

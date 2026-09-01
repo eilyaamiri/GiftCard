@@ -96,7 +96,7 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
       </div>
 
       {expired ? (
-        <Link className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 8 }} href={{ pathname: "/quote/new", query: requoteQuery(quote) }}>
+        <Link className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18 }} href={{ pathname: "/quote/new", query: requoteQuery(quote) }}>
           <RefreshCw size={16} aria-hidden="true" /> دریافت قیمت جدید
         </Link>
       ) : (
