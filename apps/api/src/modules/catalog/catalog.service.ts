@@ -5,6 +5,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import Decimal from 'decimal.js';
 import { Prisma } from '@barat/database';
+import { QUOTABLE_COST_CURRENCIES } from '@barat/contracts';
 import type {
   DecimalString,
   GetProductResponse,
@@ -59,6 +60,23 @@ import {
  * from `Supplier` or `SupplierOffer` appears here, so a future careless
  * `include` cannot leak a cost through a DTO that simply has no field for it.
  * ==========================================================================*/
+
+/**
+ * "This SKU can actually be bought right now."
+ *
+ * Availability is not just "some supplier has stock": the offer must also be
+ * priced in a currency the quote engine has an FX pair for. Without the
+ * currency clause the storefront happily offers a GBP card, the quote is
+ * refused as unpriceable, and the customer lands on an error page after
+ * pressing buy. Both public availability checks share this one object so the
+ * listing filter and the per-SKU flag can never disagree.
+ */
+const PURCHASABLE_OFFER: Prisma.SupplierOfferWhereInput = {
+  isActive: true,
+  availability: 'AVAILABLE',
+  supplier: { isActive: true },
+  costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
+};
 
 const PRODUCT_PUBLIC_SELECT = {
   id: true,
@@ -170,17 +188,7 @@ export class CatalogService {
     const skuFilter: Prisma.SkuWhereInput = {
       isActive: true,
       ...(input.region ? { region: input.region } : {}),
-      ...(input.onlyAvailable
-        ? {
-            supplierOffers: {
-              some: {
-                isActive: true,
-                availability: 'AVAILABLE',
-                supplier: { isActive: true },
-              },
-            },
-          }
-        : {}),
+      ...(input.onlyAvailable ? { supplierOffers: { some: PURCHASABLE_OFFER } } : {}),
     };
 
     const where: Prisma.ProductWhereInput = {
@@ -701,12 +709,7 @@ export class CatalogService {
       return new Set();
     }
     const rows = await this.db.supplierOffer.findMany({
-      where: {
-        skuId: { in: [...skuIds] },
-        isActive: true,
-        availability: 'AVAILABLE',
-        supplier: { isActive: true },
-      },
+      where: { skuId: { in: [...skuIds] }, ...PURCHASABLE_OFFER },
       select: { skuId: true },
       distinct: ['skuId'],
     });

@@ -1,6 +1,10 @@
 import Decimal from 'decimal.js';
 import { describe, expect, it, vi } from 'vitest';
-import { getProductResponseSchema, listProductsResponseSchema } from '@barat/contracts';
+import {
+  QUOTABLE_COST_CURRENCIES,
+  getProductResponseSchema,
+  listProductsResponseSchema,
+} from '@barat/contracts';
 
 vi.mock('@barat/database', () => ({
   Prisma: { JsonNull: null },
@@ -91,6 +95,24 @@ describe('CatalogService public projections', () => {
     }
   });
 
+  it('only counts a SKU available when its offer is priced in a quotable currency', async () => {
+    const { service, supplierOffer } = harness();
+
+    await service.getProduct('apple-us');
+
+    /* A GBP-only SKU has no FX pair, so the quote engine would refuse it. If the
+     * availability probe ignored currency the storefront would offer the card
+     * and then drop the customer on an error page after they pressed buy. */
+    expect(supplierOffer.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      skuId: { in: ['sku-1'] },
+      isActive: true,
+      availability: 'AVAILABLE',
+      supplier: { isActive: true },
+      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
+    });
+    expect(QUOTABLE_COST_CURRENCIES).not.toContain('GBP');
+  });
+
   it('filters onlyAvailable at the database boundary without selecting offers', async () => {
     const { service, product } = harness();
 
@@ -106,6 +128,9 @@ describe('CatalogService public projections', () => {
       isActive: true,
       availability: 'AVAILABLE',
       supplier: { isActive: true },
+      // An offer priced in a currency with no FX pair cannot be quoted, so it
+      // must not make a product look buyable.
+      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
     });
     expect(call.select.skus.select).toEqual({ region: true });
     expect(JSON.stringify(response)).not.toContain(SUPPLIER_ID);
