@@ -12,26 +12,16 @@ import { RIAL_PAYMENT_PROVIDER } from '@barat/payments';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { type AuditActorType, AuditService } from '../audit/audit.service';
+/* The port as the work-items module publishes it — the concrete types file, not
+ * the barrel, which pulls the Prisma-backed store and would make this service
+ * untestable without a database. Payments still knows no fulfillment class. */
+import {
+  FULFILLMENT_TRIGGER,
+  type FulfillmentTrigger,
+} from '../workitems/workitems.types';
 
 /** Token used by the composition root to replace the database in tests. */
 export const PAYMENTS_DATABASE = Symbol('PAYMENTS_DATABASE');
-
-/**
- * The fulfillment module consumes this event. Payments deliberately knows no
- * fulfillment class; the event is emitted only after the payment transaction
- * commits successfully.
- */
-export const FULFILLMENT_TRIGGER = Symbol('FULFILLMENT_TRIGGER');
-
-export interface FulfillmentTriggerInput {
-  readonly orderId: string;
-  readonly paymentId: string;
-  readonly idempotencyKey: string;
-}
-
-export interface FulfillmentTrigger {
-  trigger(input: FulfillmentTriggerInput): Promise<void>;
-}
 
 export interface PaymentDatabase {
   readonly quote: unknown;
@@ -141,12 +131,6 @@ export function assertPaymentTransition(
   }
 }
 
-const NOOP_FULFILLMENT_TRIGGER: FulfillmentTrigger = {
-  async trigger(_input: FulfillmentTriggerInput): Promise<void> {
-    // The real fulfillment consumer is registered by the fulfillment workstream.
-  },
-};
-
 /** Provider-neutral payment orchestration and callback verification. */
 @Injectable()
 export class PaymentsService {
@@ -159,11 +143,15 @@ export class PaymentsService {
     // Always injected. The service never imports the Prisma singleton itself, so
     // a unit test can drive the whole flow without a live database.
     @Inject(PAYMENTS_DATABASE) database: PaymentDatabase,
-    @Optional() @Inject(AuditService) private readonly auditService?: AuditService,
-    @Optional() @Inject(FULFILLMENT_TRIGGER) fulfillmentTrigger?: FulfillmentTrigger,
+    @Optional() @Inject(AuditService) private readonly auditService: AuditService | undefined,
+    /* Deliberately NOT @Optional(). This used to fall back to a silent no-op,
+     * which is how a mismatched token went unnoticed: every order reached PAID
+     * and no fulfillment work item was ever created, so nobody was tasked with
+     * delivering the card. A missing binding must break the boot, loudly. */
+    @Inject(FULFILLMENT_TRIGGER) fulfillmentTrigger: FulfillmentTrigger,
   ) {
     this.db = database;
-    this.fulfillmentTrigger = fulfillmentTrigger ?? NOOP_FULFILLMENT_TRIGGER;
+    this.fulfillmentTrigger = fulfillmentTrigger;
   }
 
   /**
@@ -433,10 +421,16 @@ export class PaymentsService {
 
     const committed = await this.commitSuccessfulPayment(payment, result);
     if (committed.transitioned) {
-      await this.fulfillmentTrigger.trigger({
+      /* Called AFTER the payment transaction commits, never inside it: a
+       * rolled-back payment would otherwise leave an operator holding work for
+       * an order that was never paid. `onOrderPaid` is idempotent per order, so
+       * a replayed callback still produces exactly one work item.
+       *
+       * `payload` carries operator context only — never a code, PIN or token. */
+      await this.fulfillmentTrigger.onOrderPaid({
         orderId: payment.orderId,
-        paymentId: payment.id,
-        idempotencyKey: `payment:${payment.id}:fulfillment`,
+        customerId: payment.customerId,
+        payload: { paymentId: payment.id },
       });
     }
     // `verified` means "this call performed the verification". A replay that

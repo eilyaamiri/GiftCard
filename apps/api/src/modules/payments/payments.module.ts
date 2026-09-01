@@ -4,13 +4,20 @@ import { RIAL_PAYMENT_PROVIDER } from '@barat/payments';
 
 import { AppConfigModule, AppConfigService } from '../../common/config';
 import { AuditModule } from '../audit/audit.module';
+import { WorkItemsModule } from '../workitems/workitems.module';
 import { PAYMENTS_DATABASE, PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
 import { createRialPaymentProvider } from './rial-payment-provider.factory';
 
-/** Select exactly one adapter at boot; domain code only sees RialPaymentProvider. */
+/**
+ * Select exactly one adapter at boot; domain code only sees RialPaymentProvider.
+ *
+ * `WorkItemsModule` supplies `FULFILLMENT_TRIGGER`, the port a verified payment
+ * uses to queue fulfillment. Work items never import payments, so this is a
+ * one-way edge and not a cycle.
+ */
 @Module({
-  imports: [AppConfigModule, AuditModule],
+  imports: [AppConfigModule, AuditModule, WorkItemsModule],
   controllers: [PaymentsController],
   providers: [
     {

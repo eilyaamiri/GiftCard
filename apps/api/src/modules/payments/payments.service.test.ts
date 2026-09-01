@@ -3,10 +3,14 @@ import { MockRialPaymentProvider } from '@barat/payments';
 import type { RialPaymentProvider, VerifyResult } from '@barat/payments';
 
 import type { AuditService } from '../audit/audit.service';
+/* The real port, from the module that owns it. Payments used to declare its own
+ * look-alike interface and its own token; the two drifted and every paid order
+ * silently created no work item. Binding the test to the published contract is
+ * what keeps that from happening again. */
+import type { FulfillmentTrigger, WorkItemSummary } from '../workitems/workitems.types';
 import {
   assertPaymentTransition,
   PaymentsService,
-  type FulfillmentTrigger,
   type PaymentDatabase,
 } from './payments.service';
 
@@ -75,9 +79,9 @@ function makeHarness(options: {
   });
   const db = new FakePaymentDatabase(seed);
   const provider = options.provider ?? new MockRialPaymentProvider();
-  const trigger = vi.fn(async () => undefined);
+  const trigger = vi.fn(async () => ({ id: 'work-item-1' }) as unknown as WorkItemSummary);
   const audit = vi.fn(async () => undefined);
-  const fulfillment: FulfillmentTrigger = { trigger: trigger as FulfillmentTrigger['trigger'] };
+  const fulfillment: FulfillmentTrigger = { onOrderPaid: trigger };
   const auditService = { record: audit } as unknown as AuditService;
   const service = new PaymentsService(provider, db, auditService, fulfillment);
   return { db, provider, service, trigger, audit };
@@ -297,12 +301,14 @@ describe('PaymentsService.callback idempotency', () => {
     expect(paidOrderUpdates).toHaveLength(1);
     expect(harness.db.tables.order[0]?.['status']).toBe('PAID');
 
-    // Exactly one fulfillment trigger, with a stable idempotency key.
+    /* Exactly one fulfillment hand-off, carrying the order the operator must
+     * work and non-secret context only. Idempotency lives in the work-items
+     * service, keyed on the order, so five callbacks still yield one item. */
     expect(harness.trigger).toHaveBeenCalledTimes(1);
     expect(harness.trigger).toHaveBeenCalledWith({
       orderId: ORDER_ID,
-      paymentId,
-      idempotencyKey: `payment:${paymentId}:fulfillment`,
+      customerId: CUSTOMER_ID,
+      payload: { paymentId },
     });
 
     // No duplicate reconciliation noise, and every response is a consistent PAID.
@@ -333,7 +339,7 @@ describe('PaymentsService.callback idempotency', () => {
         payment: harness.db.paymentById(paymentId)['status'],
         order: harness.db.tables.order[0]?.['status'],
       };
-      return undefined;
+      return { id: 'work-item-1' } as unknown as WorkItemSummary;
     });
 
     await harness.service.callback({ Authority: authority, Status: 'OK' });
