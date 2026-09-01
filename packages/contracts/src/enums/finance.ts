@@ -13,6 +13,20 @@ export const FxPair = enumFrom(FX_PAIR_VALUES);
 export type FxPair = (typeof FX_PAIR_VALUES)[number];
 export const fxPairSchema = z.enum(FX_PAIR_VALUES);
 
+/**
+ * The supplier cost currencies the quote engine can actually price.
+ *
+ * Derived from the traded pairs on purpose: a SKU whose only supplier offer is
+ * in a currency with no FX pair cannot be quoted, and the catalog must not
+ * present it as buyable — otherwise the storefront sends the customer into a
+ * "not priceable right now" error after they press buy. Adding a pair to
+ * `FX_PAIR_VALUES` therefore makes its products sellable in the same commit,
+ * with no second list to keep in sync.
+ */
+export const QUOTABLE_COST_CURRENCIES: readonly string[] = FX_PAIR_VALUES.map(
+  (pair) => pair.split('_')[0] as string,
+);
+
 /* ============================================================================
  * Reconciliation
  * ==========================================================================*/

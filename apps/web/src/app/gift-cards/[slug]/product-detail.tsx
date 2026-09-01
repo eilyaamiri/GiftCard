@@ -8,20 +8,35 @@ import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 
+/**
+ * Land on something the customer can actually buy.
+ *
+ * The API marks a SKU unavailable when no supplier offer can be quoted, and an
+ * unavailable SKU disables the buy button. Defaulting to the first denomination
+ * in the list would leave that button dead with nothing explaining why, so
+ * prefer the first purchasable one and only fall back to an unavailable SKU
+ * when the whole region is out.
+ */
+function firstPurchasable<T extends { readonly id: string; readonly isAvailable: boolean }>(skus: readonly T[]): T | null {
+  return skus.find((sku) => sku.isAvailable) ?? skus[0] ?? null;
+}
+
 export function ProductDetail({ product }: { readonly product: ProductDetailDto }) {
   const router = useRouter();
-  const availableSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
+  const activeSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
   const [region, setRegion] = useState(product.regions[0] ?? "");
-  const skusForRegion = useMemo(() => availableSkus.filter((sku) => sku.region === region), [availableSkus, region]);
-  const [skuId, setSkuId] = useState(skusForRegion[0]?.id ?? "");
-  const selected = useMemo(() => skusForRegion.find((sku) => sku.id === skuId) ?? skusForRegion[0] ?? null, [skusForRegion, skuId]);
+  const skusForRegion = useMemo(() => activeSkus.filter((sku) => sku.region === region), [activeSkus, region]);
+  const [skuId, setSkuId] = useState(() => firstPurchasable(skusForRegion)?.id ?? "");
+  const selected = useMemo(
+    () => skusForRegion.find((sku) => sku.id === skuId) ?? firstPurchasable(skusForRegion),
+    [skusForRegion, skuId],
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function selectRegion(nextRegion: string) {
     setRegion(nextRegion);
-    const first = availableSkus.find((sku) => sku.region === nextRegion);
-    setSkuId(first?.id ?? "");
+    setSkuId(firstPurchasable(activeSkus.filter((sku) => sku.region === nextRegion))?.id ?? "");
   }
 
   async function getPrice() {
@@ -104,6 +119,9 @@ export function ProductDetail({ product }: { readonly product: ProductDetailDto 
             <span className="summary-total-placeholder">پس از دریافت نرخ معتبر ارز نمایش داده می‌شود</span>
           </div>
           {error ? <div className="alert warn" style={{ marginTop: 14 }} role="alert">{error}</div> : null}
+          {!selected.isAvailable ? (
+            <div className="alert warn" style={{ marginTop: 14 }}>این مبلغ در حال حاضر موجود نیست. لطفاً مبلغ یا منطقه دیگری را انتخاب کنید.</div>
+          ) : null}
           <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={getPrice} disabled={loading || !selected.isAvailable}>
             {loading ? "در حال محاسبه..." : error ? "تلاش دوباره برای دریافت قیمت" : "دریافت قیمت نهایی"}
           </button>
