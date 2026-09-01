@@ -43,14 +43,10 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
               </strong>
             </div>
           ))}
-          {quote.discountAmount !== "0" ? (
-            <div className="summary-line">
-              <span>تخفیف</span>
-              <strong>
-                <Ltr>{tomanFromIrr(quote.discountAmount)}</Ltr>
-              </strong>
-            </div>
-          ) : null}
+          {/* No separate discount line: a discount is already one of the
+              components above, carried as a negative amount so the column sums
+              to the payable total. Rendering `discountAmount` as well showed it
+              twice, the second time with the wrong sign. */}
           <div className="summary-total">
             <span>مبلغ قابل پرداخت</span>
             <Ltr>{tomanFromIrr(quote.finalAmountIrr)}</Ltr>

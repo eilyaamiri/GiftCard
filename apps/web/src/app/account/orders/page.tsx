@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { Badge, EmptyState, Ltr, formatJalaliDate, formatToman, toPersianDigits } from "@barat/ui";
+import { Badge, EmptyState, Ltr, formatJalaliDate, toPersianDigits } from "@barat/ui";
 import { PackageSearch } from "lucide-react";
 import { AccountNav } from "@/components/account-nav";
 import { orderStatusView } from "@/lib/status";
 import { api } from "@/lib/api";
+import { tomanFromIrr } from "@/app/checkout/purchase";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +46,7 @@ export default async function AccountOrdersPage({ searchParams }: { searchParams
                   <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>{formatJalaliDate(order.createdAt, "d MMMM yyyy")}</p>
                 </div>
                 <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                  <Ltr className="price">{formatToman(BigInt(order.totalAmountIrr))}</Ltr>
+                  <Ltr className="price">{tomanFromIrr(order.totalAmountIrr)}</Ltr>
                   <Badge tone={view.tone}>{view.label}</Badge>
                 </div>
               </Link>

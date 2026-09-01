@@ -31,6 +31,13 @@ import type {
  *
  * so `goods + paymentFee + serviceFee + operationalFee - discount == subtotal`
  * still holds and the customer's arithmetic adds up.
+ *
+ * The customer's lines are also stated in whole Toman. Fees and margin are
+ * basis points of a rial subtotal, so they land on exact rial — a ۸۷,۱۷۶٫۳
+ * تومان line is not a price anyone quotes in Iran, and the storefront's
+ * formatter refuses a fraction of a Toman outright rather than truncate it.
+ * Each line is therefore rounded to the nearest Toman and the rounding line,
+ * which exists for exactly this, carries the residual. See `foldComponents`.
  * ==========================================================================*/
 
 export type QuoteAudience = 'CUSTOMER' | 'STAFF';
@@ -227,6 +234,7 @@ export function toQuoteSnapshotDto(
           goodsIrr,
           customerForeignAmount(row),
           row.currency,
+          row.finalAmountIrr,
         ),
   };
 }
@@ -271,6 +279,7 @@ export function toAudienceBreakdown(
       goodsIrr,
       foreignAmount,
       foreignCurrency,
+      BigInt(breakdown.finalAmountIrr),
     ),
   };
 }
@@ -313,41 +322,70 @@ export function toAudienceFxSnapshot(
 
 /* ---------------------------------------------------------------- folding */
 
+/** IRR is the unit of record; 1 Toman = 10 IRR, and Toman is what is quoted. */
+const IRR_PER_TOMAN = 10n;
+
+/** Nearest whole Toman, halves away from zero. Sign-safe for DISCOUNT. */
+function toWholeToman(irr: bigint): bigint {
+  const negative = irr < 0n;
+  const abs = negative ? -irr : irr;
+  const remainder = abs % IRR_PER_TOMAN;
+  const rounded = remainder * 2n >= IRR_PER_TOMAN ? abs - remainder + IRR_PER_TOMAN : abs - remainder;
+  return negative ? -rounded : rounded;
+}
+
+/**
+ * The customer's breakdown: staff components folded down to the lines a buyer
+ * is entitled to, each stated in whole Toman, still summing exactly to
+ * `finalAmountIrr`.
+ *
+ * The original ROUNDING component is dropped rather than rounded. It records the
+ * step the *total* was rounded to; once every other line moves to the nearest
+ * Toman it no longer reconciles, so it is recomputed as the residual against the
+ * payable total. That total is guaranteed to be a whole number of Toman —
+ * `pricing.service.ts` refuses a rounding step that is not a multiple of 10 IRR
+ * — so the residual is whole Toman too, and the column adds up exactly.
+ */
 function foldComponents(
   components: ReadonlyArray<{ kind: PricingComponent['kind']; amountIrr: bigint }>,
   goodsIrr: bigint,
   foreignAmount: string,
   foreignCurrency: string,
+  finalAmountIrr: bigint,
 ): PricingComponent[] {
-  const folded: PricingComponent[] = [
-    {
-      kind: 'SUPPLIER_COST',
-      label: GOODS_LABEL,
-      labelFa: GOODS_LABEL_FA,
-      amountIrr: goodsIrr.toString() as IrrString,
-      amountForeign: foreignAmount as DecimalString,
-      currency: foreignCurrency,
-      bps: null,
-      sortOrder: 0,
-    },
-  ];
+  const folded: PricingComponent[] = [];
+  let accounted = 0n;
 
-  for (const component of components) {
-    if (FOLDED_INTO_GOODS.has(component.kind) || component.amountIrr === 0n) {
-      continue;
-    }
+  const push = (
+    kind: PricingComponent['kind'],
+    amountIrr: bigint,
+    foreign: { amount: string; currency: string } | null,
+  ): void => {
+    if (amountIrr === 0n) return;
+    accounted += amountIrr;
     folded.push({
-      kind: component.kind,
-      label: CUSTOMER_LABELS[component.kind][0],
-      labelFa: CUSTOMER_LABELS[component.kind][1],
-      amountIrr: component.amountIrr.toString() as IrrString,
-      amountForeign: null,
-      currency: null,
+      kind,
+      label: CUSTOMER_LABELS[kind][0],
+      labelFa: CUSTOMER_LABELS[kind][1],
+      amountIrr: amountIrr.toString() as IrrString,
+      amountForeign: (foreign?.amount ?? null) as DecimalString | null,
+      currency: foreign?.currency ?? null,
       /* The bps rate is a pricing-policy detail; the amount is not. */
       bps: null,
       sortOrder: folded.length,
     });
+  };
+
+  push('SUPPLIER_COST', toWholeToman(goodsIrr), { amount: foreignAmount, currency: foreignCurrency });
+
+  for (const component of components) {
+    if (FOLDED_INTO_GOODS.has(component.kind) || component.kind === 'ROUNDING') {
+      continue;
+    }
+    push(component.kind, toWholeToman(component.amountIrr), null);
   }
+
+  push('ROUNDING', finalAmountIrr - accounted, null);
 
   return folded;
 }
