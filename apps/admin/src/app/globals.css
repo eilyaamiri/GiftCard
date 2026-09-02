@@ -1,5 +1,15 @@
 @import "@barat/ui/styles.css";
 
+/**
+ * Tailwind's automatic source detection starts at the directory of this file, so
+ * it never sees `@barat/ui` — the shared components' utility classes were simply
+ * missing from the bundle. `<Modal>` was the visible casualty: with `inset-0`,
+ * `z-50`, `items-center` and the rest undefined it rendered as a stray box
+ * instead of a dialog, which made every "reveal" button look like it did nothing.
+ * Utilities land in `@layer utilities`, so the unlayered rules below still win.
+ */
+@source "../../../../packages/ui/src";
+
 :root {
   --navy: #0b1d33;
   --navy-deep: #081727;
@@ -143,6 +153,9 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(22px, 2.5vw, 30px); letter-s
 .product-image-preview { width: 100%; height: 176px; object-fit: contain; padding: 12px; background: var(--soft); border: 1px dashed var(--line); border-radius: 11px; }
 .cost-panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin-top: 16px; padding: 13px; background: var(--soft); border-radius: 11px; } .cost-item span { display: block; color: var(--slate); font-size: 9px; } .cost-item strong { display: block; margin-top: 5px; color: var(--ink); font-size: 11px; direction: ltr; unicode-bidi: isolate; } .cost-diff { color: var(--green) !important; }
 .save-row { display: flex; justify-content: flex-end; margin-top: 15px; } .primary-btn { min-height: 44px; padding: 0 18px; color: var(--navy); background: var(--teal); border: 0; border-radius: 10px; font-size: 12px; font-weight: 800; } .secondary-btn { min-height: 44px; padding: 0 16px; color: var(--ink); background: white; border: 1px solid var(--line); border-radius: 10px; font-size: 11px; font-weight: 700; }
+/* Without this a disabled action is pixel-identical to an enabled one, so a
+   button that legitimately refuses to act reads as a button that is broken. */
+.primary-btn:disabled, .secondary-btn:disabled { opacity: .5; cursor: not-allowed; }
 .warning { margin-top: 12px; padding: 10px 12px; color: #8a5b00; background: #fff8e7; border-right: 3px solid var(--amber); border-radius: 7px; font-size: 10px; line-height: 1.8; }
 .checklist-progress { display: flex; align-items: center; gap: 11px; margin-bottom: 17px; } .progress-track { flex: 1; height: 8px; background: #e8eef2; border-radius: 99px; overflow: hidden; } .progress-fill { width: 77%; height: 100%; background: var(--teal); border-radius: inherit; } .progress-count { color: var(--ink); font-size: 12px; font-weight: 800; direction: ltr; unicode-bidi: isolate; }
 .check-row { display: flex; align-items: flex-start; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); } .check-row:last-child { border-bottom: 0; } .check-box { width: 19px; height: 19px; min-height: 19px; padding: 0; display: grid; place-items: center; flex: 0 0 auto; color: white; background: var(--teal); border: 0; border-radius: 5px; cursor: pointer; } .check-box:disabled { cursor: default; opacity: .9; } .check-row.pending .check-box { border: 1.5px solid #c5d1da; background: white; } .check-copy { min-width: 0; flex: 1; } .check-copy strong { display: block; color: var(--ink); font-size: 11px; } .check-copy span { display: block; margin-top: 3px; color: var(--slate); font-size: 9px; line-height: 1.6; } .check-type { color: var(--slate); font-size: 8px; font-weight: 800; white-space: nowrap; }
