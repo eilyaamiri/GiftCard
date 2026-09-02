@@ -16,27 +16,47 @@ import {
 /** The plaintext disappears on its own, so an unattended screen stops showing it. */
 const REVEAL_VISIBLE_MS = 45_000;
 
+/**
+ * An international payment stores a receipt, not a card, so it gets its own
+ * vocabulary. The reveal flow below is unreachable there — only CODE and
+ * CODE_PIN hold a secret — but the headings would still be wrong.
+ */
+export type AssetPanelVariant = "GIFT_CARD" | "INTERNATIONAL_PAYMENT";
+
 export function AssetPanel({
   workItemId,
   assets,
   canOperate,
+  variant = "GIFT_CARD",
 }: {
   workItemId: string;
   assets: readonly GiftCardAssetView[];
   canOperate: boolean;
+  variant?: AssetPanelVariant;
 }) {
+  const isPayment = variant === "INTERNATIONAL_PAYMENT";
   return (
     <div className="card workspace-card">
       <div className="section-label">
-        <h3>دارایی تحویل</h3>
+        <h3>{isPayment ? "مدرک پرداخت" : "دارایی تحویل"}</h3>
         <span>{toPersianDigits(assets.length)} مورد</span>
       </div>
 
       {assets.length === 0 ? (
-        <p className="empty-hint">هنوز دارایی تحویلی برای این سفارش ثبت نشده است.</p>
+        <p className="empty-hint">
+          {isPayment
+            ? "هنوز مدرکی برای این پرداخت ثبت نشده است."
+            : "هنوز دارایی تحویلی برای این سفارش ثبت نشده است."}
+        </p>
       ) : (
         assets.map((asset) => (
-          <AssetRow key={asset.id} workItemId={workItemId} asset={asset} canOperate={canOperate} />
+          <AssetRow
+            key={asset.id}
+            workItemId={workItemId}
+            asset={asset}
+            canOperate={canOperate}
+            variant={variant}
+          />
         ))
       )}
     </div>
@@ -47,10 +67,12 @@ function AssetRow({
   workItemId,
   asset,
   canOperate,
+  variant,
 }: {
   workItemId: string;
   asset: GiftCardAssetView;
   canOperate: boolean;
+  variant: AssetPanelVariant;
 }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -84,13 +106,20 @@ function AssetRow({
     }
   }
 
-  const revealable = hasRevealableSecret(asset.assetType);
+  const isPayment = variant === "INTERNATIONAL_PAYMENT";
+  const revealable = !isPayment && hasRevealableSecret(asset.assetType);
 
   return (
     <div className="kv-list" style={{ marginBlockEnd: 14 }}>
       <div className="kv-row">
         <span>نوع</span>
-        <span>{DELIVERY_ASSET_TYPE_LABEL[asset.assetType]}</span>
+        <span>
+          {isPayment && asset.assetType === "URL"
+            ? "لینک رسید پرداخت"
+            : isPayment && asset.assetType === "PROVIDER_DIRECT_EMAIL"
+              ? "تأییدیهٔ مستقیم سرویس به مشتری"
+              : DELIVERY_ASSET_TYPE_LABEL[asset.assetType]}
+        </span>
       </div>
       <div className="kv-row">
         <span>وضعیت تحویل</span>
@@ -126,10 +155,12 @@ function AssetRow({
           <span className="bp-ltr">{formatJalaliDate(asset.expiryDate)}</span>
         </div>
       ) : null}
-      <div className="kv-row">
-        <span>دفعات مشاهدهٔ کد</span>
-        <span>{toPersianDigits(asset.accessCount)}</span>
-      </div>
+      {isPayment ? null : (
+        <div className="kv-row">
+          <span>دفعات مشاهدهٔ کد</span>
+          <span>{toPersianDigits(asset.accessCount)}</span>
+        </div>
+      )}
       {asset.sentAt ? (
         <div className="kv-row">
           <span>زمان ارسال</span>
@@ -139,14 +170,17 @@ function AssetRow({
 
       {asset.assetType === "PROVIDER_DIRECT_EMAIL" ? (
         <p className="muted">
-          تأمین‌کننده کد را مستقیماً برای مشتری ایمیل کرده است. هیچ کدی نزد ما ذخیره نشده و چیزی برای نمایش وجود ندارد.
+          {isPayment
+            ? "تأییدیهٔ پرداخت را خود سرویس مستقیماً برای مشتری ایمیل کرده است و مدرکی نزد ما ذخیره نشده."
+            : "تأمین‌کننده کد را مستقیماً برای مشتری ایمیل کرده است. هیچ کدی نزد ما ذخیره نشده و چیزی برای نمایش وجود ندارد."}
         </p>
       ) : null}
 
       {asset.assetType === "URL" ? (
         <p className="muted">
-          تحویل این سفارش با لینک بازخرید انجام می‌شود. لینک هنگام ارسال برای مشتری فرستاده می‌شود و کدی برای نمایش وجود
-          ندارد.
+          {isPayment
+            ? "لینک رسید پرداخت هنگام ارسال برای مشتری فرستاده می‌شود."
+            : "تحویل این سفارش با لینک بازخرید انجام می‌شود. لینک هنگام ارسال برای مشتری فرستاده می‌شود و کدی برای نمایش وجود ندارد."}
         </p>
       ) : null}
 

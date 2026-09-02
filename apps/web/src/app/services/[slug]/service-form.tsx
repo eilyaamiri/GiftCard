@@ -10,6 +10,26 @@ import { getCommerceSessionToken } from "@/lib/commerce-session";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
+/**
+ * The account keys every international payment carries, on top of whatever
+ * fields the service itself configures. The operator needs to know where to pay
+ * and — only when the payment happens inside the customer's own account — how to
+ * sign in, so the credentials are optional and the address is not.
+ *
+ * These strings are the contract with the API: it reserves the same three keys
+ * inside `serviceFields`, seals the password before storing it, and keeps all
+ * three out of the customer-facing quote response.
+ */
+const ACCOUNT_KEYS = { siteUrl: "siteUrl", username: "accountUsername", password: "accountPassword" } as const;
+
+function isHttpUrl(value: string): boolean {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
+}
+
 export function ServiceForm({ service }: { readonly service: InternationalServiceDto }) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
@@ -33,6 +53,16 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       if (service.minAmount && numeric < Number(service.minAmount)) nextErrors.amount = `حداقل مبلغ ${service.minAmount} ${service.currency} است`;
       if (service.maxAmount && numeric > Number(service.maxAmount)) nextErrors.amount = `حداکثر مبلغ ${service.maxAmount} ${service.currency} است`;
     }
+    const siteUrl = values[ACCOUNT_KEYS.siteUrl]?.trim() ?? "";
+    if (!siteUrl) {
+      nextErrors[ACCOUNT_KEYS.siteUrl] = "این فیلد الزامی است";
+    } else if (!isHttpUrl(siteUrl)) {
+      nextErrors[ACCOUNT_KEYS.siteUrl] = "آدرس را کامل و با https:// وارد کنید";
+    }
+    if (values[ACCOUNT_KEYS.password] && !values[ACCOUNT_KEYS.username]?.trim()) {
+      nextErrors[ACCOUNT_KEYS.username] = "برای ثبت رمز عبور، نام کاربری هم لازم است";
+    }
+
     for (const field of service.fields) {
       const value = values[field.key];
       if (field.isRequired && !value?.trim()) nextErrors[field.key] = "این فیلد الزامی است";
@@ -41,6 +71,11 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       }
     }
     return nextErrors;
+  }
+
+  /** Drops the fields the customer left blank so no empty credential is sent. */
+  function submittedFields(): Record<string, string> {
+    return Object.fromEntries(Object.entries(values).filter(([, value]) => value.trim() !== ""));
   }
 
   async function submit(event: React.FormEvent) {
@@ -59,7 +94,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
           quantity: 1,
           currency: service.currency,
           requestedAmountForeign: amount.trim(),
-          serviceFields: values,
+          serviceFields: submittedFields(),
           commerceSessionToken,
         },
         createQuoteResponseSchema,
@@ -91,6 +126,59 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
             {errors.amount ?? (service.minAmount || service.maxAmount ? <Ltr>{`${service.minAmount ?? "0"} - ${service.maxAmount ?? "∞"} ${service.currency}`}</Ltr> : null)}
           </FormMessage>
         </div>
+        <div className="field">
+          <Label htmlFor={ACCOUNT_KEYS.siteUrl} required>
+            آدرس سایتی که باید پرداخت شود
+          </Label>
+          <Input
+            id={ACCOUNT_KEYS.siteUrl}
+            type="url"
+            inputMode="url"
+            ltr
+            placeholder="https://example.com/pricing"
+            value={values[ACCOUNT_KEYS.siteUrl] ?? ""}
+            onChange={(e) => setValue(ACCOUNT_KEYS.siteUrl, e.target.value)}
+            invalid={Boolean(errors[ACCOUNT_KEYS.siteUrl])}
+          />
+          <FormMessage tone={errors[ACCOUNT_KEYS.siteUrl] ? "error" : "hint"}>
+            {errors[ACCOUNT_KEYS.siteUrl] ?? "نشانی صفحه‌ای که پرداخت در آن انجام می‌شود."}
+          </FormMessage>
+        </div>
+
+        <div className="field">
+          <Label htmlFor={ACCOUNT_KEYS.username}>نام کاربری حساب (اختیاری)</Label>
+          <Input
+            id={ACCOUNT_KEYS.username}
+            type="text"
+            ltr
+            autoComplete="off"
+            value={values[ACCOUNT_KEYS.username] ?? ""}
+            onChange={(e) => setValue(ACCOUNT_KEYS.username, e.target.value)}
+            invalid={Boolean(errors[ACCOUNT_KEYS.username])}
+          />
+          <FormMessage tone={errors[ACCOUNT_KEYS.username] ? "error" : "hint"}>
+            {errors[ACCOUNT_KEYS.username] ??
+              "اگر پرداخت باید داخل حساب خودتان انجام شود، اطلاعات ورود را وارد کنید."}
+          </FormMessage>
+        </div>
+
+        <div className="field">
+          <Label htmlFor={ACCOUNT_KEYS.password}>رمز عبور حساب (اختیاری)</Label>
+          <Input
+            id={ACCOUNT_KEYS.password}
+            type="password"
+            ltr
+            autoComplete="new-password"
+            value={values[ACCOUNT_KEYS.password] ?? ""}
+            onChange={(e) => setValue(ACCOUNT_KEYS.password, e.target.value)}
+            invalid={Boolean(errors[ACCOUNT_KEYS.password])}
+          />
+          <FormMessage tone={errors[ACCOUNT_KEYS.password] ? "error" : "hint"}>
+            {errors[ACCOUNT_KEYS.password] ??
+              "رمز عبور رمزنگاری‌شده ذخیره می‌شود و فقط اپراتور مسئول سفارش، با ثبت دلیل، آن را می‌بیند."}
+          </FormMessage>
+        </div>
+
         {service.fields.map((field) => (
           <div className="field" key={field.id}>
             <Label htmlFor={field.key} required={field.isRequired}>{field.labelFa}</Label>

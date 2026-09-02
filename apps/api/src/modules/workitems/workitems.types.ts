@@ -18,7 +18,10 @@ export interface FulfillmentTriggerInput {
   /** The order that has just reached `PAID`. */
   readonly orderId: string;
   readonly customerId?: string | null;
-  /** Defaults to `MANUAL_GIFT_CARD_FULFILLMENT`. */
+  /**
+   * Omit it and the type is derived from the order's quote target — B4 knows a
+   * payment settled, not whether the order is a gift card or a foreign payment.
+   */
   readonly workItemType?: WorkItemType;
   readonly queueKey?: QueueKey;
   readonly title?: string;
@@ -180,8 +183,19 @@ export interface ClaimingStaff {
  * single atomic conditional update and return whether it changed exactly one
  * row. The service asserts on that boolean; it never re-reads and re-decides.
  */
+/**
+ * What a paid order is for, read from the immutable quote it was placed from.
+ *
+ * A quote carries exactly one of `skuId` / `serviceId`, so the two cases are
+ * total: a SKU is a gift card we hand over, a service is a payment we make
+ * abroad on the customer's behalf.
+ */
+export type OrderQuoteTarget = 'SKU' | 'SERVICE';
+
 export interface WorkItemStore {
   findByOrderId(orderId: string): Promise<WorkItemSummary | null>;
+  /** `null` when the order (or its quote) cannot be resolved. */
+  findOrderQuoteTarget(orderId: string): Promise<OrderQuoteTarget | null>;
   findById(workItemId: string): Promise<WorkItemSummary | null>;
   /** Used to make escalation creation idempotent on a deterministic code. */
   findByCode(code: string): Promise<WorkItemSummary | null>;

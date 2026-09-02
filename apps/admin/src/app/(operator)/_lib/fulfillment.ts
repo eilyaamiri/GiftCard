@@ -106,6 +106,22 @@ export const SEND_BLOCKER_VALUES = [
 ] as const;
 export type SendBlocker = (typeof SEND_BLOCKER_VALUES)[number];
 
+/**
+ * What the operator needs to make an international payment: where to pay, how
+ * much, and which account to sign in to. The password is absent by design —
+ * only `hasAccountPassword` says whether one exists; the plaintext comes from
+ * the separate reveal call below.
+ */
+export const internationalPaymentBriefSchema = z.object({
+  serviceNameFa: z.string().nullable(),
+  payableAmount: z.string().nullable(),
+  payableCurrency: z.string(),
+  siteUrl: z.string().nullable(),
+  accountUsername: z.string().nullable(),
+  hasAccountPassword: z.boolean(),
+});
+export type InternationalPaymentBrief = z.infer<typeof internationalPaymentBriefSchema>;
+
 export const fulfillmentWorkspaceSchema = z.object({
   workItemId: z.string(),
   orderId: z.string(),
@@ -114,6 +130,7 @@ export const fulfillmentWorkspaceSchema = z.object({
   costVariance: costVarianceSchema.nullable(),
   sendBlockers: z.array(z.enum(SEND_BLOCKER_VALUES)),
   canSend: z.boolean(),
+  internationalPayment: internationalPaymentBriefSchema.nullable(),
 });
 export type FulfillmentWorkspace = z.infer<typeof fulfillmentWorkspaceSchema>;
 
@@ -141,6 +158,11 @@ const revealedSecretSchema = z.object({
   }),
 });
 export type RevealedSecret = z.infer<typeof revealedSecretSchema>["secret"];
+
+/** Same rule as `revealedSecretSchema`: shown once, kept out of every cache. */
+const revealedCredentialSchema = z.object({
+  credential: z.object({ accountPassword: z.string() }),
+});
 
 /** Discriminated union — `code` is rejected, not merely ignored, for URL types. */
 export type AssetInput =
@@ -205,6 +227,15 @@ export const fulfillment = {
         revealedSecretSchema,
       )
     ).secret,
+
+  /**
+   * The customer's account password for an international payment. Audited the
+   * same way as the gift-card reveal, and returned on its own so it can never
+   * be folded into the workspace the panel keeps in state.
+   */
+  revealServiceAccountPassword: async (workItemId: string, reason: string) =>
+    (await api.post(`${base(workItemId)}/service-account/reveal`, { reason }, revealedCredentialSchema))
+      .credential.accountPassword,
 };
 
 /* ============================================================================

@@ -11,6 +11,7 @@ import type {
   WorkItemType,
 } from '@barat/contracts';
 
+import { readServiceAccountSnapshot } from '../quotes/service-account-fields';
 import { isUniqueConstraintViolation } from '../workitems/prisma-errors';
 import { maskEmail } from './mask-recipient';
 import type {
@@ -21,6 +22,7 @@ import type {
   FulfillmentRecord,
   FulfillmentStore,
   GiftCardAssetView,
+  InternationalPaymentBrief,
 } from './fulfillment.types';
 
 /**
@@ -179,6 +181,36 @@ function toFulfillmentRecord(row: SelectedFulfillment): FulfillmentRecord {
   };
 }
 
+/**
+ * Projects the operator's payment brief out of the quote snapshot.
+ *
+ * `customerForeignAmount` is what the customer asked us to pay abroad, kept as
+ * the decimal string it was written as — money is never parsed into a JS number
+ * on its way to a screen. The password envelope is read but never carried: only
+ * its presence survives into the brief.
+ */
+function toInternationalPaymentBrief(input: {
+  snapshot: Prisma.JsonValue;
+  currency: string;
+  serviceNameFa: string | null;
+}): InternationalPaymentBrief {
+  const account = readServiceAccountSnapshot(input.snapshot);
+  const snapshot =
+    typeof input.snapshot === 'object' && input.snapshot !== null && !Array.isArray(input.snapshot)
+      ? (input.snapshot as Record<string, Prisma.JsonValue>)
+      : {};
+  const payable = snapshot['customerForeignAmount'];
+
+  return {
+    serviceNameFa: input.serviceNameFa,
+    payableAmount: typeof payable === 'string' && payable !== '' ? payable : null,
+    payableCurrency: input.currency,
+    siteUrl: account?.siteUrl ?? null,
+    accountUsername: account?.accountUsername ?? null,
+    hasAccountPassword: account?.accountPasswordEnvelope != null,
+  };
+}
+
 @Injectable()
 export class PrismaFulfillmentStore implements FulfillmentStore {
   private readonly db: typeof prisma;
@@ -252,6 +284,8 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
           select: {
             supplierCostUsd: true,
             currency: true,
+            snapshot: true,
+            service: { select: { nameFa: true } },
             pricingRule: { select: { maxSupplierCostToleranceBps: true } },
           },
         },
@@ -288,7 +322,32 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       assignedToStaffId: input.assignedToStaffId,
       fulfillment: fulfillmentRow === null ? null : toFulfillmentRecord(fulfillmentRow),
       assetCount,
+      internationalPayment:
+        input.workItemType === 'INTERNATIONAL_PAYMENT'
+          ? toInternationalPaymentBrief({
+              snapshot: order.quote.snapshot,
+              currency: order.quote.currency,
+              serviceNameFa: order.quote.service?.nameFa ?? null,
+            })
+          : null,
     };
+  }
+
+  /**
+   * Reads the sealed password on its own.
+   *
+   * Separate from `buildContext` so the ciphertext is fetched only when someone
+   * has already passed the reveal's authorisation and audit.
+   */
+  async findServiceAccountPasswordEnvelope(orderId: string): Promise<string | null> {
+    const order = await this.db.order.findUnique({
+      where: { id: orderId },
+      select: { quote: { select: { snapshot: true } } },
+    });
+    if (order === null) {
+      return null;
+    }
+    return readServiceAccountSnapshot(order.quote.snapshot)?.accountPasswordEnvelope ?? null;
   }
 
   /* ---- checklist -------------------------------------------------------- */

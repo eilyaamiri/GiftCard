@@ -47,6 +47,32 @@ describe('one work item per paid order', () => {
     expect(h.actions.filter((action) => action === 'WORK_ITEM_CREATED')).toHaveLength(1);
   });
 
+  /**
+   * The payments module triggers fulfillment with nothing but the order id, so
+   * the work item type has to be derived from what was bought. It used to
+   * default to gift-card fulfillment, which put «تحویل دستی گیفت‌کارت» on the
+   * screen of every operator paying an international invoice.
+   */
+  it('types an international-service order as an international payment', async () => {
+    const h = harness();
+    h.store.addServiceOrder('order-service-1');
+
+    const item = await h.service.onOrderPaid({ orderId: 'order-service-1' });
+
+    expect(item.type).toBe('INTERNATIONAL_PAYMENT');
+    expect(item.queueKey).toBe('SAAS_PAYMENT');
+    expect(item.title).not.toContain('گیفت‌کارت');
+  });
+
+  it('still types a SKU order as manual gift-card fulfillment', async () => {
+    const h = harness();
+
+    const item = await h.service.onOrderPaid({ orderId: 'order-sku-1' });
+
+    expect(item.type).toBe('MANUAL_GIFT_CARD_FULFILLMENT');
+    expect(item.queueKey).toBe('GIFT_CARD_MANUAL');
+  });
+
   it('creates one work item when concurrent triggers race', async () => {
     const h = harness();
 

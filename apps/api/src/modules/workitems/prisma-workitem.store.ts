@@ -5,6 +5,7 @@ import type { QueueKey, WorkItemStatus, WorkItemType } from '@barat/contracts';
 import {
   type ClaimingStaff,
   type CreateWorkItemRecord,
+  type OrderQuoteTarget,
   type WorkItemStore,
   type WorkItemSummary,
 } from './workitems.types';
@@ -76,6 +77,24 @@ export class PrismaWorkItemStore implements WorkItemStore {
       select: WORK_ITEM_SELECT,
     });
     return row ? toSummary(row) : null;
+  }
+
+  /**
+   * Reads what the order was placed for.
+   *
+   * Only the two discriminating columns are selected: this is a routing
+   * decision, not a reason to pull a quote — let alone its snapshot — into the
+   * work-item module.
+   */
+  async findOrderQuoteTarget(orderId: string): Promise<OrderQuoteTarget | null> {
+    const row = await this.db.order.findUnique({
+      where: { id: orderId },
+      select: { quote: { select: { skuId: true, serviceId: true } } },
+    });
+    if (row === null) {
+      return null;
+    }
+    return row.quote.serviceId === null ? 'SKU' : 'SERVICE';
   }
 
   async findByCode(code: string): Promise<WorkItemSummary | null> {

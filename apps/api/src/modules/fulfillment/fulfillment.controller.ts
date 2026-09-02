@@ -165,4 +165,27 @@ export class FulfillmentController {
     });
     return { secret };
   }
+
+  /**
+   * Reveals the customer's account password for an international payment.
+   *
+   * Same contract as the gift-card reveal above: claim holder only, a written
+   * reason, and `SERVICE_ACCOUNT_PASSWORD_VIEWED` recorded before decryption. The
+   * password is returned on its own so it can never end up in the cached
+   * workspace payload.
+   */
+  @Post(':workItemId/service-account/reveal')
+  async revealServiceAccountPassword(
+    @Param('workItemId') workItemId: string,
+    @Body(zodPipe(reasonBodySchema)) body: ReasonBody,
+    @Req() request: unknown,
+  ): Promise<{ credential: { accountPassword: string } }> {
+    const staff = requireStaff(request);
+    const credential = await this.fulfillment.revealServiceAccountPassword({
+      workItemId,
+      staff,
+      reason: body.reason,
+    });
+    return { credential };
+  }
 }
