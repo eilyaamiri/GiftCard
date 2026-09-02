@@ -18,21 +18,39 @@ export interface ModalProps {
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Marks the dismiss button so it can stay in the tab cycle without taking the opening focus. */
+const CLOSE_ATTRIBUTE = "data-modal-close";
+
 export function Modal({ open, onClose, title, description, children, footer, className }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const lastFocused = useRef<HTMLElement | null>(null);
+  /**
+   * Callers pass an inline arrow for `onClose`, so its identity changes on every
+   * render. Reading it through a ref keeps the effect below keyed on `open`
+   * alone — while `onClose` was a dependency, typing a single character
+   * re-rendered the caller, re-ran the effect and threw focus onto the close
+   * button, which made every text field in a dialog impossible to fill in.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
     lastFocused.current = document.activeElement as HTMLElement | null;
     const node = dialogRef.current;
     const focusable = node?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    (focusable?.[0] ?? node)?.focus();
+    // Land on the first real control instead of the close button: a dialog is
+    // opened to act in, not to dismiss.
+    const candidates = focusable ? Array.from(focusable) : [];
+    const entry = candidates.find((item) => !item.hasAttribute(CLOSE_ATTRIBUTE)) ?? candidates[0];
+    (entry ?? node)?.focus();
 
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== "Tab") return;
@@ -55,7 +73,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
       document.removeEventListener("keydown", handleKeyDown);
       lastFocused.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 
@@ -96,6 +114,7 @@ export function Modal({ open, onClose, title, description, children, footer, cla
             type="button"
             onClick={onClose}
             aria-label="بستن"
+            data-modal-close
             className="bp-focus -m-2 flex size-11 shrink-0 items-center justify-center rounded-full text-slate hover:bg-soft"
           >
             <X className="size-5" aria-hidden="true" />
