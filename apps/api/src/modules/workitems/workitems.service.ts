@@ -59,7 +59,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       return existing;
     }
 
-    const type: WorkItemType = input.workItemType ?? 'MANUAL_GIFT_CARD_FULFILLMENT';
+    const type: WorkItemType = input.workItemType ?? (await this.typeForOrder(input.orderId));
     const queueKey: QueueKey = input.queueKey ?? DEFAULT_QUEUE_BY_WORK_ITEM_TYPE[type];
 
     try {
@@ -101,6 +101,21 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       }
       throw error;
     }
+  }
+
+  /**
+   * What kind of work a paid order actually needs.
+   *
+   * The trigger's caller is a payment callback: it knows money settled, not what
+   * was bought. Defaulting to `MANUAL_GIFT_CARD_FULFILLMENT` therefore put every
+   * international-payment order in the gift-card queue, under a gift-card title,
+   * with a gift-card checklist — so the answer is read from the order's own
+   * immutable quote instead. An order whose quote cannot be resolved keeps the
+   * historical default rather than blocking fulfillment on a lookup.
+   */
+  private async typeForOrder(orderId: string): Promise<WorkItemType> {
+    const target = await this.store.findOrderQuoteTarget(orderId);
+    return target === 'SERVICE' ? 'INTERNATIONAL_PAYMENT' : 'MANUAL_GIFT_CARD_FULFILLMENT';
   }
 
   /**

@@ -108,6 +108,31 @@ export interface GiftCardAssetView {
   readonly lastAccessedAt: Date | null;
 }
 
+/**
+ * What an operator needs in order to make an international payment.
+ *
+ * Read from the immutable `Quote.snapshot` the order was placed from, so it says
+ * what the customer asked for at request time and cannot drift with the service
+ * catalogue afterwards.
+ *
+ * `payableAmount` is the customer's requested foreign amount — deliberately NOT
+ * the quote's `supplierCostUsd`, which is our negotiated cost and has no place
+ * on a screen that describes what to pay the foreign provider.
+ *
+ * There is no plaintext password field, by construction. `hasAccountPassword`
+ * says only whether one exists; the value is reachable exclusively through the
+ * audited reveal, exactly like a gift-card code.
+ */
+export interface InternationalPaymentBrief {
+  readonly serviceNameFa: string | null;
+  /** Decimal string in `payableCurrency`, or null for a quote that predates it. */
+  readonly payableAmount: string | null;
+  readonly payableCurrency: string;
+  readonly siteUrl: string | null;
+  readonly accountUsername: string | null;
+  readonly hasAccountPassword: boolean;
+}
+
 /* ============================================================================
  * Asset input
  *
@@ -213,6 +238,8 @@ export interface FulfillmentContext {
   readonly assignedToStaffId: string | null;
   readonly fulfillment: FulfillmentRecord | null;
   readonly assetCount: number;
+  /** Populated only for `INTERNATIONAL_PAYMENT` work items. */
+  readonly internationalPayment: InternationalPaymentBrief | null;
 }
 
 export interface ChecklistItemRecord {
@@ -257,6 +284,14 @@ export interface FulfillmentStore {
   /* ---- context ---------------------------------------------------------- */
   loadContextByWorkItem(workItemId: string): Promise<FulfillmentContext | null>;
   loadContextByOrder(orderId: string): Promise<FulfillmentContext | null>;
+  /**
+   * The sealed account-password envelope from the order's quote snapshot.
+   *
+   * Kept off `FulfillmentContext` on purpose: the context is loaded on every
+   * workspace read, and a ciphertext that rides along on every read is a
+   * ciphertext that eventually ends up in a response body.
+   */
+  findServiceAccountPasswordEnvelope(orderId: string): Promise<string | null>;
 
   /* ---- checklist -------------------------------------------------------- */
   findChecklist(workItemId: string): Promise<ChecklistRecord | null>;

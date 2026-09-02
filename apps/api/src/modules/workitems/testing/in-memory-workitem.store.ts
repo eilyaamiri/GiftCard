@@ -4,6 +4,7 @@ import {
   ACTIVE_OPERATOR_STATUSES,
   type ClaimingStaff,
   type CreateWorkItemRecord,
+  type OrderQuoteTarget,
   type WorkItemStore,
   type WorkItemSummary,
 } from '../workitems.types';
@@ -41,6 +42,8 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   readonly rows = new Map<string, WorkItemRow>();
   readonly staff = new Map<string, ClaimingStaff>();
   readonly queueMembers = new Map<string, Set<string>>();
+  /** Orders whose quote points at an international service rather than a SKU. */
+  readonly serviceOrders = new Set<string>();
 
   /** Set to fail the next N `create` calls with P2002, to force the race path. */
   failNextCreates = 0;
@@ -66,6 +69,15 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   async findByOrderId(orderId: string): Promise<WorkItemSummary | null> {
     // Mirrors the real query: the *lock-holding* item, not an escalation.
     return [...this.rows.values()].find((row) => row.activeOrderKey === orderId) ?? null;
+  }
+
+  /** Registers an order as an international-service purchase. */
+  addServiceOrder(orderId: string): void {
+    this.serviceOrders.add(orderId);
+  }
+
+  async findOrderQuoteTarget(orderId: string): Promise<OrderQuoteTarget | null> {
+    return this.serviceOrders.has(orderId) ? 'SERVICE' : 'SKU';
   }
 
   async findById(workItemId: string): Promise<WorkItemSummary | null> {

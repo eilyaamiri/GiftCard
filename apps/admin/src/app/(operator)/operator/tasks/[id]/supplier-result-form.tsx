@@ -6,11 +6,51 @@ import { parseDecimalText } from "@/lib/format-bps";
 import { InlineError } from "../../../_components/error-notice";
 import { DELIVERY_ASSET_TYPE_LABEL, type AssetInput, type RecordSupplierResultInput } from "../../../_lib/fulfillment";
 
-const ASSET_TYPES: readonly DeliveryAssetType[] = ["CODE", "CODE_PIN", "URL", "PROVIDER_DIRECT_EMAIL"];
 const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
 
 /**
- * Records what the supplier actually returned.
+ * The vocabulary of the two jobs this form serves.
+ *
+ * An international payment has no code, no PIN and no gift card: the operator
+ * pays an invoice and files the proof. Offering the code asset types there
+ * would put a gift-card field on a payment task, so the variant decides which
+ * asset types exist at all rather than only relabelling them.
+ */
+const VARIANTS = {
+  GIFT_CARD: {
+    heading: "ثبت نتیجهٔ تأمین‌کننده",
+    submit: "ثبت نتیجهٔ تأمین‌کننده",
+    saving: "در حال ثبت…",
+    referenceLabel: "کد پیگیری تأمین‌کننده",
+    referencePlaceholder: "مثلاً TLO-9924123",
+    costLabel: "هزینهٔ واقعی تأمین‌کننده",
+    assetTypeLabel: "نوع دارایی تحویل",
+    assetTypes: ["CODE", "CODE_PIN", "URL", "PROVIDER_DIRECT_EMAIL"],
+    incomplete: "اطلاعات دارایی تحویل کامل نیست.",
+    failed: "ثبت نتیجهٔ تأمین‌کننده ناموفق بود.",
+  },
+  INTERNATIONAL_PAYMENT: {
+    heading: "ثبت نتیجهٔ پرداخت",
+    submit: "ثبت نتیجهٔ پرداخت",
+    saving: "در حال ثبت…",
+    referenceLabel: "کد رهگیری تراکنش",
+    referencePlaceholder: "مثلاً ch_3PqR8s2eZvKY",
+    costLabel: "مبلغ واقعی پرداخت‌شده",
+    assetTypeLabel: "مدرک پرداخت",
+    assetTypes: ["URL", "PROVIDER_DIRECT_EMAIL"],
+    incomplete: "مدرک پرداخت کامل نیست.",
+    failed: "ثبت نتیجهٔ پرداخت ناموفق بود.",
+  },
+} as const satisfies Record<
+  string,
+  { readonly assetTypes: readonly DeliveryAssetType[] } & Record<string, unknown>
+>;
+
+export type SupplierResultVariant = keyof typeof VARIANTS;
+
+/**
+ * Records what the supplier actually returned, or how a foreign invoice was
+ * paid.
  *
  * This is the only screen where a gift-card code is typed. The value lives in
  * component state for exactly as long as the operator is typing it, goes out in
@@ -20,12 +60,15 @@ const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
  */
 export function SupplierResultForm({
   disabled,
+  variant = "GIFT_CARD",
   onSubmit,
 }: {
   disabled: boolean;
+  variant?: SupplierResultVariant;
   onSubmit: (input: RecordSupplierResultInput) => Promise<void>;
 }) {
-  const [assetType, setAssetType] = useState<DeliveryAssetType>("CODE");
+  const copy = VARIANTS[variant];
+  const [assetType, setAssetType] = useState<DeliveryAssetType>(copy.assetTypes[0] ?? "CODE");
   const [code, setCode] = useState("");
   const [pin, setPin] = useState("");
   const [serialNumber, setSerialNumber] = useState("");
@@ -74,7 +117,7 @@ export function SupplierResultForm({
     setError(null);
     const asset = buildAsset();
     if (!asset) {
-      setError("اطلاعات دارایی تحویل کامل نیست.");
+      setError(copy.incomplete);
       return;
     }
 
@@ -104,7 +147,7 @@ export function SupplierResultForm({
       setDeliveryUrl("");
       setRecipientEmail("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "ثبت نتیجهٔ تأمین‌کننده ناموفق بود.");
+      setError(caught instanceof Error ? caught.message : copy.failed);
     } finally {
       setSaving(false);
     }
@@ -115,38 +158,40 @@ export function SupplierResultForm({
   return (
     <div className="card workspace-card">
       <div className="section-label">
-        <h3>ثبت نتیجهٔ تأمین‌کننده</h3>
+        <h3>{copy.heading}</h3>
         <span>یک‌بار برای هر سفارش</span>
       </div>
 
       <p className="warning">
-        این فرم فقط یک‌بار برای هر سفارش پذیرفته می‌شود. اگر خرید قبلاً انجام شده، هرگز خرید تازه‌ای ثبت نکنید.
+        {variant === "INTERNATIONAL_PAYMENT"
+          ? "این فرم فقط یک‌بار برای هر سفارش پذیرفته می‌شود. اگر پرداخت قبلاً انجام شده، هرگز پرداخت تازه‌ای ثبت نکنید."
+          : "این فرم فقط یک‌بار برای هر سفارش پذیرفته می‌شود. اگر خرید قبلاً انجام شده، هرگز خرید تازه‌ای ثبت نکنید."}
       </p>
 
       <div className="form-grid">
         <label>
-          نوع دارایی تحویل
+          {copy.assetTypeLabel}
           <select
             value={assetType}
             disabled={locked}
             onChange={(event) => setAssetType(event.target.value as DeliveryAssetType)}
           >
-            {ASSET_TYPES.map((type) => (
+            {copy.assetTypes.map((type) => (
               <option key={type} value={type}>
-                {DELIVERY_ASSET_TYPE_LABEL[type]}
+                {assetTypeLabel(variant, type)}
               </option>
             ))}
           </select>
         </label>
 
         <label>
-          کد پیگیری تأمین‌کننده
+          {copy.referenceLabel}
           <input
             className="bp-ltr"
             value={supplierReference}
             disabled={locked}
             onChange={(event) => setSupplierReference(event.target.value)}
-            placeholder="مثلاً TLO-9924123"
+            placeholder={copy.referencePlaceholder}
           />
         </label>
 
@@ -195,7 +240,7 @@ export function SupplierResultForm({
 
         {assetType === "URL" ? (
           <label>
-            لینک بازخرید
+            {variant === "INTERNATIONAL_PAYMENT" ? "لینک رسید پرداخت" : "لینک بازخرید"}
             <input
               className="bp-ltr"
               value={deliveryUrl}
@@ -208,7 +253,7 @@ export function SupplierResultForm({
 
         {assetType === "PROVIDER_DIRECT_EMAIL" ? (
           <label>
-            ایمیل گیرنده نزد تأمین‌کننده
+            {variant === "INTERNATIONAL_PAYMENT" ? "ایمیلی که سرویس تأییدیه را به آن فرستاده" : "ایمیل گیرنده نزد تأمین‌کننده"}
             <input
               className="bp-ltr"
               type="email"
@@ -233,7 +278,7 @@ export function SupplierResultForm({
         ) : null}
 
         <label>
-          هزینهٔ واقعی تأمین‌کننده
+          {copy.costLabel}
           <input
             className="bp-ltr"
             inputMode="decimal"
@@ -258,17 +303,34 @@ export function SupplierResultForm({
 
       {assetType === "PROVIDER_DIRECT_EMAIL" ? (
         <p className="muted">
-          در این حالت تأمین‌کننده کد را مستقیماً برای مشتری ایمیل می‌کند و هیچ کدی نزد ما ذخیره نمی‌شود.
+          {variant === "INTERNATIONAL_PAYMENT"
+            ? "در این حالت خود سرویس تأییدیهٔ پرداخت را مستقیماً برای مشتری ایمیل کرده و مدرکی نزد ما ذخیره نمی‌شود."
+            : "در این حالت تأمین‌کننده کد را مستقیماً برای مشتری ایمیل می‌کند و هیچ کدی نزد ما ذخیره نمی‌شود."}
         </p>
       ) : null}
 
       <div className="save-row">
         <button type="button" className="primary-btn" disabled={locked} onClick={() => void handleSubmit()}>
-          {saving ? "در حال ثبت…" : "ثبت نتیجهٔ تأمین‌کننده"}
+          {saving ? copy.saving : copy.submit}
         </button>
       </div>
 
       <InlineError message={error} />
     </div>
   );
+}
+
+/** The asset types mean different things on a payment task than on a card. */
+function assetTypeLabel(variant: SupplierResultVariant, assetType: DeliveryAssetType): string {
+  if (variant === "GIFT_CARD") {
+    return DELIVERY_ASSET_TYPE_LABEL[assetType];
+  }
+  switch (assetType) {
+    case "URL":
+      return "لینک رسید پرداخت";
+    case "PROVIDER_DIRECT_EMAIL":
+      return "تأییدیهٔ مستقیم سرویس به مشتری";
+    default:
+      return DELIVERY_ASSET_TYPE_LABEL[assetType];
+  }
 }

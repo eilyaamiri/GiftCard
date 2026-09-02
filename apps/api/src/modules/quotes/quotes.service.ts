@@ -20,6 +20,7 @@ import type {
   QuoteSnapshot,
 } from '@barat/contracts';
 
+import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type SkuQuoteTarget } from '../catalog/catalog.service';
@@ -41,6 +42,13 @@ import {
   type QuoteRow,
   secondsRemaining,
 } from './quote-presentation';
+import {
+  RESERVED_SERVICE_FIELD_KEYS,
+  buildServiceAccountSnapshot,
+  validateServiceAccountFields,
+  withoutReservedKeys,
+  type ServiceAccountSnapshot,
+} from './service-account-fields';
 
 export interface QuoteActor {
   readonly customerId?: string | null;
@@ -79,6 +87,7 @@ export class QuotesService {
     @Inject(QUOTE_PRICING_SERVICE) private readonly pricing: QuotePricingService,
     @Inject(QUOTE_FX_AGGREGATOR) private readonly fx: QuoteFxAggregator,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(AppConfigService) private readonly config: AppConfigService,
   ) {}
 
   async createQuote(
@@ -150,6 +159,8 @@ export class QuotesService {
     const quoteId = makeQuoteId();
     const quoteNumber = makeQuoteNumber(now);
     const foreignAmount = customerForeignAmount(target, input, quantity);
+    const serviceAccount =
+      target.kind === 'service' ? this.sealServiceAccount(input.serviceFields ?? {}) : null;
     const snapshot = makeSnapshot({
       quoteId,
       quoteNumber,
@@ -160,6 +171,7 @@ export class QuotesService {
       fx,
       wireBreakdown,
       foreignAmount,
+      serviceAccount,
       now,
       expiresAt,
     });
@@ -532,6 +544,22 @@ export class QuotesService {
     return { kind: 'service', id: service.id, service };
   }
 
+  /**
+   * Turns the reserved account fields into the block that goes in the snapshot.
+   *
+   * The plaintext password exists only inside this call: it arrives in `values`,
+   * is sealed, and the envelope is what the caller gets back. The key is zeroed
+   * on the way out whether or not sealing succeeded.
+   */
+  private sealServiceAccount(values: Readonly<Record<string, string>>): ServiceAccountSnapshot {
+    const key = this.config.bankDetailsEncryptionKey();
+    try {
+      return buildServiceAccountSnapshot(values, key);
+    } finally {
+      key.fill(0);
+    }
+  }
+
   private async selectRule(target: QuoteTarget): Promise<DatabaseRule | null> {
     const rules = await this.pricingRules.list();
     const candidates =
@@ -613,6 +641,8 @@ function makeSnapshot(params: {
   readonly fx: FxRateSnapshot;
   readonly wireBreakdown: ReturnType<QuotePricingService['toWirePricingBreakdown']>;
   readonly foreignAmount: string;
+  /** Sealed already: this function never sees a plaintext credential. */
+  readonly serviceAccount: ServiceAccountSnapshot | null;
   readonly now: Date;
   readonly expiresAt: Date;
 }): Prisma.InputJsonObject {
@@ -626,9 +656,14 @@ function makeSnapshot(params: {
     fx,
     wireBreakdown,
     foreignAmount,
+    serviceAccount,
     now,
     expiresAt,
   } = params;
+  /* The reserved keys live in `serviceAccount`, never in `serviceFields`, so a
+   * consumer that renders the configured fields cannot render a password. */
+  const configuredFields =
+    input.serviceFields === undefined ? undefined : withoutReservedKeys(input.serviceFields);
   return {
     id: quoteId,
     quoteNumber,
@@ -670,9 +705,12 @@ function makeSnapshot(params: {
     createdAt: now.toISOString(),
     components: wireBreakdown.components as unknown as Prisma.InputJsonArray,
     customerForeignAmount: foreignAmount,
-    ...(input.serviceFields === undefined
+    ...(configuredFields === undefined
       ? {}
-      : { serviceFields: input.serviceFields as Prisma.InputJsonObject }),
+      : { serviceFields: configuredFields as Prisma.InputJsonObject }),
+    ...(serviceAccount === null
+      ? {}
+      : { serviceAccount: serviceAccount as unknown as Prisma.InputJsonObject }),
   };
 }
 
@@ -760,9 +798,12 @@ function validateServiceFields(
   const known = new Set(definitions.map((field) => field.key));
   const details: Array<{ path: string; message: string }> = [];
   for (const key of Object.keys(values)) {
-    if (!known.has(key))
+    /* The reserved account keys are accepted on every international service and
+     * are validated by their own rules below, not by a definition row. */
+    if (!known.has(key) && !RESERVED_SERVICE_FIELD_KEYS.has(key))
       details.push({ path: `serviceFields.${key}`, message: 'Unknown service field' });
   }
+  details.push(...validateServiceAccountFields(values));
   for (const field of definitions) {
     const value = values[field.key];
     if (value === undefined || value.trim() === '') {

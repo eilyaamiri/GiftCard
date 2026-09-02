@@ -18,6 +18,7 @@ import type {
   FulfillmentRecord,
   FulfillmentStore,
   GiftCardAssetView,
+  InternationalPaymentBrief,
 } from '../fulfillment.types';
 
 /**
@@ -98,6 +99,9 @@ export interface SeedFulfillment {
   readonly workItemType?: WorkItemType;
   readonly queueKey?: QueueKey;
   readonly assignedToStaffId?: string | null;
+  readonly internationalPayment?: InternationalPaymentBrief | null;
+  /** Sealed `v1.<iv>.<tag>.<ciphertext>` password, as the real store returns it. */
+  readonly serviceAccountPasswordEnvelope?: string | null;
 }
 
 export class InMemoryFulfillmentStore implements FulfillmentStore {
@@ -112,6 +116,8 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
   workItemType: WorkItemType;
   queueKey: QueueKey;
   assignedToStaffId: string | null;
+  internationalPayment: InternationalPaymentBrief | null;
+  serviceAccountPasswordEnvelope: string | null;
   orderFulfilledAt: Date | null = null;
 
   readonly checklists = new Map<string, MutableChecklist>();
@@ -134,6 +140,8 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     this.workItemType = seed.workItemType ?? 'MANUAL_GIFT_CARD_FULFILLMENT';
     this.queueKey = seed.queueKey ?? 'GIFT_CARD_MANUAL';
     this.assignedToStaffId = seed.assignedToStaffId === undefined ? 'staff-operator' : seed.assignedToStaffId;
+    this.internationalPayment = seed.internationalPayment ?? null;
+    this.serviceAccountPasswordEnvelope = seed.serviceAccountPasswordEnvelope ?? null;
   }
 
   private nextId(prefix: string): string {
@@ -159,7 +167,13 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
       assignedToStaffId: this.assignedToStaffId,
       fulfillment,
       assetCount: [...this.assets.values()].filter((row) => row.orderId === this.orderId).length,
+      internationalPayment:
+        this.workItemType === 'INTERNATIONAL_PAYMENT' ? this.internationalPayment : null,
     };
+  }
+
+  async findServiceAccountPasswordEnvelope(orderId: string): Promise<string | null> {
+    return orderId === this.orderId ? this.serviceAccountPasswordEnvelope : null;
   }
 
   async loadContextByWorkItem(workItemId: string): Promise<FulfillmentContext | null> {

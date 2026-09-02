@@ -24,6 +24,7 @@ vi.mock('@barat/database', () => ({
   PricingRuleScope: { GLOBAL: 'GLOBAL', PRODUCT: 'PRODUCT', SKU: 'SKU', SERVICE: 'SERVICE' },
 }));
 
+import { open } from '../../common/crypto/aead-envelope';
 import type { AuditService } from '../audit/audit.service';
 import type { CatalogService } from '../catalog/catalog.service';
 import type { PricingRuleService } from '../pricing/pricing-rule.service';
@@ -50,6 +51,10 @@ const SUPPLIER_COST_USD = '46.512345';
 const FACE_VALUE_USD = '50';
 
 const CREATED_AT = new Date('2026-08-30T10:00:00.000Z');
+
+/** The envelope key the config stub hands out, and the AAD that binds it. */
+const ACCOUNT_KEY = Buffer.alloc(32, 7);
+const ACCOUNT_PASSWORD_AAD = 'barat-pay:service-account-password:v1';
 
 const SKU_TARGET = {
   sku: {
@@ -122,6 +127,26 @@ function fxSnapshot(midRate = '920000'): FxRateSnapshot {
 
 function createRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuoteRequest {
   return { skuId: 'sku-1', quantity: 1, currency: 'USD', ...overrides } as CreateQuoteRequest;
+}
+
+/** An international service with no configured fields of its own. */
+function serviceForQuote(): Record<string, unknown> {
+  return {
+    id: 'service-1',
+    slug: 'international-payment',
+    name: 'International payment',
+    nameFa: 'پرداخت بین‌المللی',
+    category: 'payment',
+    currency: 'USD',
+    minAmount: new Decimal('1'),
+    maxAmount: new Decimal('1000'),
+    isActive: true,
+    requiresManualReview: true,
+    sortOrder: 0,
+    createdAt: CREATED_AT,
+    updatedAt: CREATED_AT,
+    fields: [],
+  };
 }
 
 /* ============================================================================
@@ -308,6 +333,9 @@ function harness(): Harness {
     pricing as never,
     { getRateSnapshot } as never,
     { record } as unknown as AuditService,
+    /* A fresh buffer per call, like the real config: the service zeroes the key
+     * it is handed once the password envelope exists. */
+    { bankDetailsEncryptionKey: () => Buffer.from(ACCOUNT_KEY) } as never,
   );
 
   return {
@@ -416,7 +444,7 @@ describe('QuotesService.createQuote', () => {
         skuId: undefined,
         serviceId: 'service-1',
         requestedAmountForeign: '25' as DecimalString,
-        serviceFields: { accountEmail: 'buyer@example.com' },
+        serviceFields: { accountEmail: 'buyer@example.com', siteUrl: 'https://openai.com/pricing' },
       }),
       ACTOR,
     );
@@ -446,6 +474,110 @@ describe('QuotesService.createQuote', () => {
     expect(target).toMatchObject({
       service: { fields: [{ labelFa: 'ایمیل حساب' }] },
     });
+  });
+
+  it('requires the site address on an international service quote', async () => {
+    context.getServiceForQuote.mockResolvedValue(serviceForQuote());
+
+    const error = await context.service
+      .createQuote(
+        createRequest({
+          skuId: undefined,
+          serviceId: 'service-1',
+          requestedAmountForeign: '25' as DecimalString,
+          serviceFields: {},
+        }),
+        ACTOR,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(JSON.stringify(error)).toContain('serviceFields.siteUrl');
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('rejects a site address that is not an http(s) URL', async () => {
+    context.getServiceForQuote.mockResolvedValue(serviceForQuote());
+
+    const error = await context.service
+      .createQuote(
+        createRequest({
+          skuId: undefined,
+          serviceId: 'service-1',
+          requestedAmountForeign: '25' as DecimalString,
+          serviceFields: { siteUrl: 'javascript:alert(1)' },
+        }),
+        ACTOR,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('seals the account password and keeps it out of the readable snapshot', async () => {
+    context.getServiceForQuote.mockResolvedValue(serviceForQuote());
+
+    await context.service.createQuote(
+      createRequest({
+        skuId: undefined,
+        serviceId: 'service-1',
+        requestedAmountForeign: '25' as DecimalString,
+        serviceFields: {
+          siteUrl: 'https://openai.com/pricing',
+          accountUsername: 'buyer@example.com',
+          accountPassword: 'hunter2-not-in-the-clear',
+        },
+      }),
+      ACTOR,
+    );
+
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    const account = snapshot['serviceAccount'] as Record<string, unknown>;
+
+    expect(account['siteUrl']).toBe('https://openai.com/pricing');
+    expect(account['accountUsername']).toBe('buyer@example.com');
+
+    /* The password exists only as ciphertext, bound to its own AAD... */
+    const envelope = account['accountPasswordEnvelope'] as string;
+    expect(envelope.startsWith('v1.')).toBe(true);
+    expect(open(envelope, Buffer.from(ACCOUNT_KEY), ACCOUNT_PASSWORD_AAD)).toBe(
+      'hunter2-not-in-the-clear',
+    );
+
+    /* ...and appears nowhere else in the row, including `serviceFields`. */
+    expect(
+      JSON.stringify(context.db.only(), (_key, value: unknown) =>
+        typeof value === 'bigint' ? value.toString() : value,
+      ),
+    ).not.toContain('hunter2-not-in-the-clear');
+    /* The three account keys are stripped out of the readable field bag, so a
+     * consumer that renders configured fields cannot render a credential. */
+    expect(snapshot['serviceFields']).toEqual({});
+  });
+
+  it('refuses a password with no username to go with it', async () => {
+    context.getServiceForQuote.mockResolvedValue(serviceForQuote());
+
+    const error = await context.service
+      .createQuote(
+        createRequest({
+          skuId: undefined,
+          serviceId: 'service-1',
+          requestedAmountForeign: '25' as DecimalString,
+          serviceFields: {
+            siteUrl: 'https://openai.com/pricing',
+            accountPassword: 'hunter2-not-in-the-clear',
+          },
+        }),
+        ACTOR,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    /* The rejection must not echo the credential back to the caller. */
+    expect(JSON.stringify(error)).not.toContain('hunter2-not-in-the-clear');
+    expect(context.db.rows.size).toBe(0);
   });
 
   it('produces a contract-valid response', async () => {

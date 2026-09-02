@@ -95,6 +95,7 @@ function harness(offers: readonly SupplierOfferView[] = [offer()]): Harness {
     new ChecklistService(fulfillmentStore, audit),
     new GiftCardAssetService(fulfillmentStore, audit),
     audit,
+    { bankDetailsEncryptionKey: () => Buffer.alloc(32, 7) } as never,
   );
 
   const workItems = new InMemoryWorkItemStore();

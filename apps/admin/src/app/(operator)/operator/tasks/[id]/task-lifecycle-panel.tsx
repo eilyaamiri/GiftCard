@@ -96,7 +96,9 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
               />
             </label>
             <p className="warning" style={{ marginBlockStart: 0 }}>
-              هرگز کد، پین یا لینک بازخرید گیفت‌کارت را در این یادداشت وارد نکنید.
+              {item.type === "INTERNATIONAL_PAYMENT"
+                ? "هرگز رمز عبور یا اطلاعات ورود حساب مشتری را در این یادداشت وارد نکنید."
+                : "هرگز کد، پین یا لینک بازخرید گیفت‌کارت را در این یادداشت وارد نکنید."}
             </p>
             <button
               type="button"

@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { randomBytes } from 'node:crypto';
 
+import { seal } from '../../common/crypto/aead-envelope';
+import { SERVICE_ACCOUNT_PASSWORD_AAD as ACCOUNT_AAD } from '../quotes/service-account-fields';
 import type { StaffContext } from '../workitems/staff-context';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { ChecklistService } from './checklist.service';
@@ -56,7 +58,11 @@ function harness(seed: SeedFulfillment = {}): Harness {
   const audit = new AuditService(writer);
   const checklists = new ChecklistService(store, audit);
   const assets = new GiftCardAssetService(store, audit);
-  const service = new FulfillmentService(store, transport, checklists, assets, audit);
+  const service = new FulfillmentService(store, transport, checklists, assets, audit, {
+    /* A fresh buffer per call, like the real config: the service zeroes the key
+     * it is handed as soon as it has finished with it. */
+    bankDetailsEncryptionKey: () => Buffer.alloc(32, 7),
+  } as never);
 
   return { service, store, transport, events };
 }
@@ -393,6 +399,96 @@ describe('gift-card secrecy', () => {
     const views = h.events.filter((event) => event.action === GIFT_CARD_AUDIT_ACTIONS.CODE_VIEWED);
     expect(views).toHaveLength(1);
     expect(views[0]?.payload).toContain('DELIVERY_SEND');
+  });
+});
+
+describe('international payment', () => {
+  const ACCOUNT_PASSWORD = 'correct-horse-battery-staple';
+
+  function paymentHarness(): Harness {
+    return harness({
+      workItemType: 'INTERNATIONAL_PAYMENT',
+      queueKey: 'SAAS_PAYMENT',
+      internationalPayment: {
+        serviceNameFa: 'ابزارهای هوش مصنوعی',
+        payableAmount: '24.99',
+        payableCurrency: 'USD',
+        siteUrl: 'https://openai.com/pricing',
+        accountUsername: 'buyer@example.com',
+        hasAccountPassword: true,
+      },
+      serviceAccountPasswordEnvelope: seal(ACCOUNT_PASSWORD, Buffer.alloc(32, 7), ACCOUNT_AAD),
+    });
+  }
+
+  it('gives the operator the site, the account and the amount to pay', async () => {
+    const h = paymentHarness();
+
+    const workspace = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
+
+    expect(workspace.internationalPayment).toMatchObject({
+      siteUrl: 'https://openai.com/pricing',
+      accountUsername: 'buyer@example.com',
+      payableAmount: '24.99',
+      payableCurrency: 'USD',
+      hasAccountPassword: true,
+    });
+    /* The password itself is never part of the workspace payload. */
+    expect(JSON.stringify(workspace)).not.toContain(ACCOUNT_PASSWORD);
+  });
+
+  it('leaves the brief null for a gift-card work item', async () => {
+    const h = harness();
+    const workspace = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
+    expect(workspace.internationalPayment).toBeNull();
+  });
+
+  it('audits the password read before decrypting, without the password', async () => {
+    const h = paymentHarness();
+
+    const revealed = await h.service.revealServiceAccountPassword({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      reason: 'signing in to complete the subscription payment',
+    });
+
+    expect(revealed.accountPassword).toBe(ACCOUNT_PASSWORD);
+
+    const views = h.events.filter((event) => event.action === 'SERVICE_ACCOUNT_PASSWORD_VIEWED');
+    expect(views).toHaveLength(1);
+    expect(views[0]?.actor).toBe(OPERATOR.id);
+    expect(views[0]?.entityId).toBe(h.store.orderId);
+    expect(views[0]?.payload).toContain('signing in to complete');
+    expect(views[0]?.payload).not.toContain(ACCOUNT_PASSWORD);
+  });
+
+  it('refuses to reveal the password to an operator who does not hold the claim', async () => {
+    const h = paymentHarness();
+
+    const error = await h.service
+      .revealServiceAccountPassword({
+        workItemId: h.store.workItemId,
+        staff: { id: 'staff-someone-else', role: 'OPERATOR' },
+        reason: 'curiosity',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(h.events.filter((event) => event.action === 'SERVICE_ACCOUNT_PASSWORD_VIEWED')).toHaveLength(0);
+  });
+
+  it('refuses to reveal a password on a gift-card work item', async () => {
+    const h = harness();
+
+    const error = await h.service
+      .revealServiceAccountPassword({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        reason: 'wrong work item type',
+      })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(Error);
   });
 });
 

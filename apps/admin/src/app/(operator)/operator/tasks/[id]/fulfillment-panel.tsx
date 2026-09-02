@@ -11,6 +11,7 @@ import { AssetPanel } from "./asset-panel";
 import { ChecklistPanel } from "./checklist-panel";
 import { CostVariancePanel } from "./cost-variance-panel";
 import { FinalActionPanel } from "./final-action-panel";
+import { InternationalPaymentPanel } from "./international-payment-panel";
 import { SupplierResultForm } from "./supplier-result-form";
 
 /**
@@ -56,22 +57,40 @@ export function FulfillmentPanel({
   }
 
   const hasAsset = workspace.assets.length > 0;
+  /* The brief is populated only for INTERNATIONAL_PAYMENT, so it doubles as the
+   * switch that keeps gift-card vocabulary off a payment task. */
+  const payment = workspace.internationalPayment;
 
   return (
     <>
       {!canOperate ? (
         <p className="warning">
-          برای تغییر چک‌لیست، ثبت نتیجهٔ تأمین‌کننده یا ارسال، این کار باید روی میز شما و باز باشد.
+          {payment
+            ? "برای تغییر چک‌لیست، ثبت نتیجهٔ پرداخت یا ارسال، این کار باید روی میز شما و باز باشد."
+            : "برای تغییر چک‌لیست، ثبت نتیجهٔ تأمین‌کننده یا ارسال، این کار باید روی میز شما و باز باشد."}
         </p>
       ) : null}
 
       <InlineError message={error} />
 
-      {!hasAsset && !workspace.checklist.isLocked ? (
-        <SupplierResultForm disabled={!canOperate} onSubmit={recordSupplierResult} />
+      {payment ? (
+        <InternationalPaymentPanel workItemId={workItemId} brief={payment} canOperate={canOperate} />
       ) : null}
 
-      <AssetPanel workItemId={workItemId} assets={workspace.assets} canOperate={canOperate} />
+      {!hasAsset && !workspace.checklist.isLocked ? (
+        <SupplierResultForm
+          disabled={!canOperate}
+          variant={payment ? "INTERNATIONAL_PAYMENT" : "GIFT_CARD"}
+          onSubmit={recordSupplierResult}
+        />
+      ) : null}
+
+      <AssetPanel
+        workItemId={workItemId}
+        assets={workspace.assets}
+        canOperate={canOperate}
+        variant={payment ? "INTERNATIONAL_PAYMENT" : "GIFT_CARD"}
+      />
 
       {workspace.costVariance ? (
         <CostVariancePanel

@@ -1,8 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { DeliveryStatus, StaffRole } from '@barat/contracts';
 
+import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService, type AuditActorType } from '../audit/audit.service';
+import { openServiceAccountPassword } from '../quotes/service-account-fields';
 import type { StaffContext } from '../workitems/staff-context';
 import { ChecklistService, type ChecklistState } from './checklist.service';
 import { SEND_BLOCKERS, type SendBlocker } from './checklist-evaluation';
@@ -24,6 +26,7 @@ import {
   type FulfillmentContext,
   type FulfillmentStore,
   type GiftCardAssetView,
+  type InternationalPaymentBrief,
   type RecordAssetInput,
 } from './fulfillment.types';
 
@@ -36,6 +39,7 @@ export const FULFILLMENT_AUDIT_ACTIONS = {
   DELIVERY_FAILED: 'FULFILLMENT_DELIVERY_FAILED',
   DELIVERY_RETRIED: 'FULFILLMENT_DELIVERY_RETRIED',
   REOPENED: 'FULFILLMENT_REOPENED',
+  SERVICE_ACCOUNT_PASSWORD_VIEWED: 'SERVICE_ACCOUNT_PASSWORD_VIEWED',
 } as const;
 
 export interface FulfillmentWorkspace {
@@ -46,6 +50,8 @@ export interface FulfillmentWorkspace {
   readonly costVariance: CostVarianceAssessment | null;
   readonly sendBlockers: readonly SendBlocker[];
   readonly canSend: boolean;
+  /** Null for every work item type except `INTERNATIONAL_PAYMENT`. */
+  readonly internationalPayment: InternationalPaymentBrief | null;
 }
 
 export interface DeliveryOutcome {
@@ -96,6 +102,7 @@ export class FulfillmentService {
     @Inject(ChecklistService) private readonly checklists: ChecklistService,
     @Inject(GiftCardAssetService) private readonly assets: GiftCardAssetService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(AppConfigService) private readonly config: AppConfigService,
   ) {}
 
   /* ---------------------------------------------------------------------- */
@@ -797,6 +804,58 @@ export class FulfillmentService {
     };
   }
 
+  /**
+   * Operator-initiated plaintext read of the customer's account password for an
+   * international payment.
+   *
+   * Same contract as `revealAssetSecret`: a reason is mandatory, the audit event
+   * is written *before* the envelope is opened, and neither the audit payload nor
+   * any log line carries the password. The decryption key is zeroed afterwards.
+   */
+  async revealServiceAccountPassword(input: {
+    workItemId: string;
+    staff: StaffContext;
+    reason: string;
+  }): Promise<{ accountPassword: string }> {
+    const context = await this.loadContext(input.workItemId);
+    this.assertCanOperate(context, input.staff);
+
+    if (context.workItemType !== 'INTERNATIONAL_PAYMENT') {
+      throw DomainErrors.conflict(
+        `work item ${input.workItemId} is not an international payment`,
+      );
+    }
+
+    const envelope = await this.store.findServiceAccountPasswordEnvelope(context.orderId);
+    if (envelope === null) {
+      throw DomainErrors.conflict(
+        `order ${context.orderId} has no stored account password`,
+      );
+    }
+
+    await this.audit.record({
+      actor: input.staff.id,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: FULFILLMENT_AUDIT_ACTIONS.SERVICE_ACCOUNT_PASSWORD_VIEWED,
+      entity: 'Order',
+      entityId: context.orderId,
+      after: {
+        workItemId: context.workItemId,
+        viewedBy: input.staff.id,
+        reason: input.reason,
+        viewedAt: new Date().toISOString(),
+      },
+    });
+
+    const key = this.config.bankDetailsEncryptionKey();
+    try {
+      return { accountPassword: openServiceAccountPassword(envelope, key) };
+    } finally {
+      key.fill(0);
+    }
+  }
+
   /* ---------------------------------------------------------------------- */
   /* Helpers                                                                 */
   /* ---------------------------------------------------------------------- */
@@ -864,6 +923,7 @@ export class FulfillmentService {
       costVariance: state.variance,
       sendBlockers: state.sendBlockers,
       canSend: state.sendBlockers.length === 0,
+      internationalPayment: context.internationalPayment,
     };
   }
 }
