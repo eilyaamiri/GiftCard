@@ -45,7 +45,11 @@ export type FxProviderErrorCode =
   | 'HTTP_ERROR'
   | 'INVALID_RESPONSE'
   | 'NETWORK_ERROR'
-  | 'TIMEOUT';
+  | 'TIMEOUT'
+  /** The venue is halted. Its last print is not a tradeable price. */
+  | 'MARKET_CLOSED'
+  /** The venue has no market for the requested pair. */
+  | 'UNSUPPORTED_PAIR';
 
 /** Safe, normalized provider failure. It never embeds a URL, body, or credential. */
 export class FxProviderError extends Error {

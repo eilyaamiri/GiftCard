@@ -70,6 +70,45 @@ describe('FX module wiring', () => {
     expect(repository.rows).toHaveLength(1);
   });
 
+  it('prices USD from the live USDT/rial market when the primary venue is nobitex', async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        status: 'ok',
+        stats: {
+          'usdt-rls': {
+            isClosed: false,
+            bestBuy: '1198000.0000000000',
+            bestSell: '1202000.0000000000',
+          },
+        },
+      }),
+    })) as unknown as typeof fetch;
+
+    try {
+      const repository = new RecordingRepository();
+      const service = new FxAggregatorService(
+        createPrimaryFxRateProvider({ kind: 'nobitex' }),
+        createSecondaryFxRateProvider({ kind: 'http' }),
+        repository,
+        { staleThresholdSeconds: 900 },
+        undefined,
+        clock,
+      );
+
+      const snapshot = await service.getRateSnapshot(PAIR);
+
+      expect(snapshot.midRate).toBe('1200000');
+      /* Position and venue on the row; the category stays the schema's own. */
+      expect(snapshot.provider).toBe('primary-nobitex');
+      expect(snapshot.source).toBe('API');
+      expect(snapshot.isStale).toBe(false);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('rejects quoting when both HTTP adapters are unconfigured', async () => {
     delete process.env['FX_PRIMARY_URL'];
     delete process.env['FX_SECONDARY_URL'];

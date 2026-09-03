@@ -1,9 +1,10 @@
 import type { FxRateProvider } from './fx-rate-provider.interface';
 import { MockFxRateProvider, type MockFxRateProviderOptions } from './providers/mock-fx-rate.provider';
+import { NobitexFxRateProvider } from './providers/nobitex-fx-rate.provider';
 import { PrimaryFxRateProvider } from './providers/primary-fx-rate.provider';
 import { SecondaryFxRateProvider } from './providers/secondary-fx-rate.provider';
 
-export type FxProviderKind = 'http' | 'mock';
+export type FxProviderKind = 'http' | 'mock' | 'nobitex';
 
 export interface FxProviderFactoryOptions {
   readonly kind: FxProviderKind;
@@ -12,6 +13,23 @@ export interface FxProviderFactoryOptions {
   readonly timeoutMs?: number;
   /** Only read when `kind` is `mock`. */
   readonly mock?: Omit<MockFxRateProviderOptions, 'name'>;
+  /** Only read when `kind` is `nobitex`; the adapter has a working default. */
+  readonly nobitexBaseUrl?: string;
+}
+
+/**
+ * Nobitex reads a public market endpoint and needs no endpoint configuration.
+ *
+ * The name pairs the position with the venue — `primary-nobitex` — which is the
+ * form `FxRate.provider` documents. Health reporting and every persisted row
+ * then say both which slot answered and which exchange it read.
+ */
+function nobitex(options: FxProviderFactoryOptions, position: string): FxRateProvider {
+  return new NobitexFxRateProvider({
+    name: `${position}-nobitex`,
+    ...(options.nobitexBaseUrl === undefined ? {} : { baseUrl: options.nobitexBaseUrl }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  });
 }
 
 /**
@@ -25,6 +43,9 @@ export function createPrimaryFxRateProvider(options: FxProviderFactoryOptions): 
   if (options.kind === 'mock') {
     return new MockFxRateProvider({ ...options.mock, name: 'mock-primary' });
   }
+  if (options.kind === 'nobitex') {
+    return nobitex(options, 'primary');
+  }
   return new PrimaryFxRateProvider({
     ...(options.endpoint === undefined ? {} : { endpoint: options.endpoint }),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
@@ -34,6 +55,9 @@ export function createPrimaryFxRateProvider(options: FxProviderFactoryOptions): 
 export function createSecondaryFxRateProvider(options: FxProviderFactoryOptions): FxRateProvider {
   if (options.kind === 'mock') {
     return new MockFxRateProvider({ ...options.mock, name: 'mock-secondary' });
+  }
+  if (options.kind === 'nobitex') {
+    return nobitex(options, 'secondary');
   }
   return new SecondaryFxRateProvider({
     ...(options.endpoint === undefined ? {} : { endpoint: options.endpoint }),

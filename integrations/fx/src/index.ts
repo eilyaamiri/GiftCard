@@ -15,3 +15,4 @@ export {
 } from './provider-factory';
 export type { HttpFxRateProviderOptions } from './providers/http-fx-rate.provider';
 export type { MockFxRateProviderOptions } from './providers/mock-fx-rate.provider';
+export type { NobitexFxRateProviderOptions } from './providers/nobitex-fx-rate.provider';
