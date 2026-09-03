@@ -5,6 +5,7 @@ export const FX_RATE_REPOSITORY = 'BARAT_FX_RATE_REPOSITORY';
 export const FX_AGGREGATOR_CONFIG = 'BARAT_FX_AGGREGATOR_CONFIG';
 export const FX_CLOCK = 'BARAT_FX_CLOCK';
 export const FX_AUDIT_RECORDER = 'BARAT_FX_AUDIT_RECORDER';
+export const FX_REFRESH_CONFIG = 'BARAT_FX_REFRESH_CONFIG';
 
 /**
  * The slice of the shared audit service that FX needs.
@@ -32,6 +33,27 @@ export interface FxAuditRecorder {
 export interface FxAggregatorConfig {
   /** Mirrors `FX_STALE_THRESHOLD_SECONDS`; a rate older than this is unusable. */
   readonly staleThresholdSeconds: number;
+}
+
+/** Inputs for the background poller that keeps the market rate current. */
+export interface FxRefreshConfig {
+  readonly enabled: boolean;
+  readonly intervalMs: number;
+  /**
+   * The same window the aggregator judges staleness by. Polling slower than
+   * this would leave the automatic rate unusable for part of every cycle, so
+   * the refresher refuses to start with such a configuration.
+   */
+  readonly staleThresholdMs: number;
+  readonly pairs: readonly FxPair[];
+}
+
+/** What one polling cycle achieved; returned so tests can assert on it. */
+export interface FxRefreshOutcome {
+  readonly refreshed: readonly FxPair[];
+  readonly failed: readonly FxPair[];
+  /** True when a previous cycle was still running and this one stood down. */
+  readonly skipped: boolean;
 }
 
 export interface FxRateCreateData {
