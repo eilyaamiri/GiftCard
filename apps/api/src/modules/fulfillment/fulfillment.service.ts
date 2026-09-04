@@ -87,6 +87,47 @@ export const SYSTEM_DELIVERY_ACTOR: DispatchActor = {
   enforceClaim: false,
 };
 
+/** The identity an automated purchase delivers as. */
+export const SELF_SERVICE_DELIVERY_ACTOR: DispatchActor = {
+  id: 'system:self-service-delivery',
+  role: 'SYSTEM',
+  actorType: 'SYSTEM',
+  enforceClaim: false,
+};
+
+/**
+ * How the asset reaches the customer.
+ *
+ * `EMAIL` is the operator path: we hold a code and mail it. `SELF_SERVICE` is the
+ * automated path: the code is already encrypted against the customer's own order,
+ * and they reveal it themselves on the order page. Nothing is sent anywhere, so
+ * claiming an e-mail went out would be a lie in the delivery record.
+ */
+export type DeliveryChannel = 'EMAIL' | 'SELF_SERVICE';
+
+/**
+ * Checklist keys a self-service delivery may leave unsatisfied.
+ *
+ * Exactly one, and only because it asks about a delivery e-mail that this channel
+ * does not use. Every other blocking item — payment verified, supplier reference,
+ * actual cost, asset stored — still has to pass, and the independent send gates in
+ * `computeSendBlockers` are untouched.
+ */
+const SELF_SERVICE_WAIVED_CHECKLIST_KEYS: readonly string[] = ['DELIVERY_EMAIL_PRESENT'];
+
+/**
+ * The checklist steps an automated purchase performs itself.
+ *
+ * Both are facts about the purchase the system just made — it placed the supplier
+ * order, and it bought the SKU this order names. Nothing here touches a
+ * SYSTEM_VERIFIED item: those stay derived from state, so automation cannot
+ * declare a payment verified or a cost recorded that isn't.
+ */
+const AUTOMATED_PURCHASE_CHECKLIST_KEYS: readonly string[] = [
+  'SUPPLIER_ORDER_PLACED',
+  'ASSET_MATCHES_ORDER',
+];
+
 function staffActor(staff: StaffContext): DispatchActor {
   return { id: staff.id, role: staff.role, actorType: 'STAFF', enforceClaim: true };
 }
@@ -308,7 +349,11 @@ export class FulfillmentService {
       orderId: context.orderId,
       fulfillmentId: fulfillment.id,
       skuId: input.skuId ?? null,
-      staffId: input.actorId,
+      // Nobody typed this. `enteredByUserId` is a FK to `StaffUser`, so the
+      // system identity travels in the audit actor instead of the column.
+      staffId: null,
+      actor: input.actorId,
+      actorType: 'SYSTEM',
       supplierReference: input.supplierReference ?? null,
       actualSupplierCost: input.actualSupplierCost ?? null,
       actualSupplierCurrency: input.actualSupplierCurrency ?? null,
@@ -331,7 +376,9 @@ export class FulfillmentService {
         supplierReference: input.supplierReference ?? null,
         costVarianceBps: variance.varianceBps,
         // The purchase was automated; the claim holder stays accountable for it.
-        fulfilledByStaffId: context.assignedToStaffId ?? input.actorId,
+        // With no claim holder the column stays null — it is a FK to `StaffUser`
+        // and there is no person to name.
+        fulfilledByStaffId: context.assignedToStaffId,
       });
 
       if (variance.requiresApproval) {
@@ -460,6 +507,44 @@ export class FulfillmentService {
   }
 
   /**
+   * Confirms the checklist steps an automated purchase genuinely performed.
+   *
+   * Two, and only two: the system placed the order with the supplier, and it
+   * bought the SKU the order names, so the asset matches it. Everything else on
+   * the checklist is still derived from state or still waits for a person. Keys
+   * absent from this work item's template are skipped, so calling it for a
+   * non-gift-card checklist does nothing.
+   */
+  async confirmAutomatedPurchaseSteps(workItemId: string, actor: string): Promise<void> {
+    const context = await this.loadContext(workItemId);
+    for (const itemKey of AUTOMATED_PURCHASE_CHECKLIST_KEYS) {
+      await this.checklists.confirmItemAsSystem({ context, itemKey, actor });
+    }
+  }
+
+  /**
+   * Hands an automatically purchased asset to the customer's own order page.
+   *
+   * The same `dispatch` as the operator SEND button, so the same send gate runs:
+   * payment verified, order deliverable, asset stored, actual cost recorded, cost
+   * variance approved if it needs approval. Nothing about "the system bought it"
+   * relaxes any of that — the one difference is that no message is sent, because
+   * the customer reveals the code themselves.
+   *
+   * No plaintext is read here and none is returned. The caller learns only whether
+   * the asset is now available to its buyer.
+   */
+  async deliverBySelfService(workItemId: string): Promise<DeliveryOutcome> {
+    return this.dispatch({
+      workItemId,
+      actor: SELF_SERVICE_DELIVERY_ACTOR,
+      reason: SECRET_READ_REASONS.DELIVERY_SEND,
+      isRetry: false,
+      channel: 'SELF_SERVICE',
+    });
+  }
+
+  /**
    * Re-sends the asset that already exists.
    *
    * There is no code path from here to `GiftCardAssetService.create` or to a
@@ -515,7 +600,10 @@ export class FulfillmentService {
     actor: DispatchActor;
     reason: SecretReadReason;
     isRetry: boolean;
+    /** Omitted means `EMAIL`: forgetting it can only make the gate stricter. */
+    channel?: DeliveryChannel;
   }): Promise<DeliveryOutcome> {
+    const channel: DeliveryChannel = input.channel ?? 'EMAIL';
     const context = await this.loadContext(input.workItemId);
     if (input.actor.enforceClaim) {
       this.assertCanOperate(context, { id: input.actor.id, role: input.actor.role as StaffRole });
@@ -527,8 +615,15 @@ export class FulfillmentService {
     const asset = assets[0];
 
     // The authoritative gate. The frontend's opinion is not consulted.
-    const blockers = [...state.sendBlockers];
-    if (asset !== undefined && this.needsOurEmail(asset) && !this.resolveRecipient(context, asset)) {
+    const blockers = [...state.sendBlockers].filter(
+      (blocker) => !this.isWaivedForSelfService(blocker, channel, state),
+    );
+    if (
+      channel === 'EMAIL' &&
+      asset !== undefined &&
+      this.needsOurEmail(asset) &&
+      !this.resolveRecipient(context, asset)
+    ) {
       blockers.push(SEND_BLOCKERS.DELIVERY_EMAIL_MISSING);
     }
 
@@ -568,16 +663,22 @@ export class FulfillmentService {
 
     const attemptNumber = await this.store.nextAttemptNumber(asset.id);
     const recipient = this.resolveRecipient(context, asset);
+    const recipientMasked = this.describeRecipient(channel, recipient);
     const attempt = await this.store.createDeliveryAttempt({
       assetId: asset.id,
       orderId: context.orderId,
-      recipientMasked: recipient === null ? 'provider-direct' : maskEmail(recipient),
+      recipientMasked,
       attemptNumber,
     });
 
     let result: { success: boolean; providerMessageId?: string; failureCode?: string };
 
-    if (asset.assetType === 'PROVIDER_DIRECT_EMAIL') {
+    if (channel === 'SELF_SERVICE') {
+      // Nothing leaves the process. The code is already encrypted against this
+      // order, and the customer reveals it themselves; "delivered" here means
+      // "available to the buyer", which is exactly what it now is.
+      result = { success: true, providerMessageId: `self-service:${asset.id}` };
+    } else if (asset.assetType === 'PROVIDER_DIRECT_EMAIL') {
       // Reloadly / Runa / Giftbit already mailed the customer. There is no code on
       // our side and nothing for us to send; we only record that it happened.
       result = { success: true, providerMessageId: `provider-direct:${asset.supplierReference ?? asset.id}` };
@@ -659,7 +760,8 @@ export class FulfillmentService {
         attemptNumber,
         assetType: asset.assetType,
         maskedCode: asset.maskedCode,
-        recipientMasked: recipient === null ? 'provider-direct' : maskEmail(recipient),
+        channel,
+        recipientMasked,
         sentAt: now.toISOString(),
       },
     });
@@ -862,6 +964,34 @@ export class FulfillmentService {
 
   private needsOurEmail(asset: GiftCardAssetView): boolean {
     return asset.assetType !== 'PROVIDER_DIRECT_EMAIL';
+  }
+
+  /** What the delivery record says the asset was handed to. Never an address. */
+  private describeRecipient(channel: DeliveryChannel, recipient: string | null): string {
+    if (channel === 'SELF_SERVICE') {
+      return 'self-service';
+    }
+    return recipient === null ? 'provider-direct' : maskEmail(recipient);
+  }
+
+  /**
+   * Whether a blocker stops applying because this delivery uses no e-mail.
+   *
+   * Only `CHECKLIST_INCOMPLETE`, and only while every unsatisfied item is one of
+   * the waived keys. One unrelated pending item and the blocker stands, which is
+   * what keeps this from turning into a general-purpose override.
+   */
+  private isWaivedForSelfService(
+    blocker: SendBlocker,
+    channel: DeliveryChannel,
+    state: ChecklistState,
+  ): boolean {
+    if (channel !== 'SELF_SERVICE' || blocker !== SEND_BLOCKERS.CHECKLIST_INCOMPLETE) {
+      return false;
+    }
+    return state.evaluation.unsatisfiedKeys.every((key) =>
+      SELF_SERVICE_WAIVED_CHECKLIST_KEYS.includes(key),
+    );
   }
 
   private resolveRecipient(context: FulfillmentContext, asset: GiftCardAssetView): string | null {

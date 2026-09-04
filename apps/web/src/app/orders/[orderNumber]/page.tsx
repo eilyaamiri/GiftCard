@@ -6,6 +6,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { requireSession } from "@/lib/session";
 import { orderStatusView } from "@/lib/status";
 import { tomanFromIrr } from "@/app/checkout/purchase";
+import { RevealCode } from "./reveal-code";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,9 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
         </div>
       ) : null}
 
-      {order.delivery !== null ? <DeliveryCard delivery={order.delivery} /> : null}
+      {order.delivery !== null ? (
+        <DeliveryCard delivery={order.delivery} orderNumber={order.orderNumber} />
+      ) : null}
     </main>
   );
 }
@@ -93,11 +96,19 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
 /**
  * What may be shown about a delivered asset.
  *
- * Only `maskedCode` is rendered. The plaintext code and any redemption link
- * that stands in for it are secrets that belong to the audited reveal flow, not
- * to a page a customer might screenshot or leave open.
+ * The page itself renders only `maskedCode`. The plaintext is never part of the
+ * order response — it arrives, if at all, through `RevealCode`, which asks the
+ * server for it on an explicit click and leaves an audit record behind. So a
+ * page that is screenshotted, cached or left open still holds nothing but the
+ * mask.
  */
-function DeliveryCard({ delivery }: { readonly delivery: NonNullable<OrderDetailDto["delivery"]> }) {
+function DeliveryCard({
+  delivery,
+  orderNumber,
+}: {
+  readonly delivery: NonNullable<OrderDetailDto["delivery"]>;
+  readonly orderNumber: string;
+}) {
   return (
     <div className="card pad" style={{ marginBlockStart: 16 }}>
       <h2 className="h2" style={{ fontSize: 20, marginBlockStart: 0 }}>
@@ -131,9 +142,21 @@ function DeliveryCard({ delivery }: { readonly delivery: NonNullable<OrderDetail
           <strong>{formatJalaliDate(delivery.expiryDate, "d MMMM yyyy")}</strong>
         </div>
       ) : null}
-      <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
-        کد کامل تنها در صفحهٔ نمایش امن و با ثبت گزارش قابل مشاهده است.
-      </p>
+      {/* The button appears only once the server says the card was sent. Any
+        * earlier and it would offer something the reveal endpoint refuses — the
+        * asset may still be under an operator's verification. */}
+      {delivery.status === "SENT" ? (
+        <>
+          <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
+            نمایش کد کامل ثبت می‌شود. آن را در جای امن نگه دارید و برای کسی نفرستید.
+          </p>
+          <RevealCode orderNumber={orderNumber} />
+        </>
+      ) : (
+        <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
+          کد کامل پس از تکمیل تحویل، در همین صفحه قابل نمایش خواهد بود.
+        </p>
+      )}
     </div>
   );
 }

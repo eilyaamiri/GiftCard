@@ -341,7 +341,8 @@ export interface FulfillmentStore {
     actualSupplierCurrency: string;
     supplierReference: string | null;
     costVarianceBps: number | null;
-    fulfilledByStaffId: string;
+    /** `null` when automation spent the money and no operator holds the item. */
+    fulfilledByStaffId: string | null;
   }): Promise<void>;
   /** Atomic: only records an approval when none exists yet. */
   approveCostVariance(input: {
@@ -370,7 +371,11 @@ export interface FulfillmentStore {
     supplierReference: string | null;
     actualSupplierCost: string | null;
     actualSupplierCurrency: string | null;
-    enteredByUserId: string;
+    /**
+     * FK to `StaffUser`. `null` for an automated purchase — a synthetic actor id
+     * would violate the constraint, and the audit trail carries that identity.
+     */
+    enteredByUserId: string | null;
     enteredAt: Date;
   }): Promise<GiftCardAssetView>;
   recordSecretAccess(assetId: string, at: Date): Promise<void>;

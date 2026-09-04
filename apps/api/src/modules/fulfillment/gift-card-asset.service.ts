@@ -28,7 +28,18 @@ export const SECRET_READ_REASONS = {
   DELIVERY_SEND: 'DELIVERY_SEND',
   DELIVERY_RETRY: 'DELIVERY_RETRY',
   SUPPORT_INVESTIGATION: 'SUPPORT_INVESTIGATION',
+  /** The customer asked to see the code they bought, on their own order page. */
+  CUSTOMER_REVEAL: 'CUSTOMER_REVEAL',
 } as const;
+
+/**
+ * The audit actor for an asset nobody typed.
+ *
+ * Only a fallback: every automated caller passes its own, more specific actor
+ * (`system:supplier:<code>`). It exists so the audit `actor` column is never
+ * empty, which would make an automated write indistinguishable from a bug.
+ */
+const SYSTEM_ASSET_ACTOR = 'system:fulfillment';
 
 export type SecretReadReason = (typeof SECRET_READ_REASONS)[keyof typeof SECRET_READ_REASONS];
 
@@ -80,12 +91,21 @@ export class GiftCardAssetService {
    *
    * The input type makes a code field unreachable for the last two, so no request
    * body can smuggle one in.
+   *
+   * `staffId` is nullable because an automated purchase has no typist. It is a
+   * foreign key to `StaffUser`, so a synthetic id like `system:supplier:reloadly`
+   * cannot be stored there — it would be rejected by the database. The audit
+   * actor is a separate, free-text field, which is where that identity belongs.
    */
   async create(input: {
     orderId: string;
     fulfillmentId: string;
     skuId?: string | null;
-    staffId: string;
+    /** The staff member who entered the values, or `null` for automation. */
+    staffId: string | null;
+    /** Audit identity. Defaults to `staffId` for the operator path. */
+    actor?: string;
+    actorType?: AuditActorType;
     supplierReference?: string | null;
     actualSupplierCost?: string | null;
     actualSupplierCurrency?: string | null;
@@ -114,8 +134,8 @@ export class GiftCardAssetService {
     });
 
     await this.audit.record({
-      actor: input.staffId,
-      actorType: 'STAFF',
+      actor: input.actor ?? input.staffId ?? SYSTEM_ASSET_ACTOR,
+      actorType: input.actorType ?? 'STAFF',
       action: GIFT_CARD_AUDIT_ACTIONS.ASSET_RECORDED,
       entity: 'GiftCardAsset',
       entityId: created.id,

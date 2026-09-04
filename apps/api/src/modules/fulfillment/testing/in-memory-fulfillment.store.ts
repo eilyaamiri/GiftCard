@@ -352,7 +352,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     actualSupplierCurrency: string;
     supplierReference: string | null;
     costVarianceBps: number | null;
-    fulfilledByStaffId: string;
+    fulfilledByStaffId: string | null;
   }): Promise<void> {
     const existing = this.fulfillments.get(input.fulfillmentId);
     if (existing === undefined) {
@@ -434,7 +434,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     supplierReference: string | null;
     actualSupplierCost: string | null;
     actualSupplierCurrency: string | null;
-    enteredByUserId: string;
+    enteredByUserId: string | null;
     enteredAt: Date;
   }): Promise<GiftCardAssetView> {
     const row: AssetRow = {

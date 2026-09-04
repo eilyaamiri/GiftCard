@@ -228,6 +228,75 @@ describe('send gate', () => {
   });
 });
 
+/**
+ * The self-service channel, used when the system fulfills an order by itself.
+ *
+ * It waives exactly one checklist item: `DELIVERY_EMAIL_PRESENT`, which is
+ * unsatisfiable because checkout never collects a delivery address, and which
+ * is meaningless when the card is published to the customer's own order page
+ * rather than mailed. The tests here are about the *scope* of that waiver —
+ * a waiver that quietly grew would let an unverified card reach a customer.
+ */
+describe('self-service delivery', () => {
+  it('publishes the card without a delivery e-mail, and never touches the transport', async () => {
+    const h = harness({ deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+
+    const outcome = await h.service.deliverBySelfService(h.store.workItemId);
+
+    expect(outcome.delivered).toBe(true);
+    /* No e-mail was sent and none was claimed to have been. Only a mock
+     * transport is bound, so recording a send here would be a lie in the
+     * customer's own delivery history. */
+    expect(h.transport.getSendCount()).toBe(0);
+    expect(h.store.rawAssets()[0]?.status).toBe('SENT');
+    expect(h.store.attempts[0]?.recipientMasked).toBe('self-service');
+  });
+
+  it('still refuses when a blocking item other than the e-mail is unsatisfied', async () => {
+    const h = harness({ deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    // The two BOOLEAN confirmations are deliberately left unticked.
+
+    await expect(h.service.deliverBySelfService(h.store.workItemId)).rejects.toThrow();
+    expect(h.store.rawAssets()[0]?.status).toBe('READY');
+  });
+
+  it('still refuses when the payment is not verified', async () => {
+    const h = harness({ hasVerifiedPayment: false, deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+
+    /* The waiver covers CHECKLIST_INCOMPLETE only, and only when every
+     * unsatisfied key is the delivery e-mail. An unverified payment is a
+     * separate blocker and must survive. */
+    await expect(h.service.deliverBySelfService(h.store.workItemId)).rejects.toThrow();
+    expect(h.store.rawAssets()[0]?.status).toBe('READY');
+  });
+
+  it('still refuses an unapproved cost variance', async () => {
+    const h = harness({ deliveryEmail: null });
+    // 20% above the quoted cost, far beyond the 500bps tolerance.
+    await recordAsset(h, '120.00');
+    await tickBooleans(h);
+
+    await expect(h.service.deliverBySelfService(h.store.workItemId)).rejects.toThrow();
+    expect(h.store.rawAssets()[0]?.status).toBe('READY');
+  });
+
+  it('keeps the plaintext out of the delivery audit trail', async () => {
+    const h = harness({ deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+
+    await h.service.deliverBySelfService(h.store.workItemId);
+
+    expect(JSON.stringify(h.events)).not.toContain(PLAINTEXT_CODE);
+    expect(JSON.stringify(h.events)).not.toContain(PLAINTEXT_PIN);
+  });
+});
+
 describe('cost variance', () => {
   it('blocks the send when the actual supplier cost exceeds the tolerance', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });

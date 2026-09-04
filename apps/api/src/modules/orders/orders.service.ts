@@ -15,9 +15,17 @@ import type { Prisma } from '@barat/database';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
+import {
+  GiftCardAssetService,
+  SECRET_READ_REASONS,
+} from '../fulfillment/gift-card-asset.service';
 import { maskEmail } from '../identity/identity.utils';
 import { ORDER_STATUS_CHANGED, OrderStateMachine, type OrderActor } from './order-state-machine';
-import type { AdminListOrdersQuery, ListOrdersQuery } from './orders.schemas';
+import type {
+  AdminListOrdersQuery,
+  ListOrdersQuery,
+  RevealDeliveryResponse,
+} from './orders.schemas';
 import {
   ORDERS_DATABASE,
   type OrderPaymentBridge,
@@ -96,6 +104,7 @@ export class OrdersService implements OrderPaymentBridge {
     @Inject(ORDERS_DATABASE) private readonly db: OrdersDatabase,
     @Inject(OrderStateMachine) private readonly stateMachine: OrderStateMachine,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(GiftCardAssetService) private readonly assets: GiftCardAssetService,
   ) {}
 
   /* ================================================================ create */
@@ -182,6 +191,75 @@ export class OrdersService implements OrderPaymentBridge {
       throw DomainErrors.notFound('order');
     }
     return { order: this.toDetailDto(order, await this.timeline(order.id)) };
+  }
+
+  /**
+   * Hand the customer the plaintext of the card they bought.
+   *
+   * Three gates, in this order, and all three matter:
+   *
+   *   1. the order is looked up by `orderNumber` AND the session `customerId`,
+   *      so another customer's order is simply not found;
+   *   2. only the newest asset on the order is readable, and only once its
+   *      status is `SENT` — that is the same flag the operator workspace and
+   *      the self-service delivery both set, so "delivered" has one meaning;
+   *   3. the decryption itself goes through `GiftCardAssetService.readSecret`,
+   *      which writes `GIFT_CARD_CODE_VIEWED` before it decrypts. Every reveal
+   *      is on record with the customer as the actor.
+   *
+   * The returned object is short-lived and must never be logged, cached or
+   * audited — the audit row deliberately carries only the asset id and reason.
+   */
+  async revealDeliveryForCustomer(
+    orderNumber: string,
+    customerId: string,
+  ): Promise<RevealDeliveryResponse> {
+    const order = await this.db.order.findFirst({
+      where: { orderNumber, customerId },
+      select: {
+        id: true,
+        giftCardAssets: {
+          select: { id: true, status: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
+      },
+    });
+    if (!order) {
+      throw DomainErrors.notFound('order');
+    }
+
+    const asset = order.giftCardAssets[0];
+    if (asset === undefined) {
+      throw DomainErrors.conflict(
+        'کد این سفارش هنوز آماده نشده است.',
+        `order ${order.id} has no delivery asset`,
+      );
+    }
+    if (asset.status !== 'SENT') {
+      /* Deliberately not readable while the asset is READY: an operator may still
+       * be verifying it, and a card the customer has already seen cannot be
+       * un-issued if that verification then fails. */
+      throw DomainErrors.conflict(
+        'کد این سفارش هنوز برای شما منتشر نشده است.',
+        `asset ${asset.id} is ${asset.status}, expected SENT`,
+      );
+    }
+
+    const revealed = await this.assets.readSecret({
+      assetId: asset.id,
+      actorId: customerId,
+      actorType: 'CUSTOMER',
+      reason: SECRET_READ_REASONS.CUSTOMER_REVEAL,
+    });
+
+    return {
+      assetType: revealed.assetType,
+      code: revealed.code ?? null,
+      pin: revealed.pin ?? null,
+      deliveryUrl: revealed.deliveryUrl ?? null,
+      expiryDate: revealed.expiryDate?.toISOString() ?? null,
+    };
   }
 
   /** A customer's own order list. */

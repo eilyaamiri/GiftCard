@@ -49,6 +49,34 @@ export interface SupplierOfferView {
 }
 
 /* ============================================================================
+ * Funding pre-flight
+ *
+ * Asking "can we afford this?" before `POST /orders` is what turns an empty
+ * prepaid float from a half-placed order into a work item an operator picks up.
+ * ==========================================================================*/
+
+export type SupplierFundingState =
+  /** The account holds at least what this purchase needs. */
+  | 'SUFFICIENT'
+  /** The account is empty or short. Never attempt a purchase. */
+  | 'INSUFFICIENT'
+  /** The venue could not be asked. Also never attempt a purchase. */
+  | 'UNKNOWN'
+  /** This supplier has no prepaid float — an invoiced or manual supplier. */
+  | 'NOT_APPLICABLE';
+
+export interface SupplierFundingView {
+  readonly state: SupplierFundingState;
+  readonly supplierCode: string;
+  /** Null when the balance could not be read, or does not exist. */
+  readonly balance: { readonly amount: string; readonly currency: string } | null;
+  /** What this purchase needs, in the offer's cost currency. Decimal string. */
+  readonly required: { readonly amount: string; readonly currency: string };
+  /** Set when the balance is in a currency we cannot compare against the cost. */
+  readonly currencyMismatch: boolean;
+}
+
+/* ============================================================================
  * Purchase outcomes
  * ==========================================================================*/
 
@@ -93,6 +121,30 @@ export interface SupplierPurchaseStatusView {
 }
 
 /* ============================================================================
+ * Automation target
+ *
+ * Everything the auto-fulfillment orchestrator must re-read from the database
+ * before it is willing to spend money. Nothing here comes from a caller: the
+ * work item id is the only input, and the order, the SKU and the quantity are
+ * all derived from it.
+ * ==========================================================================*/
+
+export interface AutoFulfillmentTarget {
+  readonly workItemId: string;
+  readonly workItemType: string;
+  readonly workItemStatus: string;
+  readonly assignedToStaffId: string | null;
+  readonly orderId: string;
+  readonly customerId: string | null;
+  readonly orderStatus: string;
+  /** Null for a service order, which is a payment abroad rather than a card. */
+  readonly skuId: string | null;
+  readonly quantity: number;
+  /** Non-zero means this order already has a delivery asset. */
+  readonly assetCount: number;
+}
+
+/* ============================================================================
  * Persistence port
  * ==========================================================================*/
 
@@ -102,6 +154,8 @@ export interface SupplierStore {
   /** Active offers for a SKU, cheapest first, then by priority. */
   findOffersForSku(skuId: string): Promise<readonly SupplierOfferView[]>;
   findOfferById(offerId: string): Promise<SupplierOfferView | null>;
+  /** What a work item would have to buy, or `null` when it cannot be resolved. */
+  findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null>;
   recordAvailabilityCheck(input: {
     offerId: string;
     availability: SupplierAvailability;

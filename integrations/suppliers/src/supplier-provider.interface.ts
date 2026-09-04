@@ -36,6 +36,19 @@ export interface SupplierAvailabilityResult {
   readonly observedAt: Date;
 }
 
+/**
+ * What a prepaid supplier account currently holds.
+ *
+ * `amount` is a decimal string in `currency`, exactly like every other money
+ * value crossing this boundary — never a JS number, and never converted into
+ * another currency by an adapter.
+ */
+export interface SupplierBalance {
+  readonly amount: string;
+  readonly currency: string;
+  readonly observedAt: Date;
+}
+
 export interface SupplierPurchaseRequest {
   readonly providerSku: string;
   readonly quantity: number;
@@ -91,4 +104,14 @@ export interface SupplierProvider {
   checkAvailability(providerSku: string): Promise<SupplierAvailabilityResult>;
   purchase(request: SupplierPurchaseRequest): Promise<SupplierPurchaseResult>;
   getPurchaseStatus(providerReference: string): Promise<SupplierPurchaseResult>;
+
+  /**
+   * The account balance, for adapters that spend from a prepaid float.
+   *
+   * Optional because it is not universal: a supplier we are invoiced by has no
+   * balance to read, and forcing every adapter to fake one would make "we have
+   * the funds" indistinguishable from "we never checked". An adapter that omits
+   * it is treated as "not applicable", never as "funded".
+   */
+  getBalance?(): Promise<SupplierBalance>;
 }

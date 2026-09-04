@@ -211,6 +211,18 @@ export interface WorkItemStore {
   countActiveForStaff(staffId: string): Promise<number>;
   /** Atomic compare-and-set. `true` only when this caller changed the row. */
   claimIfUnassigned(workItemId: string, staffId: string, at: Date): Promise<boolean>;
+  /**
+   * Atomic compare-and-set from `UNASSIGNED` to `COMPLETED`, with no claimant.
+   *
+   * Separate from `transitionIfOwned` on purpose: that method's `WHERE` clause
+   * pins `assignedToStaffId`, which is exactly the guarantee the system actor
+   * must not be able to weaken. `true` only when this caller changed the row.
+   */
+  completeUnassignedBySystem(input: {
+    workItemId: string;
+    at: Date;
+    resolutionNote: string;
+  }): Promise<boolean>;
   /** Atomic compare-and-set across a set of allowed source statuses. */
   transitionIfOwned(input: {
     workItemId: string;

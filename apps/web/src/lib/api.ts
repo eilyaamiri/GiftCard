@@ -237,6 +237,23 @@ export const createSupportRequestSchema = z.object({
 });
 export type CreateSupportRequest = z.infer<typeof createSupportRequestSchema>;
 
+/**
+ * The un-masked card, returned only by the audited reveal endpoint.
+ *
+ * The one response in this client that carries a secret. It is parsed into a
+ * value that is held in component state and nowhere else — never written to
+ * `localStorage`, never put in a URL, never logged. `code` and `pin` are
+ * nullable because a URL or provider-direct delivery has no code to show.
+ */
+export const revealedDeliverySchema = z.object({
+  assetType: z.enum(["CODE", "CODE_PIN", "URL", "PROVIDER_DIRECT_EMAIL"]),
+  code: z.string().nullable(),
+  pin: z.string().nullable(),
+  deliveryUrl: z.string().nullable(),
+  expiryDate: isoDateTimeSchema.nullable(),
+});
+export type RevealedDelivery = z.infer<typeof revealedDeliverySchema>;
+
 const accountOrdersSchema = pagedSchema(accountOrderSchema);
 const accountPaymentsSchema = pagedSchema(accountPaymentSchema);
 const accountRefundsSchema = pagedSchema(accountRefundSchema);
@@ -260,6 +277,16 @@ export const api = {
   services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),
+  /**
+   * Ask for the plaintext of a delivered card. POST because the server audits
+   * the read and counts it — a GET would sit in history and proxy logs.
+   */
+  revealOrderDelivery: (number: string) =>
+    request<RevealedDelivery>(
+      `/api/orders/${encodeURIComponent(number)}/delivery/reveal`,
+      { method: "POST" },
+      revealedDeliverySchema,
+    ),
   me: () => request<MeResponse>("/api/auth/me", undefined, meResponseSchema),
   requestOtp: (payload: RequestOtpRequest | unknown) => request<RequestOtpResponse>("/api/auth/otp/request", { method: "POST", body: JSON.stringify(payload) }, requestOtpResponseSchema),
   /** The response carries a customer and a token; the session itself arrives as an HttpOnly cookie. */

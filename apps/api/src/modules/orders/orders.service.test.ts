@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { CreateOrderRequest, IrrString } from '@barat/contracts';
 
 import type { AuditService } from '../audit/audit.service';
+import type { GiftCardAssetService } from '../fulfillment/gift-card-asset.service';
 import { OrderStateMachine } from './order-state-machine';
 import { OrdersService, uniqueViolationTargets } from './orders.service';
 import type { OrdersDatabase } from './orders.tokens';
@@ -66,6 +67,8 @@ interface Harness {
   };
   readonly record: Mock;
   readonly transaction: Mock;
+  /** The single door to plaintext, faked so no key material is needed here. */
+  readonly readSecret: Mock;
 }
 
 function harness(quote: Record<string, unknown> | null): Harness {
@@ -93,11 +96,21 @@ function harness(quote: Record<string, unknown> | null): Harness {
 
   const record = vi.fn().mockResolvedValue(undefined);
   const audit = { record } as unknown as AuditService;
+  const readSecret = vi.fn().mockResolvedValue({
+    assetId: 'asset-1',
+    orderId: 'order-1',
+    assetType: 'CODE_PIN',
+    code: 'AAAA-BBBB-CCCC',
+    pin: '4821',
+    expiryDate: new Date('2027-01-01T00:00:00.000Z'),
+  });
+  const assets = { readSecret } as unknown as GiftCardAssetService;
   return {
-    service: new OrdersService(database, new OrderStateMachine(database), audit),
+    service: new OrdersService(database, new OrderStateMachine(database), audit, assets),
     db,
     record,
     transaction,
+    readSecret,
   };
 }
 
@@ -296,6 +309,118 @@ describe('OrdersService payments bridge', () => {
       service.markPaymentFailed('order-1', 'payment-1', 'late callback'),
     ).resolves.toMatchObject({ status: 'FULFILLING', changed: false });
     expect(db.order.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The customer reveal.
+ *
+ * This is the only customer-facing endpoint that returns a gift-card code, so
+ * the tests here are about who may NOT reach the plaintext, not about the happy
+ * path. Every one of them asserts that `readSecret` — the single door to
+ * decryption and the thing that writes the access audit — was never called.
+ */
+describe('OrdersService.revealDeliveryForCustomer', () => {
+  it('scopes the lookup by the session customer, never by the path alone', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.revealDeliveryForCustomer('BP-2026-000001', 'customer-2'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+
+    /* The `where` is what makes another customer's order unreadable. A reveal
+     * that filtered only on `orderNumber` would hand a card to anyone able to
+     * guess a sequential number. */
+    expect(db.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { orderNumber: 'BP-2026-000001', customerId: 'customer-2' } }),
+    );
+    expect(readSecret).not.toHaveBeenCalled();
+  });
+
+  it('refuses an order that has no asset yet', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({ id: 'order-1', giftCardAssets: [] });
+
+    await expect(
+      service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1'),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(readSecret).not.toHaveBeenCalled();
+  });
+
+  it.each(['NOT_READY', 'READY', 'SENDING', 'DELIVERY_FAILED'])(
+    'refuses to decrypt an asset in %s',
+    async (status) => {
+      const { service, db, readSecret } = harness(null);
+      db.order.findFirst.mockResolvedValue({
+        id: 'order-1',
+        giftCardAssets: [{ id: 'asset-1', status }],
+      });
+
+      /* READY is the important row: the card exists and is decryptable, but an
+       * operator may still be verifying it. A customer who has already seen a
+       * code cannot un-see it if that verification then fails. */
+      await expect(
+        service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1'),
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+      expect(readSecret).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reveals a SENT asset as the customer, with the reveal reason on record', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+
+    await expect(
+      service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1'),
+    ).resolves.toEqual({
+      assetType: 'CODE_PIN',
+      code: 'AAAA-BBBB-CCCC',
+      pin: '4821',
+      deliveryUrl: null,
+      expiryDate: '2027-01-01T00:00:00.000Z',
+    });
+
+    /* The actor is the customer and the actor TYPE is CUSTOMER: a reveal that
+     * recorded itself as STAFF would corrupt the one report that answers "who
+     * has seen this code". */
+    expect(readSecret).toHaveBeenCalledWith({
+      assetId: 'asset-1',
+      actorId: 'customer-1',
+      actorType: 'CUSTOMER',
+      reason: 'CUSTOMER_REVEAL',
+    });
+  });
+
+  it('returns nulls rather than undefined for a delivery with no code', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+    // A Reloadly PROVIDER_DIRECT_EMAIL delivery: we never held a code at all.
+    readSecret.mockResolvedValue({
+      assetId: 'asset-1',
+      orderId: 'order-1',
+      assetType: 'PROVIDER_DIRECT_EMAIL',
+      recipientEmail: 'buyer@example.test',
+      expiryDate: null,
+    });
+
+    const revealed = await service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1');
+
+    expect(revealed).toEqual({
+      assetType: 'PROVIDER_DIRECT_EMAIL',
+      code: null,
+      pin: null,
+      deliveryUrl: null,
+      expiryDate: null,
+    });
+    // The recipient address is not part of the reveal shape and must not leak in.
+    expect(Object.keys(revealed)).not.toContain('recipientEmail');
   });
 });
 

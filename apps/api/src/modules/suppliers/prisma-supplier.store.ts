@@ -4,7 +4,12 @@ import type { SupplierAvailability } from '@barat/suppliers';
 
 import { providerSkuKey, type ProviderSkuMap } from './suppliers.env';
 import { PROVIDER_SKU_MAP } from './suppliers.types';
-import type { SupplierOfferView, SupplierStore, SupplierView } from './suppliers.types';
+import type {
+  AutoFulfillmentTarget,
+  SupplierOfferView,
+  SupplierStore,
+  SupplierView,
+} from './suppliers.types';
 
 const SUPPLIER_SELECT = {
   id: true,
@@ -109,6 +114,52 @@ export class PrismaSupplierStore implements SupplierStore {
   async findOfferById(offerId: string): Promise<SupplierOfferView | null> {
     const row = await this.db.supplierOffer.findUnique({ where: { id: offerId }, select: OFFER_SELECT });
     return row === null ? null : toOfferView(row, this.providerSkus);
+  }
+
+  /**
+   * Resolves a work item into the purchase it stands for.
+   *
+   * The read crosses into `WorkItem` and `Order` deliberately: the orchestrator
+   * must decide on state it read itself, in one query, rather than on a summary
+   * another module handed it. `assetCount` in particular is the guard against
+   * buying a second card for an order that already has one, so it is counted
+   * here rather than inferred.
+   */
+  async findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null> {
+    const row = await this.db.workItem.findUnique({
+      where: { id: workItemId },
+      select: {
+        id: true,
+        type: true,
+        status: true,
+        assignedToStaffId: true,
+        orderId: true,
+        customerId: true,
+        order: {
+          select: {
+            status: true,
+            quote: { select: { skuId: true, quantity: true } },
+            _count: { select: { giftCardAssets: true } },
+          },
+        },
+      },
+    });
+    if (row === null || row.orderId === null || row.order === null) {
+      return null;
+    }
+
+    return {
+      workItemId: row.id,
+      workItemType: row.type,
+      workItemStatus: row.status,
+      assignedToStaffId: row.assignedToStaffId,
+      orderId: row.orderId,
+      customerId: row.customerId,
+      orderStatus: row.order.status,
+      skuId: row.order.quote.skuId,
+      quantity: row.order.quote.quantity,
+      assetCount: row.order._count.giftCardAssets,
+    };
   }
 
   async recordAvailabilityCheck(input: {

@@ -1,5 +1,6 @@
 import type {
   SupplierAvailability,
+  SupplierBalance,
   SupplierCatalogItem,
   SupplierMoney,
   SupplierProvider,
@@ -12,7 +13,13 @@ export interface MockSupplierProviderOptions {
   readonly prices?: Readonly<Record<string, SupplierMoney>>;
   readonly availability?: Readonly<Record<string, SupplierAvailability>>;
   readonly purchaseResult?: SupplierPurchaseResult;
+  /** Omitted means "funded"; a test that cares about the empty case sets it. */
+  readonly balance?: SupplierMoney;
+  /** Makes `getBalance` throw, standing in for an unreachable venue. */
+  readonly balanceFailure?: string;
 }
+
+const DEFAULT_MOCK_BALANCE: SupplierMoney = { amount: '1000000', currency: 'USD' };
 
 /**
  * Deterministic in-memory provider for tests and local development.
@@ -28,6 +35,8 @@ export class MockSupplierProvider implements SupplierProvider {
   private readonly prices: Readonly<Record<string, SupplierMoney>>;
   private readonly availability: Readonly<Record<string, SupplierAvailability>>;
   private nextPurchaseResult: SupplierPurchaseResult;
+  private balance: SupplierMoney;
+  private balanceFailure: string | null;
   private readonly purchases = new Map<string, SupplierPurchaseResult>();
   private readonly purchaseStatuses = new Map<string, SupplierPurchaseResult>();
   private purchaseInvocationCount = 0;
@@ -40,10 +49,28 @@ export class MockSupplierProvider implements SupplierProvider {
       status: 'FAILED',
       failureCode: 'MOCK_NOT_CONFIGURED',
     };
+    this.balance = options.balance ?? DEFAULT_MOCK_BALANCE;
+    this.balanceFailure = options.balanceFailure ?? null;
   }
 
   setNextPurchaseResult(result: SupplierPurchaseResult): void {
     this.nextPurchaseResult = result;
+  }
+
+  setBalance(balance: SupplierMoney): void {
+    this.balance = balance;
+    this.balanceFailure = null;
+  }
+
+  setBalanceFailure(failureCode: string): void {
+    this.balanceFailure = failureCode;
+  }
+
+  async getBalance(): Promise<SupplierBalance> {
+    if (this.balanceFailure !== null) {
+      throw new Error(this.balanceFailure);
+    }
+    return { ...this.balance, observedAt: new Date() };
   }
 
   setPurchaseStatus(providerReference: string, result: SupplierPurchaseResult): void {

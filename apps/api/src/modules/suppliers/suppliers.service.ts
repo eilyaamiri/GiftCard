@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { SupplierProvider, SupplierPurchaseResult } from '@barat/suppliers';
+import Decimal from 'decimal.js';
+import type { SupplierBalance, SupplierProvider, SupplierPurchaseResult } from '@barat/suppliers';
 import { SUPPLIER_PROVIDERS } from '@barat/suppliers';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
@@ -8,6 +9,9 @@ import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workit
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
 import { SUPPLIER_STORE } from './suppliers.types';
 import type {
+  AutoFulfillmentTarget,
+  SupplierFundingState,
+  SupplierFundingView,
   SupplierOfferView,
   SupplierPurchaseOutcome,
   SupplierPurchaseStatusView,
@@ -37,6 +41,7 @@ function toPurchaseStatusView(
 
 export const SUPPLIER_AUDIT_ACTIONS = {
   AVAILABILITY_CHECKED: 'SUPPLIER_AVAILABILITY_CHECKED',
+  BALANCE_CHECKED: 'SUPPLIER_BALANCE_CHECKED',
   PURCHASE_SUCCEEDED: 'SUPPLIER_PURCHASE_SUCCEEDED',
   PURCHASE_PENDING: 'SUPPLIER_PURCHASE_PENDING',
   PURCHASE_FAILED: 'SUPPLIER_PURCHASE_FAILED',
@@ -79,6 +84,16 @@ export class SuppliersService {
 
   async listOffers(skuId: string): Promise<readonly SupplierOfferView[]> {
     return this.store.findOffersForSku(skuId);
+  }
+
+  /** The purchase a work item stands for, re-read from the database. */
+  async findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null> {
+    return this.store.findAutoFulfillmentTarget(workItemId);
+  }
+
+  /** True when an adapter is registered for this supplier code. */
+  hasProvider(supplierCode: string): boolean {
+    return this.providersByKey.has(supplierCode);
   }
 
   /**
@@ -132,6 +147,94 @@ export class SuppliersService {
       'در حال حاضر تأمین‌کننده‌ای برای این محصول موجود نیست.',
       `no active available supplier offer for SKU ${skuId}`,
     );
+  }
+
+  /**
+   * Asks the supplier whether we can still afford this offer, before buying.
+   *
+   * Three rules, all in the same direction — only a positive, comparable answer
+   * unlocks a purchase:
+   *
+   *   - A supplier with no adapter, or an adapter that publishes no balance, is
+   *     `NOT_APPLICABLE`. It is never read as "funded".
+   *   - An unreachable venue is `UNKNOWN`, never `SUFFICIENT`. We do not know,
+   *     and guessing costs a half-placed order.
+   *   - A balance in a currency we cannot compare against the cost only passes
+   *     when it is strictly positive, and says so via `currencyMismatch`. This
+   *     module holds no FX rate for a supplier pair, and inventing one to
+   *     compare money would be exactly the float arithmetic rule 2 forbids.
+   */
+  async checkFunding(input: {
+    offerId: string;
+    quantity: number;
+  }): Promise<SupplierFundingView> {
+    if (!Number.isSafeInteger(input.quantity) || input.quantity < 1) {
+      throw DomainErrors.validation([
+        { path: 'quantity', message: 'quantity must be a positive integer' },
+      ]);
+    }
+
+    const offer = await this.store.findOfferById(input.offerId);
+    if (offer === null || !offer.isActive) {
+      throw DomainErrors.notFound(`supplier offer ${input.offerId}`);
+    }
+
+    const required = {
+      amount: new Decimal(offer.costAmount).times(input.quantity).toFixed(),
+      currency: offer.costCurrency,
+    };
+    const base = { supplierCode: offer.supplierCode, required, currencyMismatch: false };
+
+    const provider = this.providersByKey.get(offer.supplierCode);
+    const readBalance = provider?.getBalance;
+    if (provider === undefined || readBalance === undefined) {
+      return { ...base, state: 'NOT_APPLICABLE', balance: null };
+    }
+
+    let balance: SupplierBalance;
+    try {
+      balance = await readBalance.call(provider);
+    } catch {
+      // The provider error may carry a credential or a raw body; it is dropped
+      // rather than logged, and the state alone tells the caller to stand down.
+      await this.recordFundingCheck({ ...base, state: 'UNKNOWN', balance: null });
+      return { ...base, state: 'UNKNOWN', balance: null };
+    }
+
+    const observed = { amount: balance.amount, currency: balance.currency };
+    const currencyMismatch = balance.currency !== offer.costCurrency;
+    const held = new Decimal(balance.amount);
+    const state: SupplierFundingState = currencyMismatch
+      ? held.greaterThan(0)
+        ? 'SUFFICIENT'
+        : 'INSUFFICIENT'
+      : held.greaterThanOrEqualTo(new Decimal(required.amount))
+        ? 'SUFFICIENT'
+        : 'INSUFFICIENT';
+
+    const view: SupplierFundingView = { ...base, state, balance: observed, currencyMismatch };
+    await this.recordFundingCheck(view);
+    return view;
+  }
+
+  private async recordFundingCheck(view: SupplierFundingView): Promise<void> {
+    await this.audit.record({
+      actor: 'system:supplier-funding',
+      actorType: 'SYSTEM',
+      action: SUPPLIER_AUDIT_ACTIONS.BALANCE_CHECKED,
+      entity: 'Supplier',
+      entityId: view.supplierCode,
+      after: {
+        supplierCode: view.supplierCode,
+        state: view.state,
+        balanceAmount: view.balance?.amount ?? null,
+        balanceCurrency: view.balance?.currency ?? null,
+        requiredAmount: view.required.amount,
+        requiredCurrency: view.required.currency,
+        currencyMismatch: view.currencyMismatch,
+        checkedAt: new Date().toISOString(),
+      },
+    });
   }
 
   /**
