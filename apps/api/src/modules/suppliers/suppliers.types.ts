@@ -5,6 +5,8 @@ import type { SupplierAvailability, SupplierDeliveryAsset } from '@barat/supplie
  * ==========================================================================*/
 
 export const SUPPLIER_STORE = Symbol.for('barat.supplier-store');
+/** `supplierCode:skuId` -> provider SKU. See the gap note in `suppliers.env.ts`. */
+export const PROVIDER_SKU_MAP = Symbol.for('barat.supplier-provider-sku-map');
 
 /* ============================================================================
  * Read models
