@@ -1,7 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { prisma, type Prisma } from '@barat/database';
 import type { SupplierAvailability } from '@barat/suppliers';
 
+import { providerSkuKey, type ProviderSkuMap } from './suppliers.env';
+import { PROVIDER_SKU_MAP } from './suppliers.types';
 import type { SupplierOfferView, SupplierStore, SupplierView } from './suppliers.types';
 
 const SUPPLIER_SELECT = {
@@ -50,7 +52,7 @@ const OFFER_SELECT = {
 
 type SelectedOffer = Prisma.SupplierOfferGetPayload<{ select: typeof OFFER_SELECT }>;
 
-function toOfferView(row: SelectedOffer): SupplierOfferView {
+function toOfferView(row: SelectedOffer, providerSkus: ProviderSkuMap): SupplierOfferView {
   return {
     id: row.id,
     supplierId: row.supplierId,
@@ -58,10 +60,12 @@ function toOfferView(row: SelectedOffer): SupplierOfferView {
     supplierName: row.supplier.name,
     supportsRawCode: row.supplier.supportsRawCode,
     skuId: row.skuId,
-    // The current schema has no provider-specific SKU column. Supplier adapters
-    // receive our stable SKU id until Foundation adds one; this is explicit rather
-    // than pretending the database has data it cannot store.
-    providerSku: row.skuId,
+    // The current schema has no provider-specific SKU column, so the translation
+    // is configured rather than stored — see the gap note in `suppliers.env.ts`.
+    // Unmapped offers keep falling back to our own SKU id: that is a value no
+    // external supplier recognises, and an adapter given one refuses it outright
+    // instead of guessing which product to buy.
+    providerSku: providerSkus.get(providerSkuKey(row.supplier.code, row.skuId)) ?? row.skuId,
     costCurrency: row.costCurrency,
     costAmount: row.costAmount.toString(),
     discountBps: row.discountBps,
@@ -76,7 +80,7 @@ function toOfferView(row: SelectedOffer): SupplierOfferView {
 export class PrismaSupplierStore implements SupplierStore {
   private readonly db: typeof prisma;
 
-  constructor() {
+  constructor(@Inject(PROVIDER_SKU_MAP) private readonly providerSkus: ProviderSkuMap) {
     this.db = prisma;
   }
 
@@ -99,12 +103,12 @@ export class PrismaSupplierStore implements SupplierStore {
       orderBy: [{ costAmount: 'asc' }, { priority: 'asc' }],
       select: OFFER_SELECT,
     });
-    return rows.map(toOfferView);
+    return rows.map((row) => toOfferView(row, this.providerSkus));
   }
 
   async findOfferById(offerId: string): Promise<SupplierOfferView | null> {
     const row = await this.db.supplierOffer.findUnique({ where: { id: offerId }, select: OFFER_SELECT });
-    return row === null ? null : toOfferView(row);
+    return row === null ? null : toOfferView(row, this.providerSkus);
   }
 
   async recordAvailabilityCheck(input: {
