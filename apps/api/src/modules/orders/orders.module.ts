@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
+import { FulfillmentModule } from '../fulfillment/fulfillment.module';
 import { OrderStateMachine } from './order-state-machine';
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -15,9 +16,13 @@ import { ORDER_PAYMENT_BRIDGE, ORDERS_DATABASE } from './orders.tokens';
  * order after a server-side verification without importing `OrdersService` —
  * `orders -> payments -> orders` would be a cycle. Payments injects the token
  * and sees only the three methods on `OrderPaymentBridge`.
+ *
+ * `FulfillmentModule` is imported for `GiftCardAssetService`, the single door to
+ * gift-card plaintext, which the customer reveal endpoint goes through. It
+ * imports only `AuditModule`, so this edge adds no cycle.
  */
 @Module({
-  imports: [AuditModule],
+  imports: [AuditModule, FulfillmentModule],
   controllers: [OrdersController, OrdersAdminController],
   providers: [
     { provide: ORDERS_DATABASE, useValue: prisma },

@@ -181,6 +181,30 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     return true;
   }
 
+  /**
+   * The system close, kept as narrow here as the SQL is in Postgres.
+   *
+   * A claimed item is left untouched, so a test can race a claim against an
+   * automated purchase and see the operator keep the work.
+   */
+  async completeUnassignedBySystem(input: {
+    workItemId: string;
+    at: Date;
+    resolutionNote: string;
+  }): Promise<boolean> {
+    const row = this.rows.get(input.workItemId);
+    if (row === undefined || row.assignedToStaffId !== null || row.status !== 'UNASSIGNED') {
+      return false;
+    }
+    this.rows.set(input.workItemId, {
+      ...row,
+      status: 'COMPLETED',
+      activeOrderKey: null,
+      completedAt: input.at,
+    });
+    return true;
+  }
+
   async transitionIfOwned(input: {
     workItemId: string;
     staffId: string;

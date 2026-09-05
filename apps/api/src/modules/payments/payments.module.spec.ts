@@ -43,33 +43,41 @@ vi.hoisted(() => {
   });
 });
 
-import { WorkItemsService } from '../workitems/workitems.service';
-import { FULFILLMENT_TRIGGER } from '../workitems/workitems.types';
+import { AutoFulfillmentService } from '../suppliers/auto-fulfillment.service';
 import { PaymentsModule } from './payments.module';
 import { PaymentsService } from './payments.service';
 
 describe('PaymentsModule wiring', () => {
-  it('injects the work-items service as the fulfillment trigger', async () => {
+  /* The trigger is now the auto-fulfillment orchestrator rather than the work-
+   * items service directly. It still creates the work item — that is its first
+   * action and the reason a paid order is always tasked — and then attempts the
+   * supplier purchase. The assertion below is what stops the seam regressing to
+   * an optional, silently-dropped dependency again. */
+  it('injects the auto-fulfillment orchestrator as the fulfillment trigger', async () => {
     const moduleRef = await Test.createTestingModule({ imports: [PaymentsModule] }).compile();
 
-    const trigger = moduleRef.get(FULFILLMENT_TRIGGER, { strict: false });
-    expect(trigger).toBeInstanceOf(WorkItemsService);
     expect(moduleRef.get(PaymentsService)).toBeInstanceOf(PaymentsService);
 
-    /* The payment service must hold that same instance. A second copy would
-     * still create work items, but the per-order idempotency guard would no
-     * longer be shared. */
+    /* Asserted on the instance payments actually holds, not on a container-wide
+     * lookup of the token: two modules legitimately bind `FULFILLMENT_TRIGGER`
+     * now, and a non-strict `get` may return either. What payments injected is
+     * the only thing that decides whether a paid order gets bought automatically. */
     const injected = (moduleRef.get(PaymentsService) as unknown as Record<string, unknown>)[
       'fulfillmentTrigger'
     ];
-    expect(injected).toBe(trigger);
+    expect(injected).toBeInstanceOf(AutoFulfillmentService);
+
+    /* And it must be the container's single instance. A second copy would still
+     * create work items, but the per-order idempotency guard would no longer be
+     * shared. */
+    expect(injected).toBe(moduleRef.get(AutoFulfillmentService, { strict: false }));
 
     await moduleRef.close();
   });
 
   it('refuses to boot without a fulfillment trigger rather than silently dropping it', async () => {
     /* The regression in one assertion: the dependency is required. If someone
-     * removes the WorkItemsModule import again, the container fails here
+     * removes the module supplying the trigger again, the container fails here
      * instead of at the first paid order that nobody delivers. */
     await expect(
       Test.createTestingModule({

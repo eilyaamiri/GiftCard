@@ -8,6 +8,10 @@ import { encryptSecret, maskGiftCardCode } from '../fulfillment/crypto';
 import { FULFILLMENT_STORE, type FulfillmentStore } from '../fulfillment/fulfillment.types';
 import type { AuthenticatedStaff } from '../identity/identity.tokens';
 import {
+  AUTO_FULFILLMENT_ACTOR,
+  AutoFulfillmentService,
+} from '../suppliers/auto-fulfillment.service';
+import {
   GIFT_CARD_REQUESTS_DATABASE,
   GIFT_CARD_REQUEST_INCLUDE,
   type GiftCardRequestKind,
@@ -27,6 +31,7 @@ export class GiftCardRequestsService {
     @Inject(GIFT_CARD_REQUESTS_DATABASE) private readonly db: GiftCardRequestsDatabase,
     @Inject(FULFILLMENT_STORE) private readonly fulfillmentStore: FulfillmentStore,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(AutoFulfillmentService) private readonly autoFulfillment: AutoFulfillmentService,
   ) {}
 
   async list(status?: GiftCardRequestStatus): Promise<readonly GiftCardRequestView[]> {
@@ -82,6 +87,16 @@ export class GiftCardRequestsService {
     });
     if (existing !== null) return this.toView(existing);
 
+    // Ask the supplier before asking a person. Only when that comes back without
+    // a card does the request go to the admin queue.
+    const automatic = await this.tryAutoFulfill({
+      item: { id: item.id, orderId: item.orderId },
+      staff: input.staff,
+      kind: input.kind,
+      reason: input.reason,
+    });
+    if (automatic !== null) return automatic;
+
     let created: GiftCardRequestRow;
     try {
       created = await this.db.giftCardCodeRequest.create({
@@ -120,6 +135,117 @@ export class GiftCardRequestsService {
         kind: created.kind,
       },
     });
+    return this.toView(created);
+  }
+
+  /**
+   * Buys the card from the supplier instead of escalating to an admin.
+   *
+   * Returns the finished request when the supplier delivered, and `null` for
+   * every other outcome — empty float, no adapter, a purchase that did not come
+   * back SUCCEEDED — so the caller creates the OPEN request exactly as before.
+   * The supplier attempt is an optimisation on the way to a human, never a gate
+   * in front of one: anything that goes wrong here still ends with an admin
+   * being asked, which is what would have happened without it.
+   *
+   * No plaintext passes through this method. The code was encrypted inside the
+   * purchase; all that is linked here is the asset's id.
+   */
+  private async tryAutoFulfill(input: {
+    item: { id: string; orderId: string };
+    staff: AuthenticatedStaff;
+    kind: GiftCardRequestKind;
+    reason: string;
+  }): Promise<GiftCardRequestView | null> {
+    // A card already bought for this task needs no second request, from a
+    // supplier or from an admin. This also makes a retried call idempotent.
+    const alreadyFulfilled = await this.db.giftCardCodeRequest.findFirst({
+      where: { workItemId: input.item.id, status: 'FULFILLED', giftCardAssetId: { not: null } },
+      orderBy: { requestedAt: 'desc' },
+      include: GIFT_CARD_REQUEST_INCLUDE,
+    });
+    if (alreadyFulfilled !== null) return this.toView(alreadyFulfilled);
+
+    let assetId: string | null;
+    try {
+      const outcome = await this.autoFulfillment.attemptForOperatorRequest({
+        workItemId: input.item.id,
+        staffId: input.staff.staffId,
+      });
+      assetId = outcome.assetId;
+    } catch {
+      // The provider error may carry a payload; it is dropped, and the request
+      // takes the admin path it would have taken anyway.
+      return null;
+    }
+    if (assetId === null) return null;
+
+    const asset = await this.db.giftCardAsset.findUnique({
+      where: { id: assetId },
+      select: { id: true, assetType: true },
+    });
+    if (asset === null) return null;
+
+    // What the supplier actually delivered, not what the operator guessed it
+    // would be — the request must not claim a PIN that does not exist.
+    const kind: GiftCardRequestKind =
+      asset.assetType === 'CODE' || asset.assetType === 'CODE_PIN' ? asset.assetType : input.kind;
+
+    const now = new Date();
+    const created = await this.db.giftCardCodeRequest.create({
+      data: {
+        requestNumber: `GCR-${nanoid(10)}`,
+        workItemId: input.item.id,
+        orderId: input.item.orderId,
+        kind,
+        // Never OPEN: no admin has to act, so it must not reach their queue.
+        // `openWorkItemKey` stays null for the same reason the unique index
+        // exists — only a request awaiting a human holds that slot.
+        status: 'FULFILLED',
+        openWorkItemKey: null,
+        requestedByStaffId: input.staff.staffId,
+        requestReason: input.reason.trim(),
+        responseNote: 'کد به‌صورت خودکار از تأمین‌کننده دریافت شد و نیازی به تأیید ادمین نبود.',
+        // Left null: this column is a foreign key to a staff user, and no person
+        // fulfilled this. The audit event below names the system.
+        fulfilledByStaffId: null,
+        giftCardAssetId: asset.id,
+        fulfilledAt: now,
+      },
+      include: GIFT_CARD_REQUEST_INCLUDE,
+    });
+
+    await this.audit.record({
+      actor: input.staff.staffId,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: 'GIFT_CARD_CREDENTIAL_REQUESTED',
+      entity: 'GiftCardCodeRequest',
+      entityId: created.id,
+      after: {
+        requestNumber: created.requestNumber,
+        workItemId: created.workItemId,
+        orderId: created.orderId,
+        kind: created.kind,
+        autoFulfilled: true,
+      },
+    });
+    await this.audit.record({
+      actor: AUTO_FULFILLMENT_ACTOR,
+      actorType: 'SYSTEM',
+      action: 'GIFT_CARD_CREDENTIAL_REQUEST_FULFILLED',
+      entity: 'GiftCardCodeRequest',
+      entityId: created.id,
+      after: {
+        requestNumber: created.requestNumber,
+        workItemId: created.workItemId,
+        orderId: created.orderId,
+        assetId: asset.id,
+        assetType: asset.assetType,
+        fulfilledAt: now.toISOString(),
+      },
+    });
+
     return this.toView(created);
   }
 

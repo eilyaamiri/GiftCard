@@ -1,13 +1,19 @@
 import Decimal from 'decimal.js';
 import type { SupplierAvailability } from '@barat/suppliers';
 
-import type { SupplierOfferView, SupplierStore, SupplierView } from '../suppliers.types';
+import type {
+  AutoFulfillmentTarget,
+  SupplierOfferView,
+  SupplierStore,
+  SupplierView,
+} from '../suppliers.types';
 
 type SupplierRow = Omit<SupplierView, 'hasProvider'>;
 
 export interface SeedSupplierStore {
   readonly suppliers?: readonly SupplierRow[];
   readonly offers?: readonly SupplierOfferView[];
+  readonly targets?: readonly AutoFulfillmentTarget[];
 }
 
 /**
@@ -21,11 +27,17 @@ export interface SeedSupplierStore {
 export class InMemorySupplierStore implements SupplierStore {
   readonly suppliers: SupplierRow[];
   readonly offers: SupplierOfferView[];
+  readonly targets: AutoFulfillmentTarget[];
   readonly availabilityChecks: { offerId: string; availability: SupplierAvailability }[] = [];
 
   constructor(seed: SeedSupplierStore = {}) {
     this.suppliers = [...(seed.suppliers ?? [])];
     this.offers = [...(seed.offers ?? [])];
+    this.targets = [...(seed.targets ?? [])];
+  }
+
+  async findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null> {
+    return this.targets.find((target) => target.workItemId === workItemId) ?? null;
   }
 
   async listSuppliers(): Promise<readonly SupplierRow[]> {

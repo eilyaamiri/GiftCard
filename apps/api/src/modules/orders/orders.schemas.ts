@@ -59,3 +59,25 @@ export const orderNumberParamSchema = z.object({
 export const orderIdParamSchema = z.object({
   id: z.string().min(1).max(64),
 });
+
+/**
+ * POST /api/orders/:orderNumber/delivery/reveal — the plaintext card.
+ *
+ * GAP: this belongs in `@barat/contracts` next to `orderDeliveryDtoSchema`,
+ * which is frozen and has no field able to carry a code. It is declared here so
+ * the response still has one authoritative shape; move it into the contracts
+ * package when that file is unfrozen.
+ *
+ * Declared as a schema and not merely a type because it is the *only* response
+ * in the API that carries a secret, and an explicit allow-list is what stops a
+ * future refactor widening it: nothing that is not listed here can be returned.
+ */
+export const revealDeliveryResponseSchema = z.object({
+  assetType: z.enum(['CODE', 'CODE_PIN', 'URL', 'PROVIDER_DIRECT_EMAIL']),
+  /** Absent for URL and provider-direct deliveries: there is no code to show. */
+  code: z.string().nullable(),
+  pin: z.string().nullable(),
+  deliveryUrl: z.url().nullable(),
+  expiryDate: z.iso.datetime({ offset: true }).nullable(),
+});
+export type RevealDeliveryResponse = z.infer<typeof revealDeliveryResponseSchema>;

@@ -205,6 +205,32 @@ export class PrismaWorkItemStore implements WorkItemStore {
     return result.count === 1;
   }
 
+  /**
+   * The same conditional-update trick, used when automation finished the job.
+   *
+   * The `WHERE` clause still pins `UNASSIGNED` and a null claimant, so an
+   * operator who claimed the item a millisecond earlier keeps it: this update
+   * matches zero rows and the caller learns it lost. Releasing `activeOrderKey`
+   * matters as much as the status — leave it set and the order can never get a
+   * second work item if something later needs one.
+   */
+  async completeUnassignedBySystem(input: {
+    workItemId: string;
+    at: Date;
+    resolutionNote: string;
+  }): Promise<boolean> {
+    const result = await this.db.workItem.updateMany({
+      where: { id: input.workItemId, status: 'UNASSIGNED', assignedToStaffId: null },
+      data: {
+        status: 'COMPLETED',
+        activeOrderKey: null,
+        completedAt: input.at,
+        resolutionNote: input.resolutionNote,
+      },
+    });
+    return result.count === 1;
+  }
+
   async transitionIfOwned(input: {
     workItemId: string;
     staffId: string;

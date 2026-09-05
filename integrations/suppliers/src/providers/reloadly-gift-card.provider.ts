@@ -1,6 +1,7 @@
 import type {
   SupplierAvailability,
   SupplierAvailabilityResult,
+  SupplierBalance,
   SupplierCatalogItem,
   SupplierDeliveryAsset,
   SupplierMoney,
@@ -291,6 +292,46 @@ export class ReloadlyGiftCardSupplierProvider implements SupplierProvider {
     this.authUrl = options.authUrl ?? AUTH_URL;
     this.timeoutMs = timeoutMs;
     this.clock = options.clock ?? (() => new Date());
+  }
+
+  /* ==========================================================================
+   * Account
+   * ========================================================================*/
+
+  /**
+   * What the prepaid account can still spend.
+   *
+   * `frozenBalance` is subtracted whenever the venue reports one. If the two
+   * figures already overlap the result is an underestimate, and an underestimate
+   * only ever sends an order to an operator — whereas an overestimate sends it
+   * to `POST /orders` with insufficient funds, which is the one outcome that can
+   * leave a half-placed order behind.
+   */
+  async getBalance(): Promise<SupplierBalance> {
+    const response = await this.call({ method: 'GET', path: '/accounts/balance' });
+    const payload = this.expectOk(response, 'BALANCE_UNAVAILABLE');
+    if (!isObject(payload)) {
+      throw new ReloadlySupplierError('INVALID_RESPONSE', 'Reloadly balance payload is unusable');
+    }
+
+    const balance = scaledFromJsonNumber(payload['balance'], 'balance');
+    const frozenRaw = payload['frozenBalance'];
+    const frozen =
+      frozenRaw === undefined || frozenRaw === null
+        ? 0n
+        : scaledFromJsonNumber(frozenRaw, 'frozenBalance');
+    const available = balance - frozen;
+
+    return {
+      amount: formatScaled(available < 0n ? 0n : available),
+      currency: trimmed(payload['currencyCode']) ?? 'USD',
+      /*
+       * `updatedAt` arrives as `YYYY-MM-DD HH:mm:ss` with no zone, so parsing it
+       * would invent a timezone. The observation time we can state truthfully is
+       * the moment we asked.
+       */
+      observedAt: this.clock(),
+    };
   }
 
   /* ==========================================================================

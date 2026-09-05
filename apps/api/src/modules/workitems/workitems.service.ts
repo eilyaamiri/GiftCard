@@ -300,6 +300,49 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
     );
   }
 
+  /**
+   * Closes a work item nobody has claimed, because automation finished the job.
+   *
+   * The transition is deliberately narrow: only `UNASSIGNED` qualifies, and the
+   * update is a single conditional statement. The moment an operator claims the
+   * item they own it, and a background purchase completing a second later must
+   * not pull the task out from under them — it leaves the item alone, the
+   * operator sees the delivered asset in their workspace, and closes it
+   * themselves. This is also why the item is never *created* as COMPLETED: it
+   * has to be visible and claimable while the supplier call is in flight.
+   */
+  async completeBySystem(input: {
+    workItemId: string;
+    actor: string;
+    resolutionNote: string;
+  }): Promise<WorkItemSummary | null> {
+    const at = new Date();
+    const changed = await this.store.completeUnassignedBySystem({
+      workItemId: input.workItemId,
+      at,
+      resolutionNote: input.resolutionNote,
+    });
+    if (!changed) {
+      return null;
+    }
+
+    await this.audit.record({
+      actor: input.actor,
+      actorType: 'SYSTEM',
+      action: 'WORK_ITEM_COMPLETED',
+      entity: 'WorkItem',
+      entityId: input.workItemId,
+      after: {
+        status: 'COMPLETED',
+        completedBy: input.actor,
+        resolutionNote: input.resolutionNote,
+        completedAt: at.toISOString(),
+      },
+    });
+
+    return this.store.findById(input.workItemId);
+  }
+
   /* ---------------------------------------------------------------- reads */
 
   async getById(workItemId: string): Promise<WorkItemSummary> {

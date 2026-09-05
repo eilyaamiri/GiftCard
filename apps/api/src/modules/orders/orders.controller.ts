@@ -10,6 +10,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import type { CreateOrderResponse, GetOrderResponse, ListOrdersResponse } from '@barat/contracts';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
@@ -22,7 +23,11 @@ import {
   listOrdersQuerySchema,
   orderNumberParamSchema,
 } from './orders.schemas';
-import type { CreateOrderBody, ListOrdersQuery } from './orders.schemas';
+import type {
+  CreateOrderBody,
+  ListOrdersQuery,
+  RevealDeliveryResponse,
+} from './orders.schemas';
 import { OrdersService } from './orders.service';
 
 /** What the idempotency interceptor leaves on the request. */
@@ -72,6 +77,27 @@ export class OrdersController {
     @CurrentCustomer() customerId: string,
   ): Promise<GetOrderResponse> {
     return this.orders.getOrderForCustomer(params.orderNumber, customerId);
+  }
+
+  /**
+   * Un-mask the card the customer bought.
+   *
+   * POST, not GET, for two reasons: revealing is an audited event with a side
+   * effect (the access counter), and a GET would end up in browser history,
+   * proxy logs and prefetchers — none of which may ever hold a card code.
+   *
+   * The rate limit is far below the global one. A customer legitimately reveals
+   * their own code a handful of times; anything above that is someone walking
+   * order numbers, and each attempt costs them a decryption and an audit row.
+   */
+  @Post(':orderNumber/delivery/reveal')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { ttl: 60_000, limit: 5 } })
+  revealDelivery(
+    @Param(zodPipe(orderNumberParamSchema)) params: { orderNumber: string },
+    @CurrentCustomer() customerId: string,
+  ): Promise<RevealDeliveryResponse> {
+    return this.orders.revealDeliveryForCustomer(params.orderNumber, customerId);
   }
 }
 

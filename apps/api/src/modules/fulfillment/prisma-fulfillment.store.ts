@@ -540,7 +540,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     actualSupplierCurrency: string;
     supplierReference: string | null;
     costVarianceBps: number | null;
-    fulfilledByStaffId: string;
+    fulfilledByStaffId: string | null;
   }): Promise<void> {
     await this.db.fulfillment.update({
       where: { id: input.fulfillmentId },
@@ -649,7 +649,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     supplierReference: string | null;
     actualSupplierCost: string | null;
     actualSupplierCurrency: string | null;
-    enteredByUserId: string;
+    enteredByUserId: string | null;
     enteredAt: Date;
   }): Promise<GiftCardAssetView> {
     const row = await this.db.giftCardAsset.create({

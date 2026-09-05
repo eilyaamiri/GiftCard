@@ -229,6 +229,64 @@ export class ChecklistService {
   }
 
   /**
+   * Records a confirmation for a step automation actually performed.
+   *
+   * Only for facts the system itself established — it placed the supplier order,
+   * it read the amount and region back from the supplier's response. It is not a
+   * way to tick a box on an operator's behalf, which is why the caller names the
+   * key explicitly and why `verifiedByStaffId` stays `null`: the audit trail must
+   * never show a person who confirmed nothing.
+   *
+   * A key that is missing from this checklist is skipped rather than rejected. An
+   * older template has no such item, and failing here would strand a card that
+   * has already been bought; the send gate still refuses, so the work item simply
+   * stays with the operator.
+   */
+  async confirmItemAsSystem(input: {
+    context: FulfillmentContext;
+    itemKey: string;
+    actor: string;
+    note?: string;
+  }): Promise<ChecklistState> {
+    const state = await this.ensure(input.context);
+    if (state.isLocked) {
+      throw DomainErrors.conflict(
+        'این چک‌لیست پس از ارسال قفل شده است.',
+        `checklist ${state.record.id} is locked`,
+      );
+    }
+
+    const item = state.record.items.find((candidate) => candidate.key === input.itemKey);
+    if (item === undefined || item.type === 'MANAGER_APPROVAL') {
+      return state;
+    }
+
+    const at = new Date();
+    await this.store.updateChecklistItem({
+      itemId: item.id,
+      // BOOLEAN so the pass survives every later refresh: a derived item would be
+      // recomputed, and there is no staff id here to short-circuit that.
+      type: 'BOOLEAN',
+      status: 'PASSED',
+      verifiedByStaffId: null,
+      verifiedAt: at,
+      ...(input.note === undefined ? {} : { note: input.note }),
+    });
+
+    await this.audit.record({
+      actor: input.actor,
+      actorType: 'SYSTEM',
+      action: 'FULFILLMENT_CHECKLIST_ITEM_CHECKED',
+      entity: 'FulfillmentChecklistItem',
+      entityId: item.id,
+      before: { status: item.status },
+      after: { status: 'PASSED', key: item.key, checkedBy: input.actor, checkedAt: at.toISOString() },
+    });
+
+    return this.reload(input.context);
+  }
+
+  /**
    * Stores the value of an operator-supplied REQUIRED_FIELD item. The item passes
    * automatically the moment a non-empty value exists — no separate tick.
    */
