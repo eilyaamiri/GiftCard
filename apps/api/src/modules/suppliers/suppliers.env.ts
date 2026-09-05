@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import type { ReloadlyEnvironment } from '@barat/suppliers';
 
 /**
@@ -6,9 +8,10 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * GAP: `apps/api/src/common/config/env.schema.ts` is frozen (Foundation-owned)
  * and declares none of `RELOADLY_ENABLED`, `RELOADLY_ENVIRONMENT`,
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
- * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS` or `SUPPLIER_PROVIDER_SKU_MAP`.
- * They are read here — in one file, never scattered — so the Foundation agent
- * can lift these eight entries into the validated schema in a single pass.
+ * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `SUPPLIER_PROVIDER_SKU_MAP` or
+ * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
+ * scattered — so the Foundation agent can lift these nine entries into the
+ * validated schema in a single pass.
  *
  * Two of them are secrets. They are read into a value object and handed
  * straight to the adapter's constructor; nothing in this file logs, echoes or
@@ -110,24 +113,83 @@ export function readReloadlyEnv(): ReloadlyEnv {
   };
 }
 
+/** `supplierCode:skuId` — the shape both sources of the map are keyed by. */
+function assertMapKey(key: string, source: string): void {
+  if (key === '' || !key.includes(':')) {
+    throw new Error(`${source} keys must look like "supplierCode:skuId"`);
+  }
+}
+
+/**
+ * The imported catalog's map: a JSON object of the same keys and values.
+ *
+ * The inline variable below cannot carry the whole Reloadly catalog — 7,945
+ * entries is roughly 320 KB, past what an environment can hold on most systems
+ * and unreadable long before that. So the bulk map is generated as a file by
+ * `packages/database/prisma/import-reloadly-catalog.ts --map-out=...`, and this
+ * points at it:
+ *
+ *     SUPPLIER_PROVIDER_SKU_MAP_FILE=/opt/baratpay/config/provider-sku-map.json
+ *
+ * Read once, at boot. A missing or malformed file is a hard failure rather than
+ * an empty map: silently forgetting every provider SKU would turn every
+ * automatic purchase into an operator task, quietly and at 3am.
+ */
+function readProviderSkuMapFile(map: Map<string, string>): void {
+  const path = read('SUPPLIER_PROVIDER_SKU_MAP_FILE');
+  if (path === undefined) {
+    return;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (error) {
+    throw new Error(
+      `SUPPLIER_PROVIDER_SKU_MAP_FILE could not be read as JSON: ${(error as Error).message}`,
+      { cause: error },
+    );
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('SUPPLIER_PROVIDER_SKU_MAP_FILE must contain a JSON object');
+  }
+
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    assertMapKey(key, 'SUPPLIER_PROVIDER_SKU_MAP_FILE');
+    if (typeof value !== 'string' || value.trim() === '') {
+      throw new Error(`SUPPLIER_PROVIDER_SKU_MAP_FILE has no provider SKU for ${key}`);
+    }
+    map.set(key, value.trim());
+  }
+}
+
 /**
  * GAP: `SupplierOffer` has no `providerSku` column, so the store falls back to
  * our own SKU id — which no external supplier has ever heard of. Until
- * Foundation adds the column, the translation lives in this one variable:
+ * Foundation adds the column, the translation lives in these two variables:
  *
  *     SUPPLIER_PROVIDER_SKU_MAP="reloadly:seed_sku_01=5:25,reloadly:seed_sku_03=5:100"
+ *     SUPPLIER_PROVIDER_SKU_MAP_FILE=/opt/baratpay/config/provider-sku-map.json
  *
- * Entries are `supplierCode:skuId=providerSku`. Both separators are split on
- * first occurrence, so a provider SKU containing `:` — Reloadly's
+ * Inline entries are `supplierCode:skuId=providerSku`. Both separators are
+ * split on first occurrence, so a provider SKU containing `:` — Reloadly's
  * `productId:unitPrice` does — survives intact.
+ *
+ * The file is read first and the inline variable second, so a hand-written
+ * entry always overrides the generated catalog. That is the direction a person
+ * fixing a bad mapping at 3am needs it to go: one line in the env beats a
+ * 7,945-entry file, without regenerating anything.
  */
 export function readProviderSkuMap(): ProviderSkuMap {
+  const map = new Map<string, string>();
+  readProviderSkuMapFile(map);
+
   const raw = read('SUPPLIER_PROVIDER_SKU_MAP');
   if (raw === undefined) {
-    return new Map();
+    return map;
   }
 
-  const map = new Map<string, string>();
+  const inline = new Set<string>();
   for (const entry of raw.split(',')) {
     const trimmedEntry = entry.trim();
     if (trimmedEntry === '') {
@@ -141,10 +203,11 @@ export function readProviderSkuMap(): ProviderSkuMap {
         'SUPPLIER_PROVIDER_SKU_MAP entries must look like "supplierCode:skuId=providerSku"',
       );
     }
-    if (map.has(key)) {
-      /* Two rows for one SKU is a silent choice between two prices. */
+    if (inline.has(key)) {
+      /* Two inline rows for one SKU is a silent choice between two prices. */
       throw new Error(`SUPPLIER_PROVIDER_SKU_MAP maps ${key} more than once`);
     }
+    inline.add(key);
     map.set(key, value);
   }
   return map;
