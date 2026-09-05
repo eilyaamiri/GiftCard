@@ -1,3 +1,7 @@
+import { rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +24,7 @@ const KEYS = [
   'RELOADLY_SENDER_NAME',
   'RELOADLY_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
+  'SUPPLIER_PROVIDER_SKU_MAP_FILE',
 ] as const;
 
 const saved = new Map<string, string | undefined>();
@@ -172,6 +177,78 @@ describe('readProviderSkuMap', () => {
       expect(() => readProviderSkuMap()).toThrow(/supplierCode:skuId=providerSku/u);
     },
   );
+});
+
+/*
+ * The imported Reloadly catalog is ~8,000 mappings — too many for an
+ * environment variable — so the bulk of the map arrives as a generated file.
+ * It feeds the same decision as the inline variable: which product real money
+ * buys. The failure that matters here is the quiet one — a map that comes back
+ * empty sends every automatic purchase to an operator instead, at whatever hour
+ * the deploy happened.
+ */
+describe('readProviderSkuMap from a file', () => {
+  const path = join(tmpdir(), `provider-sku-map-${String(process.pid)}.json`);
+
+  afterEach(() => {
+    rmSync(path, { force: true });
+  });
+
+  function writeMap(contents: string): void {
+    writeFileSync(path, contents, 'utf8');
+    process.env['SUPPLIER_PROVIDER_SKU_MAP_FILE'] = path;
+  }
+
+  it('reads the generated catalog map', () => {
+    writeMap(JSON.stringify({ 'reloadly:rlx_s_21_25': '21:25', 'reloadly:rlx_s_5_50': '5:50' }));
+
+    const map = readProviderSkuMap();
+
+    expect(map.size).toBe(2);
+    expect(map.get(providerSkuKey('reloadly', 'rlx_s_21_25'))).toBe('21:25');
+  });
+
+  it('lets an inline entry override the file', () => {
+    writeMap(JSON.stringify({ 'reloadly:rlx_s_21_25': '21:25' }));
+    process.env['SUPPLIER_PROVIDER_SKU_MAP'] = 'reloadly:rlx_s_21_25=13948:25';
+
+    // Correcting one bad mapping must not mean regenerating 8,000 of them.
+    expect(readProviderSkuMap().get(providerSkuKey('reloadly', 'rlx_s_21_25'))).toBe('13948:25');
+  });
+
+  it('refuses a file it cannot read', () => {
+    process.env['SUPPLIER_PROVIDER_SKU_MAP_FILE'] = join(tmpdir(), 'no-such-map.json');
+
+    // Booting with an empty map would look healthy and buy nothing.
+    expect(() => readProviderSkuMap()).toThrow(/SUPPLIER_PROVIDER_SKU_MAP_FILE/u);
+  });
+
+  it.each(['[]', 'null', '"reloadly:rlx_s_21_25"', 'not json'])(
+    'refuses the file contents %s',
+    (contents) => {
+      writeMap(contents);
+
+      expect(() => readProviderSkuMap()).toThrow(/SUPPLIER_PROVIDER_SKU_MAP_FILE/u);
+    },
+  );
+
+  it('refuses a key that names no supplier', () => {
+    writeMap(JSON.stringify({ rlx_s_21_25: '21:25' }));
+
+    expect(() => readProviderSkuMap()).toThrow(/supplierCode:skuId/u);
+  });
+
+  it.each([['', 'blank'], [' ', 'whitespace']])('refuses the %s provider SKU', (value) => {
+    writeMap(JSON.stringify({ 'reloadly:rlx_s_21_25': value }));
+
+    expect(() => readProviderSkuMap()).toThrow(/no provider SKU/u);
+  });
+
+  it('refuses a provider SKU that is not a string', () => {
+    writeMap('{"reloadly:rlx_s_21_25": 2125}');
+
+    expect(() => readProviderSkuMap()).toThrow(/no provider SKU/u);
+  });
 });
 
 describe('buildSupplierProviders', () => {

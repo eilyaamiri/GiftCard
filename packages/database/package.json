@@ -18,13 +18,15 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
+    "db:import:reloadly": "tsx prisma/import-reloadly-catalog.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
     "build": "prisma generate && tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "clean": "rm -rf dist generated *.tsbuildinfo",
     "lint": "eslint src prisma",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run prisma"
   },
   "dependencies": {
     "@prisma/adapter-pg": "7.10.0",
@@ -40,6 +42,7 @@
     "dotenv": "17.4.2",
     "prisma": "7.10.0",
     "tsx": "4.23.13",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
   }
 }
