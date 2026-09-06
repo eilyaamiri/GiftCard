@@ -20,6 +20,7 @@ import { Roles } from '../identity';
 import { CatalogService } from './catalog.service';
 import {
   adminCatalogListSchema,
+  adminProductListSchema,
   adminServiceFieldListSchema,
   adminSkuListSchema,
   adminSupplierOfferListSchema,
@@ -38,6 +39,7 @@ import {
 } from './catalog.schemas';
 import type {
   AdminCatalogListInput,
+  AdminProductListInput,
   AdminServiceFieldListInput,
   AdminSkuListInput,
   AdminSupplierOfferListInput,
@@ -72,7 +74,7 @@ export class CatalogAdminController {
   constructor(@Inject(CatalogService) private readonly catalog: CatalogService) {}
 
   @Get('products')
-  listProducts(@Query(zodPipe(adminCatalogListSchema)) query: AdminCatalogListInput) {
+  listProducts(@Query(zodPipe(adminProductListSchema)) query: AdminProductListInput) {
     return this.catalog.adminListProducts(query);
   }
 

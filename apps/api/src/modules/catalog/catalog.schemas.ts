@@ -55,6 +55,17 @@ export const adminCatalogListSchema = z.object({
     .default(false),
 });
 
+/**
+ * The product list is the one admin list that has to work against the whole
+ * imported catalog — thousands of rows — so it takes a free-text term as well.
+ * The other lists stay on the plain paging schema: adding `search` to the
+ * shared one would advertise a filter that suppliers and services silently
+ * ignore.
+ */
+export const adminProductListSchema = adminCatalogListSchema.extend({
+  search: z.string().max(120).optional(),
+});
+
 export const adminSkuListSchema = adminCatalogListSchema.extend({
   productId: idSchema.optional(),
 });
@@ -69,6 +80,7 @@ export const adminServiceFieldListSchema = z.object({
 });
 
 export type AdminCatalogListInput = z.infer<typeof adminCatalogListSchema>;
+export type AdminProductListInput = z.infer<typeof adminProductListSchema>;
 export type AdminSkuListInput = z.infer<typeof adminSkuListSchema>;
 export type AdminSupplierOfferListInput = z.infer<typeof adminSupplierOfferListSchema>;
 export type AdminServiceFieldListInput = z.infer<typeof adminServiceFieldListSchema>;
