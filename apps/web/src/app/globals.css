@@ -5,7 +5,10 @@
 :root { --navy:#0B1D33; --navy2:#102A46; --ink:#13243A; --teal:#21B4B0; --teal2:#46D0CB; --slate:#6B7C93; --paper:#fff; --soft:#F6F8FA; --mint:#DFF7F5; --line:#DCE4EA; --green:#18A66A; --amber:#D98B19; }
 * { box-sizing:border-box; }
 html { scroll-behavior:smooth; scrollbar-gutter:stable; }
-body { margin:0; background:var(--soft); color:var(--ink); font-family:Vazirmatn, sans-serif; }
+/* `--font-vazirmatn` is the family next/font actually loaded, so name it first;
+ * the bare `Vazirmatn` behind it only ever matches a copy installed on the
+ * device, which is a desktop-only accident. */
+body { margin:0; background:var(--soft); color:var(--ink); font-family:var(--font-vazirmatn), Vazirmatn, sans-serif; }
 button,input,select,textarea { font:inherit; }
 a { color:inherit; text-decoration:none; }
 .bp-ltr { direction:ltr; unicode-bidi:isolate; display:inline-block; }
