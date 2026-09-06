@@ -32,6 +32,7 @@ import {
 
 export const FULFILLMENT_AUDIT_ACTIONS = {
   SUPPLIER_RESULT_RECORDED: 'FULFILLMENT_SUPPLIER_RESULT_RECORDED',
+  ACTUAL_COST_RECORDED: 'FULFILLMENT_ACTUAL_COST_RECORDED',
   COST_VARIANCE_FLAGGED: 'FULFILLMENT_COST_VARIANCE_FLAGGED',
   COST_VARIANCE_APPROVED: 'APPROVE_COST_VARIANCE',
   SEND_BLOCKED: 'FULFILLMENT_SEND_BLOCKED',
@@ -305,6 +306,111 @@ export class FulfillmentService {
 
     // Re-read: the checklist must be derived from the state that now exists, not
     // from the snapshot taken before the asset and the cost were written.
+    return this.reloadWorkspace(context.workItemId);
+  }
+
+  /**
+   * Records what the supplier charged, for an order whose asset is already
+   * stored.
+   *
+   * `recordSupplierResult` is the normal door for this and stays that way — but
+   * it refuses to run once an asset exists, and an asset can legitimately arrive
+   * without a cost: an admin fulfilling an operator's code request enters the
+   * card, not the invoice. That left `ACTUAL_COST_MISSING` on the send gate with
+   * no screen able to clear it, so the order could never be sent.
+   *
+   * This does that one thing. It never creates an asset, and it refuses to
+   * overwrite a cost already on record — correcting a recorded amount is a
+   * finance action, not an operator one. The variance assessment is the same
+   * one `recordSupplierResult` runs, so a cost entered here can still trip the
+   * approval hold.
+   */
+  async recordActualCost(input: {
+    workItemId: string;
+    staff: StaffContext;
+    actualSupplierCost: string;
+    actualSupplierCurrency?: string;
+    supplierReference?: string;
+  }): Promise<FulfillmentWorkspace> {
+    const context = await this.loadContext(input.workItemId);
+    this.assertCanOperate(context, input.staff);
+
+    const checklist = await this.checklists.ensure(context);
+    if (checklist.isLocked) {
+      throw DomainErrors.conflict(
+        'این سفارش قبلاً برای مشتری ارسال شده است.',
+        `work item ${context.workItemId} checklist is locked`,
+      );
+    }
+
+    const record = context.fulfillment;
+    if (record === null || context.assetCount === 0) {
+      throw DomainErrors.conflict(
+        'ابتدا کد یا دارایی تحویل را ثبت کنید.',
+        `order ${context.orderId} has no delivery asset to attach a cost to`,
+      );
+    }
+
+    if (record.actualSupplierCost !== null) {
+      throw DomainErrors.conflict(
+        'هزینهٔ واقعی تأمین‌کننده قبلاً ثبت شده است.',
+        `fulfillment ${record.id} already has an actual supplier cost`,
+      );
+    }
+
+    const currency = input.actualSupplierCurrency ?? context.quotedSupplierCurrency;
+    const variance = assessCostVariance({
+      quotedCost: context.quotedSupplierCost,
+      quotedCurrency: context.quotedSupplierCurrency,
+      actualCost: input.actualSupplierCost,
+      actualCurrency: currency,
+      toleranceBps: context.maxSupplierCostToleranceBps,
+    });
+
+    await this.store.updateSupplierCost({
+      fulfillmentId: record.id,
+      actualSupplierCost: input.actualSupplierCost,
+      actualSupplierCurrency: currency,
+      supplierReference: input.supplierReference ?? record.supplierReference,
+      costVarianceBps: variance.varianceBps,
+      fulfilledByStaffId: input.staff.id,
+    });
+
+    await this.audit.record({
+      actor: input.staff.id,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: FULFILLMENT_AUDIT_ACTIONS.ACTUAL_COST_RECORDED,
+      entity: 'Fulfillment',
+      entityId: record.id,
+      after: {
+        orderId: context.orderId,
+        quotedSupplierCost: context.quotedSupplierCost,
+        actualSupplierCost: input.actualSupplierCost,
+        actualSupplierCurrency: currency,
+        costVarianceBps: variance.varianceBps,
+        toleranceBps: context.maxSupplierCostToleranceBps,
+      },
+    });
+
+    if (variance.requiresApproval) {
+      await this.audit.record({
+        actor: input.staff.id,
+        actorType: 'STAFF',
+        actorRole: input.staff.role,
+        action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
+        entity: 'Fulfillment',
+        entityId: record.id,
+        after: {
+          orderId: context.orderId,
+          reason: variance.reason,
+          costVarianceBps: variance.varianceBps,
+          toleranceBps: variance.toleranceBps,
+          recordedBy: input.staff.id,
+        },
+      });
+    }
+
     return this.reloadWorkspace(context.workItemId);
   }
 

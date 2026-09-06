@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, Ltr, formatIrr, formatJalaliDate } from "@barat/ui";
 import { AccountNav } from "@/components/account-nav";
+import { DeliveryCard } from "@/components/delivery-card";
 import { orderStatusView } from "@/lib/status";
 import { api, ApiClientError } from "@/lib/api";
 import { tomanFromIrr } from "@/app/checkout/purchase";
@@ -18,6 +19,16 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
     if (error instanceof ApiClientError && error.isNotFound) notFound();
     throw error;
   });
+
+  /* The account endpoint answers with the order's money and dates but nothing
+   * about the card itself. The delivery block lives on the order-by-number
+   * response, which is scoped to the same session, so the code the customer came
+   * here to find is one more read away rather than absent. A failure here is not
+   * worth losing the rest of the page over. */
+  const delivery = await api
+    .order(order.orderNumber)
+    .then((response) => response.order.delivery)
+    .catch(() => null);
 
   const view = orderStatusView(order.status);
   const payable = order.status === "AWAITING_PAYMENT" || order.status === "PAYMENT_PENDING";
@@ -53,6 +64,8 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
           </div>
         ))}
       </div>
+
+      {delivery !== null ? <DeliveryCard delivery={delivery} orderNumber={order.orderNumber} /> : null}
 
       <div className="hero-actions">
         {payable ? (

@@ -4,7 +4,12 @@ import { formatJalaliDate, toPersianDigits } from "@barat/ui";
 import { ApiClientError } from "@/lib/api";
 import { requireSession } from "@/lib/session";
 import { ErrorNotice } from "../../../_components/error-notice";
-import { canApproveCostVariance, fulfillment, type FulfillmentWorkspace } from "../../../_lib/fulfillment";
+import {
+  canApproveCostVariance,
+  canOperateWithoutClaim,
+  fulfillment,
+  type FulfillmentWorkspace,
+} from "../../../_lib/fulfillment";
 import { loadOrderContext } from "../../../_lib/order-context";
 import { formatIrrStringAsToman } from "@/lib/format-bps";
 import {
@@ -52,6 +57,11 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
   const guidance = TASK_GUIDANCE[item.type];
   const isMine = item.assignedToStaffId === staff.id;
   const isClosed = TERMINAL_STATUSES.includes(item.status);
+  /* An admin or ops manager may work a task without claiming it: that is what
+   * the API's `assertCanOperate` has always allowed. Gating the panel on the
+   * claim alone made the workspace read-only for exactly the people who are
+   * meant to be able to step in. */
+  const canOperate = (isMine || canOperateWithoutClaim(staff.role)) && !isClosed;
 
   return (
     <div>
@@ -137,7 +147,7 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
             <FulfillmentPanel
               workItemId={item.id}
               initialWorkspace={workspaceResult.workspace}
-              canOperate={isMine && !isClosed}
+              canOperate={canOperate}
               canApprove={canApproveCostVariance(staff.role)}
             />
           ) : (

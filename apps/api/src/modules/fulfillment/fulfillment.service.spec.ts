@@ -663,3 +663,133 @@ describe('asset recording', () => {
     expect(row?.deliveryUrl).toBe('https://redeem.example.com/abc');
   });
 });
+
+describe('recording the actual cost on its own', () => {
+  /**
+   * An asset with no price on it — what the admin gift-card-request path
+   * produces, since the person entering the card is not the person who saw the
+   * invoice. `recordSupplierResult` will not run a second time on such an order,
+   * so without a separate door the send stays blocked forever.
+   */
+  async function recordAssetWithoutCost(h: Harness, staff: StaffContext = OPERATOR): Promise<void> {
+    await h.service.recordSupplierResult({
+      workItemId: h.store.workItemId,
+      staff,
+      supplierReference: 'SUP-REF-9001',
+      asset: { assetType: 'CODE_PIN', code: PLAINTEXT_CODE, pin: PLAINTEXT_PIN },
+    });
+  }
+
+  it('lifts the cost blocker and lets the send through', async () => {
+    const h = harness();
+    await recordAssetWithoutCost(h);
+    await tickBooleans(h);
+
+    const blocked = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
+    expect(blocked.sendBlockers).toContain(SEND_BLOCKERS.ACTUAL_COST_MISSING);
+
+    /* The reference travels with the cost: `recordSupplierResult` writes it onto
+     * the fulfillment only when a price came with it, so an asset stored without
+     * one leaves the provider-reference row pending too. */
+    const cleared = await h.service.recordActualCost({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      actualSupplierCost: '100.00',
+      actualSupplierCurrency: 'USD',
+      supplierReference: 'SUP-REF-9001',
+    });
+    expect(cleared.sendBlockers).toHaveLength(0);
+
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+    expect(outcome.delivered).toBe(true);
+  });
+
+  it('creates no asset, so a card can never be bought twice through it', async () => {
+    const h = harness();
+    await recordAssetWithoutCost(h);
+    await h.service.recordActualCost({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      actualSupplierCost: '100.00',
+    });
+
+    expect(h.store.assets.size).toBe(1);
+  });
+
+  it('refuses when there is no asset to attach a price to', async () => {
+    const h = harness();
+    await expect(
+      h.service.recordActualCost({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        actualSupplierCost: '100.00',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('refuses to overwrite a price already on record', async () => {
+    const h = harness();
+    await recordAsset(h, '100.00');
+
+    // Correcting a recorded spend is a finance action. An operator rewriting it
+    // here would also erase the variance that was assessed against the original.
+    await expect(
+      h.service.recordActualCost({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        actualSupplierCost: '5.00',
+      }),
+    ).rejects.toThrow();
+
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.actualSupplierCost).toBe('100.00');
+  });
+
+  it('raises the variance hold for an over-tolerance price recorded this way', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAssetWithoutCost(h);
+    await tickBooleans(h);
+
+    const workspace = await h.service.recordActualCost({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      actualSupplierCost: '120.00',
+      actualSupplierCurrency: 'USD',
+    });
+
+    expect(workspace.costVariance?.varianceBps).toBe(2_000);
+    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+    await expect(
+      h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR }),
+    ).rejects.toThrow();
+  });
+});
+
+describe('manager access to a task they did not claim', () => {
+  const ADMIN: StaffContext = { id: 'staff-admin', role: 'ADMIN' };
+
+  it('lets an admin tick the checklist and send without holding the claim', async () => {
+    // Seeded as assigned to staff-operator, so the admin is a genuine outsider.
+    const h = harness();
+    await recordAsset(h, '100.00');
+
+    for (const itemKey of ['SUPPLIER_ORDER_PLACED', 'ASSET_MATCHES_ORDER']) {
+      await h.service.checkItem({ workItemId: h.store.workItemId, staff: ADMIN, itemKey, checked: true });
+    }
+
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: ADMIN });
+    expect(outcome.delivered).toBe(true);
+  });
+
+  it('still refuses an operator who does not hold the claim', async () => {
+    const h = harness();
+    await expect(
+      h.service.checkItem({
+        workItemId: h.store.workItemId,
+        staff: { id: 'staff-other-operator', role: 'OPERATOR' },
+        itemKey: 'SUPPLIER_ORDER_PLACED',
+        checked: true,
+      }),
+    ).rejects.toThrow();
+  });
+});
