@@ -137,6 +137,95 @@ describe('CatalogService public projections', () => {
   });
 });
 
+describe('CatalogService admin product list', () => {
+  /* The imported supplier catalog is ~2,400 products, all switched off. An
+   * operator reaches one of them by searching for it, so these assert on the
+   * `where` the search builds rather than on rows a mock hands back. */
+
+  it('pages from the offset the caller asked for, and reports the page back', async () => {
+    const { service, product } = harness();
+    product.count.mockResolvedValue(2_406);
+
+    const response = await service.adminListProducts({
+      page: 5,
+      pageSize: 20,
+      includeInactive: true,
+    });
+
+    expect(product.findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 80, take: 20 });
+    expect(response.meta).toEqual({ page: 5, pageSize: 20, total: 2_406, totalPages: 121 });
+  });
+
+  it('searches the product name and the id together', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      search: '14971',
+    });
+
+    // `contains` on the id, not equality: the operator has the supplier's own
+    // product number, not our prefixed row id.
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      OR: [
+        { id: { contains: '14971', mode: 'insensitive' } },
+        { title: { contains: '14971', mode: 'insensitive' } },
+        { titleFa: { contains: '14971' } },
+      ],
+    });
+  });
+
+  it('keeps the inactive filter alongside a search term', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: false,
+      search: 'apple',
+    });
+
+    // Both clauses, not one replacing the other: a search must not start
+    // surfacing archived products on a screen that excludes them.
+    const where = product.findMany.mock.calls[0]?.[0]?.where;
+    expect(where.isActive).toBe(true);
+    expect(where.OR).toHaveLength(3);
+  });
+
+  it('applies no search clause when the term is empty', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      search: '',
+    });
+
+    // `?search=` must list the catalog, not match every row against '%%'.
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({});
+  });
+
+  it('counts with the same filter it lists with', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 2,
+      pageSize: 20,
+      includeInactive: true,
+      search: 'steam',
+    });
+
+    // A total taken from an unfiltered count would put a "page 2 of 121" pager
+    // under a single search result.
+    expect(product.count.mock.calls[0]?.[0]?.where).toEqual(
+      product.findMany.mock.calls[0]?.[0]?.where,
+    );
+  });
+});
+
 describe('CatalogService admin service bounds', () => {
   it('checks a partial bound update against the value already stored', async () => {
     const update = vi.fn();

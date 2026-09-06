@@ -375,3 +375,60 @@ export function buildListSearch(query: AdminListQuery & Record<string, string | 
   const search = params.toString();
   return search ? `?${search}` : "";
 }
+
+/* ============================================================================
+ * Product list paging
+ *
+ * The imported supplier catalog is ~2,400 products, so this list is paged and
+ * searchable rather than fetched whole. The state lives in the URL: a search
+ * survives a reload, is shareable, and needs no client-side JavaScript.
+ * ==========================================================================*/
+
+export const CATALOG_PAGE_SIZE = 20;
+
+export interface CatalogQuery {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly search?: string;
+}
+
+/** Coerces untrusted `searchParams` into a query the API will actually accept. */
+export function readCatalogQuery(
+  params: Record<string, string | string[] | undefined>,
+  pageSize = CATALOG_PAGE_SIZE,
+): CatalogQuery {
+  const first = (key: string): string | undefined => {
+    const value = params[key];
+    const single = Array.isArray(value) ? value[0] : value;
+    return single !== undefined && single.trim() !== "" ? single.trim() : undefined;
+  };
+
+  const rawPage = Number.parseInt(first("page") ?? "1", 10);
+  const search = first("search");
+
+  return {
+    page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
+    pageSize,
+    // The API caps `search` at 120 characters and would 400 on anything longer.
+    ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
+  };
+}
+
+/**
+ * Href for the same screen with part of the query replaced. An absent key keeps
+ * what the current query has; `page` resets to 1 unless given, because a new
+ * search term has no page 3 to land on.
+ */
+export function catalogHref(
+  basePath: string,
+  query: CatalogQuery,
+  overrides: { page?: number; search?: string } = {},
+): string {
+  const params = new URLSearchParams();
+  const search = overrides.search === undefined ? query.search : overrides.search;
+  const page = overrides.page ?? 1;
+  if (search) params.set("search", search);
+  if (page > 1) params.set("page", String(page));
+  const suffix = params.toString();
+  return suffix ? `${basePath}?${suffix}` : basePath;
+}

@@ -1,18 +1,37 @@
 import Link from "next/link";
 import { ApiClientError, CATALOG_WRITE_ROLES, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
-import { adminProductListSchema } from "./_lib/catalog-contracts";
+import {
+  adminProductListSchema,
+  buildListSearch,
+  catalogHref,
+  readCatalogQuery,
+} from "./_lib/catalog-contracts";
 import { formatCount } from "./_lib/format";
 import { ToggleActiveButton } from "./_components/toggle-active-button";
 
 export const metadata = { title: "کاتالوگ | پنل ادمین برات پی" };
 
-export default async function CatalogPage() {
+export default async function CatalogPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   await requireRole(CATALOG_WRITE_ROLES);
+
+  const query = readCatalogQuery(await searchParams);
 
   let list;
   try {
-    list = await api.get("/api/admin/catalog/products?pageSize=100&includeInactive=true", adminProductListSchema);
+    list = await api.get(
+      `/api/admin/catalog/products${buildListSearch({
+        page: query.page,
+        pageSize: query.pageSize,
+        includeInactive: true,
+        ...(query.search ? { search: query.search } : {}),
+      })}`,
+      adminProductListSchema,
+    );
   } catch (error) {
     if (!(error instanceof ApiClientError)) throw error;
     return (
@@ -25,12 +44,47 @@ export default async function CatalogPage() {
     );
   }
 
+  const { items, meta } = list;
+  // The API echoes back whatever page was asked for, so a hand-typed `?page=999`
+  // comes back empty with page 999 in the meta. Clamping keeps the range caption
+  // and the prev/next links honest.
+  const currentPage = Math.min(meta.page, Math.max(meta.totalPages, 1));
+  const firstRow = items.length === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
+  const lastRow = firstRow + items.length - 1;
+
   return (
     <div>
-      <PageHeading count={list.meta.total} />
+      <PageHeading
+        caption={
+          items.length === 0
+            ? "محصولی یافت نشد"
+            : `نمایش ${formatCount(firstRow)}–${formatCount(lastRow)} از ${formatCount(meta.total)} محصول`
+        }
+      />
 
       <div className="toolbar">
-        <span />
+        {/* A plain GET form: the search stays in the URL, so it survives a
+            reload, is shareable, and needs no client-side JavaScript. */}
+        <form action="/catalog" method="get" className="filter-bar" style={{ marginBlockEnd: 0 }}>
+          <div className="search">
+            <input
+              type="search"
+              name="search"
+              defaultValue={query.search ?? ""}
+              placeholder="نام یا شناسهٔ محصول"
+              maxLength={120}
+              aria-label="جست‌وجوی محصول"
+            />
+          </div>
+          <button type="submit" className="filter">
+            جست‌وجو
+          </button>
+          {query.search ? (
+            <Link href={catalogHref("/catalog", query, { search: "" })} className="filter" style={FILTER_LINK}>
+              پاک کردن
+            </Link>
+          ) : null}
+        </form>
         <Link href="/catalog/new" className="primary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
           + افزودن محصول
         </Link>
@@ -50,7 +104,7 @@ export default async function CatalogPage() {
               </tr>
             </thead>
             <tbody>
-              {list.items.map((product) => (
+              {items.map((product) => (
                 <tr key={product.id}>
                   <td>
                     <Link href={`/catalog/${product.id}`} className="order-id">
@@ -83,20 +137,56 @@ export default async function CatalogPage() {
             </tbody>
           </table>
         </div>
-        {list.items.length === 0 ? <p className="empty-hint">هنوز محصولی ثبت نشده است.</p> : null}
+        {items.length === 0 ? (
+          <p className="empty-hint">
+            {query.search
+              ? `محصولی با «${query.search}» یافت نشد.`
+              : "هنوز محصولی ثبت نشده است."}
+          </p>
+        ) : null}
       </div>
+
+      {meta.totalPages > 1 ? (
+        <div className="filter-bar" style={{ justifyContent: "center", marginBlockStart: 18 }}>
+          {currentPage > 1 ? (
+            <Link href={catalogHref("/catalog", query, { page: currentPage - 1 })} className="filter" style={FILTER_LINK}>
+              صفحهٔ قبل
+            </Link>
+          ) : null}
+          <span className="muted">
+            صفحهٔ {formatCount(currentPage)} از {formatCount(meta.totalPages)}
+          </span>
+          {currentPage < meta.totalPages ? (
+            <Link href={catalogHref("/catalog", query, { page: currentPage + 1 })} className="filter" style={FILTER_LINK}>
+              صفحهٔ بعد
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function PageHeading({ count }: { count?: number }) {
+/**
+ * `caption` carries the row range rather than a bare total: with 2,400 products
+ * behind a pager, "۲٬۴۰۶ محصول" alone leaves the operator unsure which twenty
+ * of them are on screen.
+ */
+function PageHeading({ caption }: { caption?: string }) {
   return (
     <div className="page-heading">
       <div>
         <p className="eyebrow">کاتالوگ و تأمین</p>
         <h1>کاتالوگ</h1>
       </div>
-      <p className="muted">{count === undefined ? "" : `${formatCount(count)} محصول`}</p>
+      <p className="muted">{caption ?? ""}</p>
     </div>
   );
 }
+
+/** `.filter` is styled for buttons; an anchor needs the box model spelled out. */
+const FILTER_LINK = {
+  display: "inline-flex",
+  alignItems: "center",
+  textDecoration: "none",
+} as const;

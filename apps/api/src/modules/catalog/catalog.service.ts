@@ -36,6 +36,7 @@ import {
   updateSupplierOfferSchema,
   updateSupplierSchema,
   type AdminCatalogListInput,
+  type AdminProductListInput,
   type AdminSkuListInput,
   type AdminSupplierOfferListInput,
   type CreateInternationalServiceInput,
@@ -332,8 +333,29 @@ export class CatalogService {
 
   /* ---------------------------------------------------------------- admin */
 
-  async adminListProducts(query: AdminCatalogListInput) {
-    const where: Prisma.ProductWhereInput = query.includeInactive ? {} : { isActive: true };
+  /**
+   * Search covers the product's name and its id, which is what an operator has
+   * in hand: either the title on the card or the identifier from a supplier
+   * catalog export. `id` is matched with `contains` rather than an equality
+   * check so that the supplier's own product number finds the row — typing
+   * `14971` reaches `rlx_p_14971` without anyone having to know the prefix.
+   *
+   * The term is deliberately NOT matched against brand or category: those
+   * return hundreds of rows each and would bury the product being looked for.
+   */
+  async adminListProducts(query: AdminProductListInput) {
+    const where: Prisma.ProductWhereInput = {
+      ...(query.includeInactive ? {} : { isActive: true }),
+      ...(query.search
+        ? {
+            OR: [
+              { id: { contains: query.search, mode: 'insensitive' } },
+              { title: { contains: query.search, mode: 'insensitive' } },
+              { titleFa: { contains: query.search } },
+            ],
+          }
+        : {}),
+    };
     const [items, total] = await this.db.$transaction([
       this.db.product.findMany({
         where,
