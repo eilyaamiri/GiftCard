@@ -5,11 +5,11 @@ import { RevealCode } from "@/components/reveal-code";
 /**
  * What may be shown about a delivered asset.
  *
- * The card itself renders only `maskedCode`. The plaintext is never part of the
- * order response — it arrives, if at all, through `RevealCode`, which asks the
- * server for it on an explicit click and leaves an audit record behind. So a
- * page that is screenshotted, cached or left open still holds nothing but the
- * mask.
+ * This card is server-rendered and holds nothing but the mask. The plaintext is
+ * never part of the order response and never reaches the HTML: it arrives, if
+ * at all, inside `RevealCode`, which asks the server for it from the browser
+ * and leaves an audit record behind. So a page that is cached or logged holds
+ * only `ABCD-XXXX-XXXX-8271`, even though the customer sees the whole code.
  *
  * Shared by the order page and the account order page: the customer looks for
  * their code in whichever of the two they happened to open, and a delivery
@@ -22,12 +22,17 @@ export function DeliveryCard({
   readonly delivery: NonNullable<OrderDetailDto["delivery"]>;
   readonly orderNumber: string;
 }) {
+  const sent = delivery.status === "SENT";
+
   return (
     <div className="card pad" style={{ marginBlockStart: 16 }}>
       <h2 className="h2" style={{ fontSize: 20, marginBlockStart: 0 }}>
         تحویل
       </h2>
-      {delivery.maskedCode !== null ? (
+      {/* Once the card is sent the full code is right below, so the mask would
+        * only be the same code said worse. It stays while delivery is still in
+        * progress, as proof that a card is on file. */}
+      {!sent && delivery.maskedCode !== null ? (
         <div className="summary-line">
           <span>کد تحویل‌شده</span>
           <strong>
@@ -55,10 +60,10 @@ export function DeliveryCard({
           <strong>{formatJalaliDate(delivery.expiryDate, "d MMMM yyyy")}</strong>
         </div>
       ) : null}
-      {/* The button appears only once the server says the card was sent. Any
-        * earlier and it would offer something the reveal endpoint refuses — the
-        * asset may still be under an operator's verification. */}
-      {delivery.status === "SENT" ? (
+      {/* Rendered only once the server says the card was sent. Any earlier and
+        * it would ask for something the reveal endpoint refuses — the asset may
+        * still be under an operator's verification. */}
+      {sent ? (
         <>
           <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
             نمایش کد کامل ثبت می‌شود. آن را در جای امن نگه دارید و برای کسی نفرستید.
