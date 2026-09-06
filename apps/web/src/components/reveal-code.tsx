@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { Ltr } from "@barat/ui";
 import { api, ApiClientError, type RevealedDelivery } from "@/lib/api";
@@ -15,24 +15,31 @@ const CODE_STYLE = {
 } as const;
 
 /**
- * The customer's own «نمایش کد».
+ * The customer's delivered card, in full.
  *
- * The plaintext lives in this component's state and nowhere else. It is never
- * written to storage, never put in the URL, and it disappears from memory the
- * moment the customer hides it or navigates away — hiding clears the state, so
- * showing it again is a fresh, separately audited request to the server.
+ * The code is fetched as soon as the section mounts, so a customer who bought a
+ * card sees the card rather than a button promising one. It is still fetched,
+ * never rendered on the server: the plaintext lives in this component's state
+ * and nowhere else — not in the HTML the server sent, not in the RSC payload,
+ * not in storage, not in the URL. Hiding clears the state outright, so showing
+ * it again is a fresh, separately audited request.
  *
- * Nothing here decides whether the code may be seen. The button always asks;
- * the server checks that the order belongs to this session and that the card
- * was actually delivered, and answers with an error the customer can read.
+ * Nothing here decides whether the code may be seen. The request always goes to
+ * the server, which checks that the order belongs to this session and that the
+ * card was actually delivered, records `GIFT_CARD_CODE_VIEWED` before it
+ * decrypts, and answers with an error the customer can read.
  */
 export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
   const [revealed, setRevealed] = useState<RevealedDelivery | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(true);
+  /* A ref rather than `busy`, so the callback identity stays stable and the
+   * mount effect cannot fire the request twice. */
+  const inFlight = useRef(false);
 
   const reveal = useCallback(async () => {
-    if (busy) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -44,9 +51,14 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
           : "نمایش کد ممکن نشد. کمی بعد دوباره تلاش کنید.",
       );
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
-  }, [busy, orderNumber]);
+  }, [orderNumber]);
+
+  useEffect(() => {
+    void reveal();
+  }, [reveal]);
 
   const hide = useCallback(() => {
     setRevealed(null);
@@ -68,7 +80,7 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
           onClick={() => void reveal()}
           disabled={busy}
         >
-          <Eye size={16} aria-hidden="true" /> {busy ? "در حال دریافت..." : "نمایش کد"}
+          <Eye size={16} aria-hidden="true" /> {busy ? "در حال دریافت کد..." : "نمایش کد"}
         </button>
       </>
     );
