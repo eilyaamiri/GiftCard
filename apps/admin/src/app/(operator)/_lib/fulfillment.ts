@@ -179,6 +179,13 @@ export interface RecordSupplierResultInput {
   readonly idempotencyKey?: string;
 }
 
+/** The price on its own, for an order whose card is already stored. */
+export interface RecordActualCostInput {
+  readonly actualSupplierCost: string;
+  readonly actualSupplierCurrency?: string;
+  readonly supplierReference?: string;
+}
+
 function base(workItemId: string): string {
   return `/api/operator/fulfillment/${encodeURIComponent(workItemId)}`;
 }
@@ -201,6 +208,14 @@ export const fulfillment = {
 
   recordSupplierResult: async (workItemId: string, input: RecordSupplierResultInput) =>
     (await api.post(`${base(workItemId)}/supplier-result`, input, workspaceEnvelopeSchema)).workspace,
+
+  /**
+   * The price alone. `/supplier-result` refuses to run once an asset exists, so
+   * a card entered on a code request has no other way to clear
+   * `ACTUAL_COST_MISSING`.
+   */
+  recordActualCost: async (workItemId: string, input: RecordActualCostInput) =>
+    (await api.post(`${base(workItemId)}/actual-cost`, input, workspaceEnvelopeSchema)).workspace,
 
   approveCostVariance: async (workItemId: string, reason: string) =>
     (await api.post(`${base(workItemId)}/approve-cost-variance`, { reason }, workspaceEnvelopeSchema)).workspace,
@@ -305,12 +320,31 @@ export function hasRevealableSecret(assetType: DeliveryAssetType): boolean {
 }
 
 /**
- * Roles the API accepts for `approve-cost-variance` and `reopen`
- * (MANAGER_APPROVAL_ROLE_SET). Used only to decide what to draw — the server
- * re-checks, and additionally refuses an approver who holds the claim.
+ * `MANAGER_APPROVAL_ROLE_SET` in the API, mirrored so the panel draws the same
+ * permissions the server enforces.
  */
-export const COST_VARIANCE_APPROVER_ROLES = ["ADMIN", "OPS_MANAGER", "MANAGEMENT"] as const;
+export const MANAGER_ROLES = ["ADMIN", "OPS_MANAGER", "MANAGEMENT"] as const;
+
+/**
+ * Roles the API accepts for `approve-cost-variance` and `reopen`. Used only to
+ * decide what to draw — the server re-checks, and additionally refuses an
+ * approver who holds the claim.
+ */
+export const COST_VARIANCE_APPROVER_ROLES = MANAGER_ROLES;
 
 export function canApproveCostVariance(role: StaffRole | null | undefined): boolean {
   return hasRole(role, COST_VARIANCE_APPROVER_ROLES);
+}
+
+/**
+ * Whether this role may work a task it does not hold.
+ *
+ * `assertCanOperate` early-returns for the manager roles, so the API has always
+ * accepted a checklist tick or a send from an admin who never claimed the item.
+ * The panel used to gate on the claim alone, which showed an admin a read-only
+ * workspace the server would have written to happily — a restriction that
+ * existed only in the browser.
+ */
+export function canOperateWithoutClaim(role: StaffRole | null | undefined): boolean {
+  return hasRole(role, MANAGER_ROLES);
 }

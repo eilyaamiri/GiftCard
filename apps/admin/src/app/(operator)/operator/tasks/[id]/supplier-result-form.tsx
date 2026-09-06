@@ -18,16 +18,20 @@ const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
  */
 const VARIANTS = {
   GIFT_CARD: {
-    heading: "ثبت نتیجهٔ تأمین‌کننده",
-    submit: "ثبت نتیجهٔ تأمین‌کننده",
+    heading: "کد و پین گیفت‌کارت",
+    submit: "ثبت کد برای ارسال",
     saving: "در حال ثبت…",
     referenceLabel: "کد پیگیری تأمین‌کننده",
     referencePlaceholder: "مثلاً TLO-9924123",
     costLabel: "هزینهٔ واقعی تأمین‌کننده",
     assetTypeLabel: "نوع دارایی تحویل",
-    assetTypes: ["CODE", "CODE_PIN", "URL", "PROVIDER_DIRECT_EMAIL"],
+    /* `CODE_PIN` is absent on purpose: a card either came with a PIN or it did
+     * not, and asking the operator to declare that up front only creates a way
+     * to pick the type that disagrees with what they then type. The PIN field is
+     * always offered below and filling it is what makes the asset a CODE_PIN. */
+    assetTypes: ["CODE", "URL", "PROVIDER_DIRECT_EMAIL"],
     incomplete: "اطلاعات دارایی تحویل کامل نیست.",
-    failed: "ثبت نتیجهٔ تأمین‌کننده ناموفق بود.",
+    failed: "ثبت کد گیفت‌کارت ناموفق بود.",
   },
   INTERNATIONAL_PAYMENT: {
     heading: "ثبت نتیجهٔ پرداخت",
@@ -61,10 +65,13 @@ export type SupplierResultVariant = keyof typeof VARIANTS;
 export function SupplierResultForm({
   disabled,
   variant = "GIFT_CARD",
+  chrome = "card",
   onSubmit,
 }: {
   disabled: boolean;
   variant?: SupplierResultVariant;
+  /** `inline` drops the card shell so this can sit inside another card. */
+  chrome?: "card" | "inline";
   onSubmit: (input: RecordSupplierResultInput) => Promise<void>;
 }) {
   const copy = VARIANTS[variant];
@@ -87,14 +94,18 @@ export function SupplierResultForm({
   function buildAsset(): AssetInput | null {
     const expiry = expiryDate ? new Date(expiryDate).toISOString() : undefined;
     switch (assetType) {
-      case "CODE":
+      case "CODE": {
         if (code.trim().length < 4) return null;
-        return {
-          assetType,
-          code: code.trim(),
+        const extras = {
           ...(serialNumber.trim() ? { serialNumber: serialNumber.trim() } : {}),
           ...(expiry ? { expiryDate: expiry } : {}),
         };
+        // A typed PIN is what makes this a two-secret card; an empty field means
+        // the supplier issued a code alone, not that the operator skipped it.
+        return pin.trim()
+          ? { assetType: "CODE_PIN", code: code.trim(), pin: pin.trim(), ...extras }
+          : { assetType, code: code.trim(), ...extras };
+      }
       case "CODE_PIN":
         if (code.trim().length < 4 || pin.trim().length < 3) return null;
         return {
@@ -115,6 +126,14 @@ export function SupplierResultForm({
 
   async function handleSubmit() {
     setError(null);
+
+    // Caught here rather than at the server so a half-typed PIN comes back as a
+    // sentence instead of a 400 on a request that carried a plaintext.
+    if (assetType === "CODE" && pin.trim().length > 0 && pin.trim().length < 3) {
+      setError("پین باید دست‌کم ۳ نویسه باشد.");
+      return;
+    }
+
     const asset = buildAsset();
     if (!asset) {
       setError(copy.incomplete);
@@ -155,13 +174,8 @@ export function SupplierResultForm({
 
   const locked = disabled || saving;
 
-  return (
-    <div className="card workspace-card">
-      <div className="section-label">
-        <h3>{copy.heading}</h3>
-        <span>یک‌بار برای هر سفارش</span>
-      </div>
-
+  const body = (
+    <>
       <p className="warning">
         {variant === "INTERNATIONAL_PAYMENT"
           ? "این فرم فقط یک‌بار برای هر سفارش پذیرفته می‌شود. اگر پرداخت قبلاً انجام شده، هرگز پرداخت تازه‌ای ثبت نکنید."
@@ -211,9 +225,9 @@ export function SupplierResultForm({
           </label>
         ) : null}
 
-        {assetType === "CODE_PIN" ? (
+        {assetType === "CODE" || assetType === "CODE_PIN" ? (
           <label>
-            پین
+            پین (در صورت وجود)
             <input
               className="bp-ltr"
               type="password"
@@ -316,14 +330,47 @@ export function SupplierResultForm({
       </div>
 
       <InlineError message={error} />
+    </>
+  );
+
+  const heading = (
+    <>
+      <h3 style={chrome === "inline" ? { fontSize: 15 } : undefined}>{copy.heading}</h3>
+      <span>یک‌بار برای هر سفارش</span>
+    </>
+  );
+
+  /* Nested inside the send card, where the operator is already looking when they
+   * have a code in hand — a second bordered card there would read as a separate
+   * screen rather than the first step of sending. */
+  if (chrome === "inline") {
+    return (
+      <section style={INLINE_SECTION}>
+        <div className="section-label">{heading}</div>
+        {body}
+      </section>
+    );
+  }
+
+  return (
+    <div className="card workspace-card">
+      <div className="section-label">{heading}</div>
+      {body}
     </div>
   );
 }
 
+const INLINE_SECTION = {
+  marginBlockEnd: 18,
+  paddingBlockEnd: 18,
+  borderBlockEnd: "1px solid var(--line)",
+} as const;
+
 /** The asset types mean different things on a payment task than on a card. */
 function assetTypeLabel(variant: SupplierResultVariant, assetType: DeliveryAssetType): string {
   if (variant === "GIFT_CARD") {
-    return DELIVERY_ASSET_TYPE_LABEL[assetType];
+    // `CODE` covers both code shapes here — the PIN field decides which is stored.
+    return assetType === "CODE" ? "کد و پین گیفت‌کارت" : DELIVERY_ASSET_TYPE_LABEL[assetType];
   }
   switch (assetType) {
     case "URL":

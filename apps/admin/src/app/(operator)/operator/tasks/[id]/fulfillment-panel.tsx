@@ -77,12 +77,12 @@ export function FulfillmentPanel({
         <InternationalPaymentPanel workItemId={workItemId} brief={payment} canOperate={canOperate} />
       ) : null}
 
-      {!hasAsset && !workspace.checklist.isLocked ? (
-        <SupplierResultForm
-          disabled={!canOperate}
-          variant={payment ? "INTERNATIONAL_PAYMENT" : "GIFT_CARD"}
-          onSubmit={recordSupplierResult}
-        />
+      {/* A payment task files its proof after the money has moved, so the form
+          belongs where the work is. A gift card is the opposite: the code IS the
+          delivery, so its form sits inside the send card, next to the button it
+          unlocks. */}
+      {payment && !hasAsset && !workspace.checklist.isLocked ? (
+        <SupplierResultForm disabled={!canOperate} variant="INTERNATIONAL_PAYMENT" onSubmit={recordSupplierResult} />
       ) : null}
 
       <AssetPanel
@@ -115,6 +115,20 @@ export function FulfillmentPanel({
       <FinalActionPanel
         workspace={workspace}
         canOperate={canOperate}
+        codeEntry={
+          !payment && !hasAsset && !workspace.checklist.isLocked ? (
+            <SupplierResultForm
+              disabled={!canOperate}
+              variant="GIFT_CARD"
+              chrome="inline"
+              onSubmit={recordSupplierResult}
+            />
+          ) : undefined
+        }
+        onRecordCost={async (input) => {
+          setError(null);
+          setWorkspace(await fulfillment.recordActualCost(workItemId, input));
+        }}
         onSend={async () => {
           const { outcome } = await fulfillment.send(workItemId);
           setWorkspace(outcome.workspace);

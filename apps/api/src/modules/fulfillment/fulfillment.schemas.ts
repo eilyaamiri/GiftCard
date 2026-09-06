@@ -58,6 +58,20 @@ export const recordSupplierResultBodySchema = z.object({
 });
 export type RecordSupplierResultBody = z.infer<typeof recordSupplierResultBodySchema>;
 
+/**
+ * Body of the "the card is already stored, here is what it cost" call.
+ *
+ * Deliberately narrower than `recordSupplierResultBodySchema`: there is no
+ * `asset` here, so this endpoint cannot be used to slip a second gift card onto
+ * an order that already has one.
+ */
+export const recordActualCostBodySchema = z.object({
+  actualSupplierCost: decimalString,
+  actualSupplierCurrency: currencyCode.optional(),
+  supplierReference: z.string().trim().min(1).max(256).optional(),
+});
+export type RecordActualCostBody = z.infer<typeof recordActualCostBodySchema>;
+
 export const checkChecklistItemBodySchema = z.object({
   itemKey: z.string().trim().min(1).max(64),
   checked: z.boolean(),

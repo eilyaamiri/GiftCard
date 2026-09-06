@@ -11,10 +11,12 @@ import {
 import {
   checkChecklistItemBodySchema,
   reasonBodySchema,
+  recordActualCostBodySchema,
   recordSupplierResultBodySchema,
   setChecklistFieldBodySchema,
   type CheckChecklistItemBody,
   type ReasonBody,
+  type RecordActualCostBody,
   type RecordSupplierResultBody,
   type SetChecklistFieldBody,
 } from './fulfillment.schemas';
@@ -93,6 +95,32 @@ export class FulfillmentController {
         ? {}
         : { actualSupplierCurrency: body.actualSupplierCurrency }),
       ...(body.idempotencyKey === undefined ? {} : { idempotencyKey: body.idempotencyKey }),
+    });
+    return { workspace };
+  }
+
+  /**
+   * Attaches the supplier's price to an order whose card is already stored.
+   *
+   * Separate from `/supplier-result` because that one refuses to run once an
+   * asset exists: without this, a card entered by an admin on a code request
+   * could never clear `ACTUAL_COST_MISSING` and so could never be sent.
+   */
+  @Post(':workItemId/actual-cost')
+  async recordActualCost(
+    @Param('workItemId') workItemId: string,
+    @Body(zodPipe(recordActualCostBodySchema)) body: RecordActualCostBody,
+    @Req() request: unknown,
+  ): Promise<{ workspace: FulfillmentWorkspace }> {
+    const staff = requireStaff(request);
+    const workspace = await this.fulfillment.recordActualCost({
+      workItemId,
+      staff,
+      actualSupplierCost: body.actualSupplierCost,
+      ...(body.actualSupplierCurrency === undefined
+        ? {}
+        : { actualSupplierCurrency: body.actualSupplierCurrency }),
+      ...(body.supplierReference === undefined ? {} : { supplierReference: body.supplierReference }),
     });
     return { workspace };
   }
