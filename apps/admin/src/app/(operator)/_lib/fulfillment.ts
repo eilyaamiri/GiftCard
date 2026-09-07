@@ -122,11 +122,19 @@ export const internationalPaymentBriefSchema = z.object({
 });
 export type InternationalPaymentBrief = z.infer<typeof internationalPaymentBriefSchema>;
 
+/** The recorded spend, so a correction can show what it is replacing. */
+export const recordedSupplierCostSchema = z.object({
+  actualSupplierCost: z.string(),
+  actualSupplierCurrency: z.string().nullable(),
+});
+export type RecordedSupplierCost = z.infer<typeof recordedSupplierCostSchema>;
+
 export const fulfillmentWorkspaceSchema = z.object({
   workItemId: z.string(),
   orderId: z.string(),
   checklist: checklistViewSchema,
   assets: z.array(giftCardAssetViewSchema),
+  supplierCost: recordedSupplierCostSchema.nullable(),
   costVariance: costVarianceSchema.nullable(),
   sendBlockers: z.array(z.enum(SEND_BLOCKER_VALUES)),
   canSend: z.boolean(),
@@ -186,6 +194,13 @@ export interface RecordActualCostInput {
   readonly supplierReference?: string;
 }
 
+/** A replacement for a price already on file. The reason is not optional. */
+export interface CorrectActualCostInput {
+  readonly actualSupplierCost: string;
+  readonly actualSupplierCurrency?: string;
+  readonly reason: string;
+}
+
 function base(workItemId: string): string {
   return `/api/operator/fulfillment/${encodeURIComponent(workItemId)}`;
 }
@@ -216,6 +231,13 @@ export const fulfillment = {
    */
   recordActualCost: async (workItemId: string, input: RecordActualCostInput) =>
     (await api.post(`${base(workItemId)}/actual-cost`, input, workspaceEnvelopeSchema)).workspace,
+
+  /**
+   * Rewrites a price the operator typed wrong. Manager-only on the server, and
+   * it voids any approval the previous figure had earned.
+   */
+  correctActualCost: async (workItemId: string, input: CorrectActualCostInput) =>
+    (await api.post(`${base(workItemId)}/correct-actual-cost`, input, workspaceEnvelopeSchema)).workspace,
 
   approveCostVariance: async (workItemId: string, reason: string) =>
     (await api.post(`${base(workItemId)}/approve-cost-variance`, { reason }, workspaceEnvelopeSchema)).workspace,
@@ -334,6 +356,18 @@ export const COST_VARIANCE_APPROVER_ROLES = MANAGER_ROLES;
 
 export function canApproveCostVariance(role: StaffRole | null | undefined): boolean {
   return hasRole(role, COST_VARIANCE_APPROVER_ROLES);
+}
+
+/**
+ * Whether this role may rewrite a supplier cost already on record.
+ *
+ * The same set as approval, and deliberately its own function: an operator may
+ * record a spend once but never revise it, because a correction re-derives the
+ * variance and drops any approval the old figure had. That is a manager's call,
+ * and the API enforces it independently of what this draws.
+ */
+export function canCorrectSupplierCost(role: StaffRole | null | undefined): boolean {
+  return hasRole(role, MANAGER_ROLES);
 }
 
 /**

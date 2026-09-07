@@ -72,6 +72,20 @@ export const recordActualCostBodySchema = z.object({
 });
 export type RecordActualCostBody = z.infer<typeof recordActualCostBodySchema>;
 
+/**
+ * Body of "the recorded price was wrong, here is the right one".
+ *
+ * The reason is mandatory and not optional-with-a-default: rewriting a spend
+ * that a variance was already measured against is a financial correction, and
+ * the audit row has to say why without anyone having to reconstruct it.
+ */
+export const correctActualCostBodySchema = z.object({
+  actualSupplierCost: decimalString,
+  actualSupplierCurrency: currencyCode.optional(),
+  reason: z.string().trim().min(3).max(1_000),
+});
+export type CorrectActualCostBody = z.infer<typeof correctActualCostBodySchema>;
+
 export const checkChecklistItemBodySchema = z.object({
   itemKey: z.string().trim().min(1).max(64),
   checked: z.boolean(),

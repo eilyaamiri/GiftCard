@@ -10,11 +10,13 @@ import {
 } from './fulfillment.service';
 import {
   checkChecklistItemBodySchema,
+  correctActualCostBodySchema,
   reasonBodySchema,
   recordActualCostBodySchema,
   recordSupplierResultBodySchema,
   setChecklistFieldBodySchema,
   type CheckChecklistItemBody,
+  type CorrectActualCostBody,
   type ReasonBody,
   type RecordActualCostBody,
   type RecordSupplierResultBody,
@@ -121,6 +123,29 @@ export class FulfillmentController {
         ? {}
         : { actualSupplierCurrency: body.actualSupplierCurrency }),
       ...(body.supplierReference === undefined ? {} : { supplierReference: body.supplierReference }),
+    });
+    return { workspace };
+  }
+
+  /**
+   * Replaces a mistyped supplier cost. Manager-only, reason mandatory, and the
+   * service voids any approval the old figure had earned.
+   */
+  @Post(':workItemId/correct-actual-cost')
+  async correctActualCost(
+    @Param('workItemId') workItemId: string,
+    @Body(zodPipe(correctActualCostBodySchema)) body: CorrectActualCostBody,
+    @Req() request: unknown,
+  ): Promise<{ workspace: FulfillmentWorkspace }> {
+    const staff = requireStaff(request);
+    const workspace = await this.fulfillment.correctActualCost({
+      workItemId,
+      staff,
+      actualSupplierCost: body.actualSupplierCost,
+      reason: body.reason,
+      ...(body.actualSupplierCurrency === undefined
+        ? {}
+        : { actualSupplierCurrency: body.actualSupplierCurrency }),
     });
     return { workspace };
   }

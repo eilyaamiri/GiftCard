@@ -765,6 +765,173 @@ describe('recording the actual cost on its own', () => {
   });
 });
 
+describe('correcting a cost that was typed wrong', () => {
+  const ADMIN: StaffContext = { id: 'staff-admin', role: 'ADMIN' };
+
+  it('replaces the figure and re-derives the send gate from it', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    // 470.00 was meant to be 47.00 — a misplaced decimal point, so the send is
+    // held behind a variance the order never actually incurred.
+    await recordAsset(h, '470.00');
+    await tickBooleans(h);
+
+    const held = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
+    expect(held.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+
+    const fixed = await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: ADMIN,
+      actualSupplierCost: '102.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'اپراتور ۴۷۰ به‌جای ۱۰۲ وارد کرده بود',
+    });
+
+    expect(fixed.costVariance?.varianceBps).toBe(200);
+    expect(fixed.sendBlockers).toHaveLength(0);
+
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.actualSupplierCost).toBe('102.00');
+  });
+
+  it('can raise a hold, not only clear one', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '102.00');
+    await tickBooleans(h);
+    expect((await h.service.getWorkspace(h.store.workItemId, OPERATOR)).sendBlockers).toHaveLength(0);
+
+    const workspace = await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: ADMIN,
+      actualSupplierCost: '140.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'فاکتور تأمین‌کننده مبلغ بالاتری را نشان می‌دهد',
+    });
+
+    expect(workspace.costVariance?.varianceBps).toBe(4_000);
+    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+  });
+
+  it('voids an approval the previous figure had earned', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '140.00');
+    await tickBooleans(h);
+    await h.service.approveCostVariance({
+      workItemId: h.store.workItemId,
+      staff: MANAGER,
+      reason: 'افزایش نرخ تأمین‌کننده',
+    });
+    expect((await h.service.getWorkspace(h.store.workItemId, OPERATOR)).sendBlockers).toHaveLength(0);
+
+    // A manager released 140.00. That verdict says nothing about 180.00, so the
+    // send must fall back behind the gate rather than inherit the old approval.
+    const workspace = await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: ADMIN,
+      actualSupplierCost: '180.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'مبلغ اشتباه ثبت شده بود',
+    });
+
+    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.approvedByStaffId).toBeNull();
+    expect(fulfillment?.approvedAt).toBeNull();
+
+    await expect(
+      h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR }),
+    ).rejects.toThrow();
+  });
+
+  it('refuses an operator, even the one holding the claim', async () => {
+    const h = harness();
+    await recordAsset(h, '100.00');
+
+    await expect(
+      h.service.correctActualCost({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        actualSupplierCost: '50.00',
+        reason: 'اشتباه تایپی',
+      }),
+    ).rejects.toThrow();
+
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.actualSupplierCost).toBe('100.00');
+  });
+
+  it('leaves the corrector unable to approve their own new figure', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '102.00');
+    await tickBooleans(h);
+    await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: MANAGER,
+      actualSupplierCost: '140.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'اصلاح مبلغ',
+    });
+
+    // Four-eyes: correcting a spend makes you its owner, so releasing it needs
+    // a different manager — otherwise correction would be a self-approval path.
+    await expect(
+      h.service.approveCostVariance({
+        workItemId: h.store.workItemId,
+        staff: MANAGER,
+        reason: 'تأیید خودم',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('refuses once the card has been sent', async () => {
+    const h = harness();
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+    await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+
+    await expect(
+      h.service.correctActualCost({
+        workItemId: h.store.workItemId,
+        staff: ADMIN,
+        actualSupplierCost: '50.00',
+        reason: 'اصلاح پس از ارسال',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('refuses when nothing has been recorded yet', async () => {
+    const h = harness();
+    await expect(
+      h.service.correctActualCost({
+        workItemId: h.store.workItemId,
+        staff: ADMIN,
+        actualSupplierCost: '50.00',
+        reason: 'چیزی برای اصلاح نیست',
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('records the old and the new figure in the audit trail, with the reason', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '470.00');
+    await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: ADMIN,
+      actualSupplierCost: '102.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'خطای تایپی اپراتور',
+    });
+
+    const event = h.events.find((entry) => entry.action === 'FULFILLMENT_ACTUAL_COST_CORRECTED');
+    expect(event?.actor).toBe(ADMIN.id);
+    expect(event?.payload).toContain('470.00');
+    expect(event?.payload).toContain('102.00');
+    expect(event?.payload).toContain('خطای تایپی اپراتور');
+    // The correction is about money, so no card material may ride along with it.
+    expect(event?.payload).not.toContain(PLAINTEXT_CODE);
+    expect(event?.payload).not.toContain(PLAINTEXT_PIN);
+  });
+});
+
 describe('manager access to a task they did not claim', () => {
   const ADMIN: StaffContext = { id: 'staff-admin', role: 'ADMIN' };
 
