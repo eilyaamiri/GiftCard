@@ -555,6 +555,35 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
   }
 
   /**
+   * Replaces a recorded cost and voids the approval in the same write.
+   *
+   * `approvedByStaffId`/`approvedAt` are cleared unconditionally, not left for a
+   * caller to remember: an approval names a manager who released one specific
+   * amount. Carrying it onto a different amount would put their name on a
+   * decision they never made, and would let a corrected figure walk past the
+   * variance gate on the strength of the old one.
+   */
+  async correctSupplierCost(input: {
+    fulfillmentId: string;
+    actualSupplierCost: string;
+    actualSupplierCurrency: string;
+    costVarianceBps: number | null;
+    fulfilledByStaffId: string;
+  }): Promise<void> {
+    await this.db.fulfillment.update({
+      where: { id: input.fulfillmentId },
+      data: {
+        actualSupplierCost: new Prisma.Decimal(input.actualSupplierCost),
+        actualSupplierCurrency: input.actualSupplierCurrency,
+        costVarianceBps: input.costVarianceBps,
+        fulfilledByStaffId: input.fulfilledByStaffId,
+        approvedByStaffId: null,
+        approvedAt: null,
+      },
+    });
+  }
+
+  /**
    * Conditional update: the approval only lands while none exists.
    *
    * Without the `approvedByStaffId: null` predicate a second manager could

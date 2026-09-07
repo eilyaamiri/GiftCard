@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/session";
 import { ErrorNotice } from "../../../_components/error-notice";
 import {
   canApproveCostVariance,
+  canCorrectSupplierCost,
   canOperateWithoutClaim,
   fulfillment,
   type FulfillmentWorkspace,
@@ -149,6 +150,7 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
               initialWorkspace={workspaceResult.workspace}
               canOperate={canOperate}
               canApprove={canApproveCostVariance(staff.role)}
+              canCorrect={canCorrectSupplierCost(staff.role)}
             />
           ) : (
             <ErrorNotice error={workspaceResult.error} title="فضای کاری تحویل در دسترس نیست" />
