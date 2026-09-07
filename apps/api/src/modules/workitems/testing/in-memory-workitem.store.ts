@@ -92,6 +92,7 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
     assignedToStaffId?: string;
+    orderId?: string;
     take: number;
   }): Promise<readonly WorkItemSummary[]> {
     return [...this.rows.values()]
@@ -101,6 +102,7 @@ export class InMemoryWorkItemStore implements WorkItemStore {
         (row) =>
           filter.assignedToStaffId === undefined || row.assignedToStaffId === filter.assignedToStaffId,
       )
+      .filter((row) => filter.orderId === undefined || row.orderId === filter.orderId)
       .slice(0, filter.take);
   }
 

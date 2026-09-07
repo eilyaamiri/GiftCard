@@ -135,6 +135,45 @@ describe('one work item per paid order', () => {
   });
 });
 
+/**
+ * The back-office order screen reaches the fulfilment workspace through this
+ * filter. Before it existed the only route was to page the whole queue and match
+ * on `orderId` in the browser, so an order whose task had fallen off the first
+ * page simply had no link — which is how a claimed task became unreachable for
+ * the manager who needed to act on it.
+ */
+describe('finding the work item for one order', () => {
+  it('returns only that order’s item', async () => {
+    const h = harness();
+    await h.service.onOrderPaid({ orderId: 'order-1' });
+    const wanted = await h.service.onOrderPaid({ orderId: 'order-2' });
+    await h.service.onOrderPaid({ orderId: 'order-3' });
+
+    const found = await h.service.list({ orderId: 'order-2' });
+
+    expect(found.map((item) => item.id)).toEqual([wanted.id]);
+  });
+
+  it('still finds it once an operator has claimed it', async () => {
+    const h = harness();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+
+    const found = await h.service.list({ orderId: 'order-1' });
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.status).toBe('ASSIGNED');
+    expect(found[0]?.assignedToStaffId).toBe('op-1');
+  });
+
+  it('returns nothing for an order that has no work item', async () => {
+    const h = harness();
+    await h.service.onOrderPaid({ orderId: 'order-1' });
+
+    expect(await h.service.list({ orderId: 'order-absent' })).toEqual([]);
+  });
+});
+
 describe('claiming', () => {
   it('gives a concurrently claimed item to exactly one operator', async () => {
     const h = harness();

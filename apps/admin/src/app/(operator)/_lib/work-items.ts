@@ -51,6 +51,7 @@ export interface ListWorkItemsParams {
   readonly queueKey?: QueueKey;
   readonly status?: WorkItemStatus;
   readonly assignedToStaffId?: string;
+  readonly orderId?: string;
   readonly take?: number;
 }
 
@@ -59,6 +60,7 @@ function listPath(params: ListWorkItemsParams): string {
   if (params.queueKey) search.set("queueKey", params.queueKey);
   if (params.status) search.set("status", params.status);
   if (params.assignedToStaffId) search.set("assignedToStaffId", params.assignedToStaffId);
+  if (params.orderId) search.set("orderId", params.orderId);
   search.set("take", String(params.take ?? 200));
   return `/api/operator/work-items?${search.toString()}`;
 }

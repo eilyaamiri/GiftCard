@@ -203,6 +203,7 @@ export interface WorkItemStore {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
     assignedToStaffId?: string;
+    orderId?: string;
     take: number;
   }): Promise<readonly WorkItemSummary[]>;
   create(record: CreateWorkItemRecord): Promise<WorkItemSummary>;

@@ -361,6 +361,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
     assignedToStaffId?: string;
+    orderId?: string;
     take?: number;
   } = {}): Promise<readonly WorkItemSummary[]> {
     return this.store.list({
@@ -369,6 +370,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       ...(filter.assignedToStaffId === undefined
         ? {}
         : { assignedToStaffId: filter.assignedToStaffId }),
+      ...(filter.orderId === undefined ? {} : { orderId: filter.orderId }),
       take: Math.min(filter.take ?? 50, 200),
     });
   }

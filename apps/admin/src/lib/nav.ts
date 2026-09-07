@@ -2,6 +2,7 @@ import type { StaffRole } from "@barat/contracts";
 import {
   AUDIT_ROLES,
   BACK_OFFICE_ROLES,
+  hasRole,
   CATALOG_WRITE_ROLES,
   CUSTOMER_VIEW_ROLES,
   FINANCIAL_WRITE_ROLES,
@@ -61,6 +62,16 @@ export const ADMIN_NAV: NavSection[] = [
   {
     title: "عملیات و بازرسی",
     items: [
+      /**
+       * The workspace where a task is actually worked — checklist, supplier
+       * result, cost-variance approval, send. It lives under `/operator` because
+       * that is one screen serving both desks, not two implementations to keep
+       * in sync; a manager opening it gets the same view an operator sees plus
+       * the controls their role unlocks. Without this link the only way in was
+       * an unassigned row on «صف کارها», so a task already claimed by an
+       * operator could not be reached from the back office at all.
+       */
+      { href: "/operator/tasks", label: "تسک‌ها", icon: "clipboard-list", roles: OPERATOR_ROLES },
       { href: "/work-queue", label: "صف کارها", icon: "list-checks", roles: QUEUE_VIEW_ROLES },
       { href: "/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy", roles: SUPPORT_TICKET_ROLES },
       { href: "/gift-card-requests", label: "درخواست‌های کد گیفت‌کارت", icon: "gift", roles: QUEUE_VIEW_ROLES },
@@ -71,6 +82,24 @@ export const ADMIN_NAV: NavSection[] = [
     ],
   },
 ];
+
+/**
+ * The sidebar this role should see, wherever they are in the app.
+ *
+ * A manager works a task on the same `/operator/tasks/[id]` screen an operator
+ * does, and used to lose the whole admin sidebar the moment they opened one —
+ * the task looked like a different product rather than a page of their panel.
+ * Both layouts now ask this, so the frame follows the person rather than the URL
+ * while the page itself stays single-sourced.
+ */
+export function navFor(role: StaffRole): { sections: NavSection[]; title: string } {
+  const source = hasRole(role, BACK_OFFICE_ROLES) ? ADMIN_NAV : OPERATOR_NAV;
+  const sections = source
+    .map((section) => ({ ...section, items: section.items.filter((item) => hasRole(role, item.roles)) }))
+    .filter((section) => section.items.length > 0);
+
+  return { sections, title: hasRole(role, BACK_OFFICE_ROLES) ? "پنل ادمین" : "میزکار اپراتور" };
+}
 
 export const OPERATOR_NAV: NavSection[] = [
   {

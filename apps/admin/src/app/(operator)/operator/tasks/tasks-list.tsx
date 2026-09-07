@@ -8,9 +8,9 @@ import type { WorkItemType } from "@barat/contracts";
 import { Icon } from "@/components/icon-map";
 import { InlineError, messageFor } from "../../_components/error-notice";
 import {
-  ACTIVE_STATUSES,
   MAX_CONCURRENT_WORK_ITEMS,
   QUEUE_KEY_LABEL,
+  TERMINAL_STATUSES,
   WORK_ITEM_STATUS_LABEL,
   WORK_ITEM_TYPE_ICON,
   WORK_ITEM_TYPE_LABEL,
@@ -21,10 +21,24 @@ import {
   type WorkItemSummary,
 } from "../../_lib/work-items";
 
-type Tab = "mine" | "available" | "waiting" | "overdue" | "closed";
+type Tab = "mine" | "board" | "available" | "waiting" | "overdue" | "closed";
 
-const TABS: { key: Tab; label: string }[] = [
+const OPERATOR_TABS: { key: Tab; label: string }[] = [
   { key: "mine", label: "روی میز من" },
+  { key: "available", label: "قابل برداشتن" },
+  { key: "waiting", label: "در انتظار" },
+  { key: "overdue", label: "عقب‌افتاده" },
+  { key: "closed", label: "بسته‌شده" },
+];
+
+/**
+ * A supervisor holds no desk, so «روی میز من» would always be empty for them and
+ * the tabs behind it would filter a list they are not in. They get the whole
+ * board instead — including tasks another operator has already claimed, which is
+ * the only way to reach one that is waiting on a manager decision.
+ */
+const SUPERVISOR_TABS: { key: Tab; label: string }[] = [
+  { key: "board", label: "همهٔ تسک‌های باز" },
   { key: "available", label: "قابل برداشتن" },
   { key: "waiting", label: "در انتظار" },
   { key: "overdue", label: "عقب‌افتاده" },
@@ -36,35 +50,45 @@ const WAITING_STATUSES = ["WAITING_CUSTOMER", "WAITING_SUPPLIER", "NEED_REVIEW"]
 export function TasksList({
   mine,
   pool,
+  board = [],
+  supervising = false,
   capacityUsed,
 }: {
   mine: readonly WorkItemSummary[];
   pool: readonly WorkItemSummary[];
+  board?: readonly WorkItemSummary[];
+  supervising?: boolean;
   capacityUsed: number;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<Tab>("mine");
+  const [tab, setTab] = useState<Tab>(supervising ? "board" : "mine");
   const [typeFilter, setTypeFilter] = useState<WorkItemType | "ALL">("ALL");
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimError, setClaimError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const atCapacity = capacityUsed >= MAX_CONCURRENT_WORK_ITEMS;
+  const tabs = supervising ? SUPERVISOR_TABS : OPERATOR_TABS;
 
   const visible = useMemo(() => {
+    // Everything but «قابل برداشتن» is a cut of the same list: the operator's own
+    // desk, or the whole board when a supervisor is looking.
+    const desk = supervising ? board : mine;
     const source =
       tab === "available"
         ? pool
-        : tab === "mine"
-          ? mine.filter((item) => item.status === "ASSIGNED" || item.status === "IN_PROGRESS")
-          : tab === "waiting"
-            ? mine.filter((item) => (WAITING_STATUSES as readonly string[]).includes(item.status))
-            : tab === "overdue"
-              ? mine.filter((item) => isOverdue(item))
-              : mine.filter((item) => !ACTIVE_STATUSES.includes(item.status));
+        : tab === "board"
+          ? board.filter((item) => !TERMINAL_STATUSES.includes(item.status))
+          : tab === "mine"
+            ? desk.filter((item) => item.status === "ASSIGNED" || item.status === "IN_PROGRESS")
+            : tab === "waiting"
+              ? desk.filter((item) => (WAITING_STATUSES as readonly string[]).includes(item.status))
+              : tab === "overdue"
+                ? desk.filter((item) => isOverdue(item))
+                : desk.filter((item) => TERMINAL_STATUSES.includes(item.status));
 
     return typeFilter === "ALL" ? source : source.filter((item) => item.type === typeFilter);
-  }, [tab, typeFilter, mine, pool]);
+  }, [tab, typeFilter, mine, pool, board, supervising]);
 
   async function handleClaim(id: string) {
     setClaimError(null);
@@ -84,7 +108,7 @@ export function TasksList({
   return (
     <div>
       <div className="tab-strip">
-        {TABS.map((entry) => (
+        {tabs.map((entry) => (
           <button
             key={entry.key}
             type="button"
@@ -144,6 +168,11 @@ export function TasksList({
                   <span>
                     <span className="bp-ltr">{item.code}</span> · {QUEUE_KEY_LABEL[item.queueKey]} ·{" "}
                     {WORK_ITEM_STATUS_LABEL[item.status]}
+                    {/* Who is holding it matters only when you are looking at other
+                        people's work; on your own desk the answer is always you. */}
+                    {supervising && item.assignedToStaffId
+                      ? ` · ${item.assignedToStaffName ?? "تخصیص‌یافته"}`
+                      : ""}
                     {isHighPriority(item) ? " · اولویت بالا" : ""}
                   </span>
                 </div>

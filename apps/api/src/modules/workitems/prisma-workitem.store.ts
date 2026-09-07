@@ -114,6 +114,7 @@ export class PrismaWorkItemStore implements WorkItemStore {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
     assignedToStaffId?: string;
+    orderId?: string;
     take: number;
   }): Promise<readonly WorkItemSummary[]> {
     const rows = await this.db.workItem.findMany({
@@ -123,6 +124,7 @@ export class PrismaWorkItemStore implements WorkItemStore {
         ...(filter.assignedToStaffId === undefined
           ? {}
           : { assignedToStaffId: filter.assignedToStaffId }),
+        ...(filter.orderId === undefined ? {} : { orderId: filter.orderId }),
       },
       orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
       take: filter.take,

@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ApiClientError, BACK_OFFICE_ROLES } from "@/lib/api";
+import { ApiClientError, BACK_OFFICE_ROLES, OPERATOR_ROLES, hasRole } from "@/lib/api";
 import { requireRole } from "@/lib/session";
+import {
+  TERMINAL_STATUSES,
+  WORK_ITEM_STATUS_LABEL,
+  WORK_ITEM_TYPE_LABEL,
+  isOverdue,
+  workItems,
+  type WorkItemSummary,
+} from "@/app/(operator)/_lib/work-items";
 import {
   DELIVERY_ASSET_TYPE_LABEL,
   DELIVERY_STATUS_BADGE,
@@ -18,8 +26,17 @@ import {
 
 export const metadata = { title: "جزئیات سفارش | پنل ادمین برات پی" };
 
+/** A missed SLA outranks the status itself — that is the thing to act on. */
+function taskBadge(task: WorkItemSummary): string {
+  if (isOverdue(task)) return "badge-danger";
+  if (task.status === "COMPLETED") return "badge-success";
+  if (task.status === "FAILED" || task.status === "CANCELLED") return "badge-danger";
+  if (task.status === "UNASSIGNED" || task.status === "NEED_REVIEW") return "badge-wait";
+  return "badge-info";
+}
+
 export default async function OrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  await requireRole(BACK_OFFICE_ROLES);
+  const staff = await requireRole(BACK_OFFICE_ROLES);
   const { id } = await params;
 
   let order;
@@ -31,6 +48,27 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
   }
 
   const { delivery } = order;
+
+  /* Everything actionable on an order — the checklist, the supplier result, the
+   * cost-variance approval, sending the code — lives on its work item, and this
+   * page is where staff come looking for it. Roles that cannot open the task
+   * workspace are not shown a link into a redirect, and a queue that is briefly
+   * unavailable costs them the card, not the order. */
+  const canOpenTask = hasRole(staff.role, OPERATOR_ROLES);
+  let task: WorkItemSummary | null = null;
+  let taskUnavailable = false;
+  if (canOpenTask) {
+    try {
+      // An order can accumulate more than one task over its life — a fulfilment
+      // that closed, then a support request. The one worth linking is the one
+      // still open, and failing that the most recent.
+      const found = await workItems.list({ orderId: order.id, take: 20 });
+      const byNewest = [...found].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      task = byNewest.find((item) => !TERMINAL_STATUSES.includes(item.status)) ?? byNewest[0] ?? null;
+    } catch {
+      taskUnavailable = true;
+    }
+  }
 
   return (
     <div>
@@ -113,6 +151,59 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ id
         </div>
 
         <div style={{ display: "grid", gap: 16 }}>
+          {canOpenTask ? (
+            <div className="card panel">
+              <div className="panel-heading">
+                <h2 className="panel-title">تسک عملیاتی</h2>
+                {task === null ? null : (
+                  <span className={`badge ${taskBadge(task)}`}>{WORK_ITEM_STATUS_LABEL[task.status]}</span>
+                )}
+              </div>
+              {taskUnavailable ? (
+                <p className="empty-hint">تسک این سفارش در دسترس نیست؛ صفحه را دوباره بارگذاری کنید.</p>
+              ) : task === null ? (
+                <p className="empty-hint">تسکی برای این سفارش باز نشده است.</p>
+              ) : (
+                <>
+                  <div className="kv-list">
+                    <div className="kv-row">
+                      <span>نوع</span>
+                      <span>{WORK_ITEM_TYPE_LABEL[task.type]}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span>شناسهٔ تسک</span>
+                      <span className="bp-ltr">{task.code}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span>مسئول</span>
+                      <span>{task.assignedToStaffName ?? (task.assignedToStaffId === null ? "بدون تخصیص" : "—")}</span>
+                    </div>
+                    <div className="kv-row">
+                      <span>مهلت</span>
+                      <span>{formatOptionalDateTime(task.dueAt)}</span>
+                    </div>
+                  </div>
+                  <p className="muted" style={{ marginBlockStart: 16 }}>
+                    چک‌لیست، ثبت نتیجهٔ تأمین‌کننده، تأیید اختلاف هزینه و ارسال کد برای مشتری همگی داخل خود تسک انجام
+                    می‌شوند.
+                  </p>
+                  <Link
+                    href={`/operator/tasks/${task.id}`}
+                    className="primary-btn"
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      textDecoration: "none",
+                      marginBlockStart: 12,
+                    }}
+                  >
+                    باز کردن تسک و اقدام
+                  </Link>
+                </>
+              )}
+            </div>
+          ) : null}
+
           <div className="card panel">
             <div className="panel-heading">
               <h2 className="panel-title">اطلاعات مرتبط</h2>
