@@ -368,6 +368,29 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     });
   }
 
+  /** Mirrors the real correction: the approval is voided with the amount. */
+  async correctSupplierCost(input: {
+    fulfillmentId: string;
+    actualSupplierCost: string;
+    actualSupplierCurrency: string;
+    costVarianceBps: number | null;
+    fulfilledByStaffId: string;
+  }): Promise<void> {
+    const existing = this.fulfillments.get(input.fulfillmentId);
+    if (existing === undefined) {
+      return;
+    }
+    this.fulfillments.set(input.fulfillmentId, {
+      ...existing,
+      actualSupplierCost: input.actualSupplierCost,
+      actualSupplierCurrency: input.actualSupplierCurrency,
+      costVarianceBps: input.costVarianceBps,
+      fulfilledByStaffId: input.fulfilledByStaffId,
+      approvedByStaffId: null,
+      approvedAt: null,
+    });
+  }
+
   /** Mirrors the real `updateMany(... approvedByStaffId: null)` compare-and-set. */
   async approveCostVariance(input: {
     fulfillmentId: string;

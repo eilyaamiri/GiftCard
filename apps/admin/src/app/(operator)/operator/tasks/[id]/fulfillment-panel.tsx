@@ -27,11 +27,13 @@ export function FulfillmentPanel({
   initialWorkspace,
   canOperate,
   canApprove,
+  canCorrect,
 }: {
   workItemId: string;
   initialWorkspace: FulfillmentWorkspace;
   canOperate: boolean;
   canApprove: boolean;
+  canCorrect: boolean;
 }) {
   const [workspace, setWorkspace] = useState(initialWorkspace);
   const [busyKey, setBusyKey] = useState<string | null>(null);
@@ -95,9 +97,18 @@ export function FulfillmentPanel({
       {workspace.costVariance ? (
         <CostVariancePanel
           variance={workspace.costVariance}
+          recordedCost={workspace.supplierCost}
           canApprove={canApprove}
+          /* Correcting is pointless once the card is gone: the checklist locks on
+           * send, and the API refuses the call from that moment on. */
+          canCorrect={canCorrect && !workspace.checklist.isLocked}
           onApprove={async (reason) => {
             setWorkspace(await fulfillment.approveCostVariance(workItemId, reason));
+          }}
+          onCorrect={async (input) => {
+            // Thrown on failure so the form keeps what was typed and can show why.
+            setError(null);
+            setWorkspace(await fulfillment.correctActualCost(workItemId, input));
           }}
         />
       ) : null}
@@ -106,6 +117,8 @@ export function FulfillmentPanel({
         checklist={workspace.checklist}
         canOperate={canOperate}
         busyKey={busyKey}
+        recordedCost={workspace.supplierCost}
+        canCorrectCost={canCorrect}
         onCheck={(itemKey, checked) =>
           void mutate(itemKey, () => fulfillment.checkItem(workItemId, itemKey, checked))
         }

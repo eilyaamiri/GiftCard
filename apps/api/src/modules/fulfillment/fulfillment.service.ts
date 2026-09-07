@@ -33,6 +33,7 @@ import {
 export const FULFILLMENT_AUDIT_ACTIONS = {
   SUPPLIER_RESULT_RECORDED: 'FULFILLMENT_SUPPLIER_RESULT_RECORDED',
   ACTUAL_COST_RECORDED: 'FULFILLMENT_ACTUAL_COST_RECORDED',
+  ACTUAL_COST_CORRECTED: 'FULFILLMENT_ACTUAL_COST_CORRECTED',
   COST_VARIANCE_FLAGGED: 'FULFILLMENT_COST_VARIANCE_FLAGGED',
   COST_VARIANCE_APPROVED: 'APPROVE_COST_VARIANCE',
   SEND_BLOCKED: 'FULFILLMENT_SEND_BLOCKED',
@@ -43,11 +44,24 @@ export const FULFILLMENT_AUDIT_ACTIONS = {
   SERVICE_ACCOUNT_PASSWORD_VIEWED: 'SERVICE_ACCOUNT_PASSWORD_VIEWED',
 } as const;
 
+/**
+ * The recorded spend, so the panel can show what a correction would replace.
+ *
+ * Only the figure the operator typed and its currency. The quoted baseline
+ * stays off the workspace: the variance assessment already says everything the
+ * screen needs about how the two compare.
+ */
+export interface RecordedSupplierCost {
+  readonly actualSupplierCost: string;
+  readonly actualSupplierCurrency: string | null;
+}
+
 export interface FulfillmentWorkspace {
   readonly workItemId: string;
   readonly orderId: string;
   readonly checklist: ChecklistView;
   readonly assets: readonly GiftCardAssetView[];
+  readonly supplierCost: RecordedSupplierCost | null;
   readonly costVariance: CostVarianceAssessment | null;
   readonly sendBlockers: readonly SendBlocker[];
   readonly canSend: boolean;
@@ -407,6 +421,134 @@ export class FulfillmentService {
           costVarianceBps: variance.varianceBps,
           toleranceBps: variance.toleranceBps,
           recordedBy: input.staff.id,
+        },
+      });
+    }
+
+    return this.reloadWorkspace(context.workItemId);
+  }
+
+  /**
+   * Replaces a supplier cost that was typed wrong.
+   *
+   * `recordActualCost` deliberately refuses to overwrite, because an operator
+   * silently rewriting a spend is how a variance gets erased rather than
+   * explained. A mistyped figure still has to be fixable, so the correction
+   * exists — as a manager action, with a mandatory reason, and with three
+   * properties that keep it from being a way around the gate:
+   *
+   *   1. Only a manager role may call it. An operator who fat-fingers a price
+   *      asks a manager, exactly as they would to release the variance.
+   *   2. The variance is re-assessed against the new figure, so a correction
+   *      can raise a hold as easily as it can clear one.
+   *   3. Any existing approval is voided by the write itself. A manager
+   *      approved one number; that verdict says nothing about a different one.
+   *
+   * It also cannot run after the send: once the checklist is locked the
+   * customer already has the card, and the spend is a closed financial record.
+   */
+  async correctActualCost(input: {
+    workItemId: string;
+    staff: StaffContext;
+    actualSupplierCost: string;
+    actualSupplierCurrency?: string;
+    reason: string;
+  }): Promise<FulfillmentWorkspace> {
+    const context = await this.loadContext(input.workItemId);
+
+    if (!MANAGER_APPROVAL_ROLE_SET.has(input.staff.role)) {
+      throw DomainErrors.forbidden(
+        `role ${input.staff.role} may not correct a recorded supplier cost`,
+      );
+    }
+
+    const checklist = await this.checklists.ensure(context);
+    if (checklist.isLocked) {
+      throw DomainErrors.conflict(
+        'این سفارش قبلاً ارسال شده و هزینهٔ آن قابل اصلاح نیست.',
+        `work item ${context.workItemId} checklist is locked`,
+      );
+    }
+
+    const record = context.fulfillment;
+    if (record === null || record.actualSupplierCost === null) {
+      throw DomainErrors.conflict(
+        'هنوز هزینه‌ای ثبت نشده که اصلاح شود.',
+        `work item ${input.workItemId} has no recorded actual supplier cost`,
+      );
+    }
+
+    const currency =
+      input.actualSupplierCurrency ?? record.actualSupplierCurrency ?? context.quotedSupplierCurrency;
+
+    if (record.actualSupplierCost === input.actualSupplierCost && record.actualSupplierCurrency === currency) {
+      throw DomainErrors.conflict(
+        'مبلغ واردشده با مبلغ ثبت‌شده تفاوتی ندارد.',
+        `fulfillment ${record.id} already holds this cost`,
+      );
+    }
+
+    const variance = assessCostVariance({
+      quotedCost: context.quotedSupplierCost,
+      quotedCurrency: context.quotedSupplierCurrency,
+      actualCost: input.actualSupplierCost,
+      actualCurrency: currency,
+      toleranceBps: context.maxSupplierCostToleranceBps,
+    });
+
+    await this.store.correctSupplierCost({
+      fulfillmentId: record.id,
+      actualSupplierCost: input.actualSupplierCost,
+      actualSupplierCurrency: currency,
+      costVarianceBps: variance.varianceBps,
+      /* The corrector owns the figure now. That also means they cannot approve
+       * the variance it produces — `approveCostVariance` refuses the staff
+       * member named here, so four-eyes survives the correction. */
+      fulfilledByStaffId: input.staff.id,
+    });
+
+    await this.audit.record({
+      actor: input.staff.id,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: FULFILLMENT_AUDIT_ACTIONS.ACTUAL_COST_CORRECTED,
+      entity: 'Fulfillment',
+      entityId: record.id,
+      before: {
+        actualSupplierCost: record.actualSupplierCost,
+        actualSupplierCurrency: record.actualSupplierCurrency,
+        costVarianceBps: record.costVarianceBps,
+        approvedByStaffId: record.approvedByStaffId,
+        recordedBy: record.fulfilledByStaffId,
+      },
+      after: {
+        orderId: context.orderId,
+        quotedSupplierCost: context.quotedSupplierCost,
+        actualSupplierCost: input.actualSupplierCost,
+        actualSupplierCurrency: currency,
+        costVarianceBps: variance.varianceBps,
+        toleranceBps: context.maxSupplierCostToleranceBps,
+        reason: input.reason,
+        // Stated explicitly so the trail shows the release was withdrawn, not lost.
+        approvalVoided: record.approvedByStaffId !== null,
+      },
+    });
+
+    if (variance.requiresApproval) {
+      await this.audit.record({
+        actor: input.staff.id,
+        actorType: 'STAFF',
+        actorRole: input.staff.role,
+        action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
+        entity: 'Fulfillment',
+        entityId: record.id,
+        after: {
+          orderId: context.orderId,
+          reason: variance.reason,
+          costVarianceBps: variance.varianceBps,
+          toleranceBps: variance.toleranceBps,
+          recordedBy: input.staff.id,
+          source: 'COST_CORRECTION',
         },
       });
     }
@@ -1151,11 +1293,19 @@ export class FulfillmentService {
     state: ChecklistState,
   ): Promise<FulfillmentWorkspace> {
     const assets = await this.assets.listForOrder(context.orderId);
+    const recorded = context.fulfillment;
     return {
       workItemId: context.workItemId,
       orderId: context.orderId,
       checklist: state.view,
       assets,
+      supplierCost:
+        recorded === null || recorded.actualSupplierCost === null
+          ? null
+          : {
+              actualSupplierCost: recorded.actualSupplierCost,
+              actualSupplierCurrency: recorded.actualSupplierCurrency,
+            },
       costVariance: state.variance,
       sendBlockers: state.sendBlockers,
       canSend: state.sendBlockers.length === 0,

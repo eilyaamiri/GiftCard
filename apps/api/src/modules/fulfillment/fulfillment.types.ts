@@ -344,6 +344,21 @@ export interface FulfillmentStore {
     /** `null` when automation spent the money and no operator holds the item. */
     fulfilledByStaffId: string | null;
   }): Promise<void>;
+  /**
+   * Rewrites a cost already on record, and voids any approval with it.
+   *
+   * Separate from `updateSupplierCost` because of that second half: an approval
+   * is a manager's verdict on one specific number, so it cannot survive the
+   * number changing underneath it.
+   */
+  correctSupplierCost(input: {
+    fulfillmentId: string;
+    actualSupplierCost: string;
+    actualSupplierCurrency: string;
+    costVarianceBps: number | null;
+    /** The corrector becomes accountable, so four-eyes still bites on approval. */
+    fulfilledByStaffId: string;
+  }): Promise<void>;
   /** Atomic: only records an approval when none exists yet. */
   approveCostVariance(input: {
     fulfillmentId: string;
