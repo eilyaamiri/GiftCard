@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   HttpStatus,
   Inject,
@@ -9,6 +10,7 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { CreateOrderResponse, GetOrderResponse, ListOrdersResponse } from '@barat/contracts';
@@ -18,6 +20,11 @@ import { IDEMPOTENCY_HEADER } from '../../common/interceptors/idempotency-header
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { CurrentCustomer, CustomerScoped, RequestMetadata } from '../identity';
 import type { IdentityActor } from '../identity';
+import { PaymentReceiptService } from '../fulfillment/payment-receipt.service';
+import {
+  FULFILLMENT_STORE,
+  type FulfillmentStore,
+} from '../fulfillment/fulfillment.types';
 import {
   createOrderBodySchema,
   listOrdersQuerySchema,
@@ -47,7 +54,11 @@ interface IdempotentRequest {
 @Controller('orders')
 @CustomerScoped()
 export class OrdersController {
-  constructor(@Inject(OrdersService) private readonly orders: OrdersService) {}
+  constructor(
+    @Inject(OrdersService) private readonly orders: OrdersService,
+    @Inject(PaymentReceiptService) private readonly receipts: PaymentReceiptService,
+    @Inject(FULFILLMENT_STORE) private readonly fulfillmentStore: FulfillmentStore,
+  ) {}
 
   @Post()
   @HttpCode(HttpStatus.CREATED)
@@ -77,6 +88,51 @@ export class OrdersController {
     @CurrentCustomer() customerId: string,
   ): Promise<GetOrderResponse> {
     return this.orders.getOrderForCustomer(params.orderNumber, customerId);
+  }
+
+  @Get(':orderNumber/payment-receipt/status')
+  @Header('Cache-Control', 'private, no-store')
+  async paymentReceiptStatus(
+    @Param(zodPipe(orderNumberParamSchema)) params: { orderNumber: string },
+    @CurrentCustomer() customerId: string,
+  ): Promise<{
+    available: boolean;
+    purpose: 'GIFT_CARD' | 'INTERNATIONAL_PAYMENT';
+  }> {
+    const { order } = await this.orders.getOrderForCustomer(params.orderNumber, customerId);
+    const context = await this.fulfillmentStore.loadContextByOrder(order.id);
+    const purpose =
+      context?.workItemType === 'INTERNATIONAL_PAYMENT'
+        ? 'INTERNATIONAL_PAYMENT'
+        : 'GIFT_CARD';
+    const available =
+      purpose === 'INTERNATIONAL_PAYMENT' &&
+      order.delivery?.status === 'SENT' &&
+      (await this.receipts.info(order.id)) !== null;
+    return { available, purpose };
+  }
+
+  @Get(':orderNumber/payment-receipt')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async paymentReceipt(
+    @Param(zodPipe(orderNumberParamSchema)) params: { orderNumber: string },
+    @CurrentCustomer() customerId: string,
+  ): Promise<StreamableFile> {
+    const { order } = await this.orders.getOrderForCustomer(params.orderNumber, customerId);
+    if (order.delivery?.status !== 'SENT') {
+      throw DomainErrors.notFound('customer-visible payment receipt');
+    }
+    const context = await this.fulfillmentStore.loadContextByOrder(order.id);
+    if (context?.workItemType !== 'INTERNATIONAL_PAYMENT') {
+      throw DomainErrors.notFound('customer-visible payment receipt');
+    }
+    const receipt = await this.receipts.read(order.id);
+    return new StreamableFile(receipt.content, {
+      type: receipt.contentType,
+      disposition: `inline; filename="${receipt.filename}"`,
+      length: receipt.sizeBytes,
+    });
   }
 
   /**

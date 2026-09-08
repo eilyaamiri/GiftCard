@@ -1,4 +1,18 @@
-import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Header,
+  Inject,
+  Param,
+  Post,
+  Req,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Roles } from '../identity/rbac/roles.decorator';
@@ -22,6 +36,7 @@ import {
   type RecordSupplierResultBody,
   type SetChecklistFieldBody,
 } from './fulfillment.schemas';
+import { MAX_PAYMENT_RECEIPT_BYTES } from './payment-receipt.service';
 
 /**
  * The operator fulfillment workspace.
@@ -43,6 +58,45 @@ export class FulfillmentController {
   ): Promise<{ workspace: FulfillmentWorkspace }> {
     const staff = requireStaff(request);
     return { workspace: await this.fulfillment.getWorkspace(workItemId, staff) };
+  }
+
+  @Get(':workItemId/payment-receipt')
+  @Header('Cache-Control', 'private, no-store')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async paymentReceipt(
+    @Param('workItemId') workItemId: string,
+    @Req() request: unknown,
+  ): Promise<StreamableFile> {
+    const staff = requireStaff(request);
+    const receipt = await this.fulfillment.paymentReceiptForStaff({ workItemId, staff });
+    return new StreamableFile(receipt.content, {
+      type: receipt.contentType,
+      disposition: `inline; filename="${receipt.filename}"`,
+      length: receipt.sizeBytes,
+    });
+  }
+
+  @Post(':workItemId/payment-receipt')
+  @UseInterceptors(
+    FileInterceptor('receipt', {
+      limits: { fileSize: MAX_PAYMENT_RECEIPT_BYTES, files: 1 },
+      fileFilter: (_request, file, callback) => {
+        callback(null, ['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype));
+      },
+    }),
+  )
+  async uploadPaymentReceipt(
+    @Param('workItemId') workItemId: string,
+    @UploadedFile() file: { mimetype: string; buffer: Buffer } | undefined,
+    @Req() request: unknown,
+  ): Promise<{ workspace: FulfillmentWorkspace }> {
+    if (!file) {
+      throw new BadRequestException('یک تصویر معتبر JPG، PNG یا WebP انتخاب کنید.');
+    }
+    const staff = requireStaff(request);
+    return {
+      workspace: await this.fulfillment.uploadPaymentReceipt({ workItemId, staff, file }),
+    };
   }
 
   @Post(':workItemId/checklist/check')

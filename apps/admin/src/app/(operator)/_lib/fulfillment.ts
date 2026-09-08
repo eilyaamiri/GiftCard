@@ -129,6 +129,13 @@ export const recordedSupplierCostSchema = z.object({
 });
 export type RecordedSupplierCost = z.infer<typeof recordedSupplierCostSchema>;
 
+export const paymentReceiptViewSchema = z.object({
+  contentType: z.enum(["image/jpeg", "image/png", "image/webp"]),
+  sizeBytes: z.number().int().positive().max(5 * 1024 * 1024),
+  uploadedAt: isoDateTimeSchema,
+});
+export type PaymentReceiptView = z.infer<typeof paymentReceiptViewSchema>;
+
 export const fulfillmentWorkspaceSchema = z.object({
   workItemId: z.string(),
   orderId: z.string(),
@@ -139,6 +146,7 @@ export const fulfillmentWorkspaceSchema = z.object({
   sendBlockers: z.array(z.enum(SEND_BLOCKER_VALUES)),
   canSend: z.boolean(),
   internationalPayment: internationalPaymentBriefSchema.nullable(),
+  paymentReceipt: paymentReceiptViewSchema.nullable(),
 });
 export type FulfillmentWorkspace = z.infer<typeof fulfillmentWorkspaceSchema>;
 
@@ -223,6 +231,14 @@ export const fulfillment = {
 
   recordSupplierResult: async (workItemId: string, input: RecordSupplierResultInput) =>
     (await api.post(`${base(workItemId)}/supplier-result`, input, workspaceEnvelopeSchema)).workspace,
+
+  uploadPaymentReceipt: async (workItemId: string, file: File) => {
+    const form = new FormData();
+    form.append("receipt", file);
+    return (
+      await api.postForm(`${base(workItemId)}/payment-receipt`, form, workspaceEnvelopeSchema)
+    ).workspace;
+  },
 
   /**
    * The price alone. `/supplier-result` refuses to run once an asset exists, so

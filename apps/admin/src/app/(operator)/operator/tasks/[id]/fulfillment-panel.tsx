@@ -12,6 +12,7 @@ import { ChecklistPanel } from "./checklist-panel";
 import { CostVariancePanel } from "./cost-variance-panel";
 import { FinalActionPanel } from "./final-action-panel";
 import { InternationalPaymentPanel } from "./international-payment-panel";
+import { PaymentReceiptPanel } from "./payment-receipt-panel";
 import { SupplierResultForm } from "./supplier-result-form";
 
 /**
@@ -77,6 +78,15 @@ export function FulfillmentPanel({
 
       {payment ? (
         <InternationalPaymentPanel workItemId={workItemId} brief={payment} canOperate={canOperate} />
+      ) : null}
+
+      {payment ? (
+        <PaymentReceiptPanel
+          workItemId={workItemId}
+          receipt={workspace.paymentReceipt}
+          disabled={!canOperate || workspace.checklist.isLocked}
+          onUploaded={setWorkspace}
+        />
       ) : null}
 
       {/* A payment task files its proof after the money has moved, so the form

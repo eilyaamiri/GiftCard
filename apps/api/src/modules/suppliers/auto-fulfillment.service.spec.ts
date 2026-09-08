@@ -159,6 +159,7 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
     new ChecklistService(fulfillmentStore, audit),
     new GiftCardAssetService(fulfillmentStore, audit),
     audit,
+    { info: async () => null, readIfExists: async () => null } as never,
     { bankDetailsEncryptionKey: () => Buffer.alloc(32, 7) } as never,
   );
 

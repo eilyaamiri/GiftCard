@@ -1,6 +1,7 @@
 import type { OrderDetailDto } from "@barat/contracts";
 import { Ltr, formatJalaliDate } from "@barat/ui";
 import { RevealCode } from "@/components/reveal-code";
+import { PaymentReceipt } from "@/components/payment-receipt";
 
 /**
  * What may be shown about a delivered asset.
@@ -18,11 +19,16 @@ import { RevealCode } from "@/components/reveal-code";
 export function DeliveryCard({
   delivery,
   orderNumber,
+  paymentReceiptAvailable = false,
+  purpose = "GIFT_CARD",
 }: {
   readonly delivery: NonNullable<OrderDetailDto["delivery"]>;
   readonly orderNumber: string;
+  readonly paymentReceiptAvailable?: boolean;
+  readonly purpose?: "GIFT_CARD" | "INTERNATIONAL_PAYMENT";
 }) {
   const sent = delivery.status === "SENT";
+  const isPayment = purpose === "INTERNATIONAL_PAYMENT";
 
   return (
     <div className="card pad" style={{ marginBlockStart: 16 }}>
@@ -60,19 +66,23 @@ export function DeliveryCard({
           <strong>{formatJalaliDate(delivery.expiryDate, "d MMMM yyyy")}</strong>
         </div>
       ) : null}
-      {/* Rendered only once the server says the card was sent. Any earlier and
-        * it would ask for something the reveal endpoint refuses — the asset may
-        * still be under an operator's verification. */}
+      {/* The server exposes a receipt only after delivery has reached SENT, and
+        * only for an international payment. */}
       {sent ? (
         <>
           <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
-            نمایش کد کامل ثبت می‌شود. آن را در جای امن نگه دارید و برای کسی نفرستید.
+            {isPayment
+              ? "نتیجهٔ پرداخت شما ثبت شده است. جزئیات آن را از همین بخش ببینید."
+              : "نمایش کد کامل ثبت می‌شود. آن را در جای امن نگه دارید و برای کسی نفرستید."}
           </p>
-          <RevealCode orderNumber={orderNumber} />
+          <RevealCode orderNumber={orderNumber} variant={purpose} />
+          {paymentReceiptAvailable ? <PaymentReceipt orderNumber={orderNumber} /> : null}
         </>
       ) : (
         <p className="muted" style={{ fontSize: 12, marginBlockEnd: 0 }}>
-          کد کامل پس از تکمیل تحویل، در همین صفحه قابل نمایش خواهد بود.
+          {isPayment
+            ? "نتیجهٔ پرداخت پس از تکمیل تحویل، در همین صفحه نمایش داده می‌شود."
+            : "کد کامل پس از تکمیل تحویل، در همین صفحه قابل نمایش خواهد بود."}
         </p>
       )}
     </div>

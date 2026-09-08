@@ -23,11 +23,14 @@ export class MockAssetDeliveryTransport implements AssetDeliveryTransport {
 
   private outcome: AssetDeliveryResult = { success: true };
   private sendCount = 0;
+  private attachmentCount = 0;
 
   async send(message: AssetDeliveryMessage): Promise<AssetDeliveryResult> {
     this.sendCount += 1;
+    this.attachmentCount = message.attachments?.length ?? 0;
     // A `void` reference, not a log line: the message object holds a plaintext
-    // code and must never reach a logger or a serialiser.
+    // code and may hold a receipt image, so it must never reach a logger or a
+    // serialiser.
     void message;
     return this.outcome.success
       ? { success: true, providerMessageId: `mock-${this.sendCount}` }
@@ -41,5 +44,10 @@ export class MockAssetDeliveryTransport implements AssetDeliveryTransport {
 
   getSendCount(): number {
     return this.sendCount;
+  }
+
+  /** Safe test observation: count only, never attachment bytes or plaintext. */
+  getAttachmentCount(): number {
+    return this.attachmentCount;
   }
 }

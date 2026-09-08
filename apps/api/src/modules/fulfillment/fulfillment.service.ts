@@ -17,6 +17,10 @@ import {
 } from './gift-card-asset.service';
 import { maskEmail } from './mask-recipient';
 import {
+  PaymentReceiptService,
+  type StoredPaymentReceipt,
+} from './payment-receipt.service';
+import {
   ASSET_DELIVERY_TRANSPORT,
   FULFILLMENT_STORE,
   MANAGER_APPROVAL_ROLE_SET,
@@ -41,6 +45,7 @@ export const FULFILLMENT_AUDIT_ACTIONS = {
   DELIVERY_FAILED: 'FULFILLMENT_DELIVERY_FAILED',
   DELIVERY_RETRIED: 'FULFILLMENT_DELIVERY_RETRIED',
   REOPENED: 'FULFILLMENT_REOPENED',
+  PAYMENT_RECEIPT_UPLOADED: 'FULFILLMENT_PAYMENT_RECEIPT_UPLOADED',
   SERVICE_ACCOUNT_PASSWORD_VIEWED: 'SERVICE_ACCOUNT_PASSWORD_VIEWED',
 } as const;
 
@@ -56,6 +61,12 @@ export interface RecordedSupplierCost {
   readonly actualSupplierCurrency: string | null;
 }
 
+export interface PaymentReceiptView {
+  readonly contentType: string;
+  readonly sizeBytes: number;
+  readonly uploadedAt: string;
+}
+
 export interface FulfillmentWorkspace {
   readonly workItemId: string;
   readonly orderId: string;
@@ -67,6 +78,8 @@ export interface FulfillmentWorkspace {
   readonly canSend: boolean;
   /** Null for every work item type except `INTERNATIONAL_PAYMENT`. */
   readonly internationalPayment: InternationalPaymentBrief | null;
+  /** Filesystem-backed customer evidence; never contains image bytes. */
+  readonly paymentReceipt: PaymentReceiptView | null;
 }
 
 export interface DeliveryOutcome {
@@ -158,6 +171,7 @@ export class FulfillmentService {
     @Inject(ChecklistService) private readonly checklists: ChecklistService,
     @Inject(GiftCardAssetService) private readonly assets: GiftCardAssetService,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Inject(PaymentReceiptService) private readonly receipts: PaymentReceiptService,
     @Inject(AppConfigService) private readonly config: AppConfigService,
   ) {}
 
@@ -170,6 +184,59 @@ export class FulfillmentService {
     this.assertCanView(context, staff);
     const state = await this.checklists.ensure(context);
     return this.toWorkspace(context, state);
+  }
+
+  async uploadPaymentReceipt(input: {
+    workItemId: string;
+    staff: StaffContext;
+    file: { readonly mimetype: string; readonly buffer: Buffer };
+  }): Promise<FulfillmentWorkspace> {
+    const context = await this.loadContext(input.workItemId);
+    this.assertCanOperate(context, input.staff);
+    if (context.workItemType !== 'INTERNATIONAL_PAYMENT') {
+      throw DomainErrors.validation([
+        { path: 'receipt', message: 'تصویر رسید فقط برای تسک پرداخت بین‌المللی قابل ثبت است.' },
+      ]);
+    }
+
+    const state = await this.checklists.ensure(context);
+    if (state.isLocked) {
+      throw DomainErrors.conflict(
+        'پس از ارسال نتیجه، تصویر رسید قابل تغییر نیست.',
+        `payment receipt for work item ${context.workItemId} is locked`,
+      );
+    }
+
+    const previous = await this.receipts.info(context.orderId);
+    const stored = await this.receipts.save(context.orderId, input.file);
+    await this.audit.record({
+      actor: input.staff.id,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: FULFILLMENT_AUDIT_ACTIONS.PAYMENT_RECEIPT_UPLOADED,
+      entity: 'Order',
+      entityId: context.orderId,
+      after: {
+        workItemId: context.workItemId,
+        contentType: stored.contentType,
+        sizeBytes: stored.sizeBytes,
+        replacedExisting: previous !== null,
+      },
+    });
+
+    return this.toWorkspace(context, state);
+  }
+
+  async paymentReceiptForStaff(input: {
+    workItemId: string;
+    staff: StaffContext;
+  }): Promise<StoredPaymentReceipt> {
+    const context = await this.loadContext(input.workItemId);
+    this.assertCanView(context, input.staff);
+    if (context.workItemType !== 'INTERNATIONAL_PAYMENT') {
+      throw DomainErrors.notFound('payment receipt work item');
+    }
+    return this.receipts.read(context.orderId);
   }
 
   async checkItem(input: {
@@ -869,7 +936,7 @@ export class FulfillmentService {
     if (
       channel === 'EMAIL' &&
       asset !== undefined &&
-      this.needsOurEmail(asset) &&
+      this.needsOurEmail(context, asset) &&
       !this.resolveRecipient(context, asset)
     ) {
       blockers.push(SEND_BLOCKERS.DELIVERY_EMAIL_MISSING);
@@ -899,6 +966,13 @@ export class FulfillmentService {
       );
     }
 
+    // Read the optional evidence before claiming the asset. A missing file is fine;
+    // an unreadable/corrupt one must fail without leaving the asset stuck in SENDING.
+    const paymentReceipt =
+      channel === 'EMAIL' && context.workItemType === 'INTERNATIONAL_PAYMENT'
+        ? await this.receipts.readIfExists(context.orderId)
+        : null;
+
     // Compare-and-set into SENDING. Two operators pressing send, or an operator
     // racing the delivery worker, cannot both hand the same asset to the transport.
     const claimed = await this.store.beginSending(asset.id, DISPATCHABLE_STATUSES);
@@ -926,10 +1000,17 @@ export class FulfillmentService {
       // order, and the customer reveals it themselves; "delivered" here means
       // "available to the buyer", which is exactly what it now is.
       result = { success: true, providerMessageId: `self-service:${asset.id}` };
-    } else if (asset.assetType === 'PROVIDER_DIRECT_EMAIL') {
-      // Reloadly / Runa / Giftbit already mailed the customer. There is no code on
-      // our side and nothing for us to send; we only record that it happened.
-      result = { success: true, providerMessageId: `provider-direct:${asset.supplierReference ?? asset.id}` };
+    } else if (
+      asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&
+      context.workItemType !== 'INTERNATIONAL_PAYMENT'
+    ) {
+      // Gift-card suppliers using this mode already mailed the customer, so there
+      // is no code on our side and nothing for us to send. International payments
+      // are different: our result e-mail carries the operator's receipt image.
+      result = {
+        success: true,
+        providerMessageId: `provider-direct:${asset.supplierReference ?? asset.id}`,
+      };
     } else {
       result = await this.sendViaTransport({
         asset,
@@ -938,6 +1019,7 @@ export class FulfillmentService {
         actorId: input.actor.id,
         actorType: input.actor.actorType,
         reason: input.reason,
+        paymentReceipt,
       });
     }
 
@@ -1037,6 +1119,7 @@ export class FulfillmentService {
     actorId: string;
     actorType: AuditActorType;
     reason: SecretReadReason;
+    paymentReceipt: StoredPaymentReceipt | null;
   }): Promise<{ success: boolean; providerMessageId?: string; failureCode?: string }> {
     const revealed: RevealedAssetSecret = await this.assets.readSecret({
       assetId: input.asset.id,
@@ -1050,10 +1133,25 @@ export class FulfillmentService {
         orderId: input.context.orderId,
         recipientEmail: input.recipient,
         assetType: revealed.assetType,
+        purpose:
+          input.context.workItemType === 'INTERNATIONAL_PAYMENT'
+            ? 'INTERNATIONAL_PAYMENT'
+            : 'GIFT_CARD',
         ...(revealed.code === undefined ? {} : { code: revealed.code }),
         ...(revealed.pin === undefined ? {} : { pin: revealed.pin }),
         ...(revealed.deliveryUrl === undefined ? {} : { deliveryUrl: revealed.deliveryUrl }),
         expiryDate: revealed.expiryDate,
+        ...(input.paymentReceipt === null
+          ? {}
+          : {
+              attachments: [
+                {
+                  filename: input.paymentReceipt.filename,
+                  content: input.paymentReceipt.content,
+                  contentType: input.paymentReceipt.contentType,
+                },
+              ],
+            }),
       });
       return result.success
         ? { success: true, ...(result.providerMessageId === undefined ? {} : { providerMessageId: result.providerMessageId }) }
@@ -1210,8 +1308,11 @@ export class FulfillmentService {
   /* Helpers                                                                 */
   /* ---------------------------------------------------------------------- */
 
-  private needsOurEmail(asset: GiftCardAssetView): boolean {
-    return asset.assetType !== 'PROVIDER_DIRECT_EMAIL';
+  private needsOurEmail(context: FulfillmentContext, asset: GiftCardAssetView): boolean {
+    return (
+      asset.assetType !== 'PROVIDER_DIRECT_EMAIL' ||
+      context.workItemType === 'INTERNATIONAL_PAYMENT'
+    );
   }
 
   /** What the delivery record says the asset was handed to. Never an address. */
@@ -1243,7 +1344,10 @@ export class FulfillmentService {
   }
 
   private resolveRecipient(context: FulfillmentContext, asset: GiftCardAssetView): string | null {
-    if (asset.assetType === 'PROVIDER_DIRECT_EMAIL') {
+    if (
+      asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&
+      context.workItemType !== 'INTERNATIONAL_PAYMENT'
+    ) {
       return null;
     }
     const email = context.deliveryEmail;
@@ -1292,7 +1396,12 @@ export class FulfillmentService {
     context: FulfillmentContext,
     state: ChecklistState,
   ): Promise<FulfillmentWorkspace> {
-    const assets = await this.assets.listForOrder(context.orderId);
+    const [assets, receipt] = await Promise.all([
+      this.assets.listForOrder(context.orderId),
+      context.workItemType === 'INTERNATIONAL_PAYMENT'
+        ? this.receipts.info(context.orderId)
+        : Promise.resolve(null),
+    ]);
     const recorded = context.fulfillment;
     return {
       workItemId: context.workItemId,
@@ -1310,6 +1419,14 @@ export class FulfillmentService {
       sendBlockers: state.sendBlockers,
       canSend: state.sendBlockers.length === 0,
       internationalPayment: context.internationalPayment,
+      paymentReceipt:
+        receipt === null
+          ? null
+          : {
+              contentType: receipt.contentType,
+              sizeBytes: receipt.sizeBytes,
+              uploadedAt: receipt.uploadedAt.toISOString(),
+            },
     };
   }
 }

@@ -28,6 +28,13 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
     return <OrderMissing />;
   }
 
+  const deliveryPresentation =
+    order.delivery === null
+      ? null
+      : await api.paymentReceiptStatus(order.orderNumber).catch(() => ({
+          available: false,
+          purpose: "GIFT_CARD" as const,
+        }));
   const view = orderStatusView(order.status);
   const steps = timelineSteps(order);
 
@@ -87,7 +94,12 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
       ) : null}
 
       {order.delivery !== null ? (
-        <DeliveryCard delivery={order.delivery} orderNumber={order.orderNumber} />
+        <DeliveryCard
+          delivery={order.delivery}
+          orderNumber={order.orderNumber}
+          paymentReceiptAvailable={deliveryPresentation?.available ?? false}
+          purpose={deliveryPresentation?.purpose ?? "GIFT_CARD"}
+        />
       ) : null}
     </main>
   );
