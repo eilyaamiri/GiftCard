@@ -253,4 +253,56 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(22px, 2.5vw, 30px); letter-s
 @media (max-width: 520px) { .customer-search-grid { grid-template-columns: 1fr; } .customer-search-grid .primary-btn { grid-column: auto; width: 100%; } .customer-kpis { grid-template-columns: 1fr 1fr; } }
 
 @media (max-width: 900px) { .two-col, .simulator-grid { grid-template-columns: 1fr; } .stat-strip { grid-template-columns: repeat(2, 1fr); } }
+
+/* Settings — one ledger of operational controls.
+   Every row carries a status rail on its right edge so "what is on" is legible
+   before any label is read, and each write keeps its reason field next to the
+   button that sends it. */
+.settings-ledger { display: grid; gap: 16px; }
+.settings-ledger-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.settings-ledger-head h2 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 800; }
+.settings-ledger-head p { margin: 5px 0 0; color: var(--slate); font-size: 11px; }
+.settings-count { color: var(--slate); font-size: 11px; }
+.settings-context-note { margin: 0; padding: 11px 13px; color: var(--ink); background: var(--soft); border-radius: 10px; font-size: 11px; line-height: 1.9; }
+.settings-rows { display: grid; gap: 12px; }
+.settings-row { padding: 15px 16px; border: 1px solid var(--line); border-radius: 14px; background: white; }
+.settings-row-main { display: flex; align-items: flex-start; gap: 13px; }
+.settings-status-rail { width: 3px; align-self: stretch; min-height: 42px; border-radius: 99px; background: #d7dfe6; }
+.settings-row.is-on .settings-status-rail { background: var(--teal); }
+.settings-row.is-off { background: var(--soft); }
+.settings-row.is-off .settings-status-rail { background: var(--red); }
+.settings-row-copy { min-width: 0; flex: 1; }
+.settings-row-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.settings-row-title strong { color: var(--ink); font-size: 13px; }
+.settings-row-copy p { margin: 7px 0 0; color: var(--slate); font-size: 11px; line-height: 1.9; }
+.settings-key { display: inline-block; margin-top: 7px; color: var(--slate); font-size: 10px; direction: ltr; unicode-bidi: isolate; }
+.settings-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 8px; color: var(--slate); font-size: 10px; }
+.settings-self { color: var(--teal); font-size: 10px; font-weight: 700; }
+.settings-unsaved { color: var(--amber); font-size: 10px; font-weight: 700; }
+.settings-row-editor { display: grid; grid-template-columns: minmax(0, 200px) minmax(0, 1fr) auto; align-items: end; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.settings-queue-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.settings-full { grid-column: 1 / -1; }
+.settings-reason-field { min-width: 0; }
+.settings-percent-input { display: flex; align-items: center; gap: 7px; }
+.settings-percent-input span { color: var(--slate); font-size: 11px; }
+.settings-row-actions { display: flex; align-items: center; justify-content: flex-end; gap: 9px; }
+.settings-hint { margin: 8px 0 0; color: var(--slate); font-size: 10px; font-weight: 400; line-height: 1.8; }
+.settings-message { margin: 10px 0 0; font-size: 11px; font-weight: 700; }
+.settings-message.error { color: var(--red); }
+.settings-message.success { color: var(--green); }
+.settings-danger { color: var(--red); border-color: #f0d3d3; }
+.settings-danger-solid { color: white; background: var(--red); }
+.settings-create-card { padding: 17px; border: 1px solid var(--line); border-radius: 14px; background: var(--soft); }
+.settings-create-card .settings-row-actions { margin-top: 14px; }
+.settings-filter-bar { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-member-picker { padding: 13px; border: 1px solid var(--line); border-radius: 11px; }
+.settings-member-picker legend { padding: 0 6px; color: var(--slate); font-size: 10px; font-weight: 700; }
+.settings-member-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 9px; }
+.settings-member { display: flex; align-items: center; gap: 9px; padding: 9px 10px; background: white; border: 1px solid var(--line); border-radius: 10px; }
+.settings-member input { width: 17px; min-height: 17px; flex: 0 0 auto; accent-color: var(--teal); }
+.settings-member strong { display: block; color: var(--ink); font-size: 11px; }
+.settings-member small { display: block; margin-top: 3px; color: var(--slate); font-size: 9px; direction: ltr; unicode-bidi: isolate; }
+.settings-row .switch input:focus-visible + .slider, .settings-member input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+@media (max-width: 900px) { .settings-row-editor, .settings-queue-editor { grid-template-columns: 1fr; align-items: stretch; } .settings-row-main { flex-wrap: wrap; } .settings-row-main .settings-row-actions { width: 100%; justify-content: flex-start; } .settings-ledger-head { align-items: flex-start; flex-direction: column; } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

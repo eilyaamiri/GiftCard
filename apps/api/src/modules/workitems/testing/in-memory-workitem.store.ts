@@ -42,6 +42,8 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   readonly rows = new Map<string, WorkItemRow>();
   readonly staff = new Map<string, ClaimingStaff>();
   readonly queueMembers = new Map<string, Set<string>>();
+  /** Queues an admin has closed to new claims; every other queue is open. */
+  readonly inactiveQueues = new Set<QueueKey>();
   /** Orders whose quote points at an international service rather than a SKU. */
   readonly serviceOrders = new Set<string>();
 
@@ -64,6 +66,15 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     const members = this.queueMembers.get(queueKey) ?? new Set<string>();
     members.add(staffId);
     this.queueMembers.set(queueKey, members);
+  }
+
+  /** Mirrors the `Queue.isActive` column an admin toggles from Settings. */
+  setQueueActive(queueKey: QueueKey, isActive: boolean): void {
+    if (isActive) {
+      this.inactiveQueues.delete(queueKey);
+    } else {
+      this.inactiveQueues.add(queueKey);
+    }
   }
 
   async findByOrderId(orderId: string): Promise<WorkItemSummary | null> {
@@ -153,6 +164,13 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   }
 
   async isQueueMember(queueKey: QueueKey, staffId: string): Promise<boolean> {
+    // The Prisma store joins through `queue: { isActive: true }`, so a closed
+    // queue has no members to claim from. Kept identical here on purpose: the
+    // two implementations of this port must not answer the same call
+    // differently, or the tests stop covering production behaviour.
+    if (this.inactiveQueues.has(queueKey)) {
+      return false;
+    }
     return this.queueMembers.get(queueKey)?.has(staffId) ?? false;
   }
 

@@ -5,6 +5,7 @@ import type { StaffRole } from '@barat/contracts';
 
 import { FulfillmentController } from '../../fulfillment/fulfillment.controller';
 import { FxController } from '../../fx/fx.controller';
+import { AdminSettingsController } from '../admin-settings.controller';
 import { SuppliersController } from '../../suppliers/suppliers.controller';
 import { requireStaffActor } from '../../fx/fx-staff.guard';
 import { requireStaff } from '../../workitems/staff-context';
@@ -65,6 +66,13 @@ describe('staff route wiring', () => {
         expect(roles).not.toContain('SUPPORT');
         expect(roles).not.toContain('FINANCE');
       }
+    });
+
+    /* Settings creates and removes staff accounts, so it is the one controller
+     * whose role list must stay a single entry: an OPS_MANAGER who could reach
+     * it could grant themselves ADMIN by creating a new administrator. */
+    it('admin settings is reachable by ADMIN alone', () => {
+      expect(rolesOn(AdminSettingsController)).toEqual(['ADMIN']);
     });
 
     it('the FX override routes declare roles, so the guard receives an actor', () => {
