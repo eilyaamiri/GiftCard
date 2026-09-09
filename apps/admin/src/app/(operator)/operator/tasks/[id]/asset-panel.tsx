@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal } from "@barat/ui";
 import { formatJalaliDate, toPersianDigits } from "@barat/ui";
 import { InlineError, messageFor } from "../../../_components/error-notice";
@@ -28,13 +28,22 @@ export function AssetPanel({
   assets,
   canOperate,
   variant = "GIFT_CARD",
+  manualEntry,
 }: {
   workItemId: string;
   assets: readonly GiftCardAssetView[];
   canOperate: boolean;
   variant?: AssetPanelVariant;
+  /**
+   * The form for typing the asset in by hand, when the order still has none.
+   * It belongs to this card: an operator who already holds a code comes here
+   * looking for it, and until now the only way in was the send card further
+   * down the page.
+   */
+  manualEntry?: ReactNode;
 }) {
   const isPayment = variant === "INTERNATIONAL_PAYMENT";
+  const anySent = assets.some((asset) => asset.status === "SENT");
   return (
     <div className="card workspace-card">
       <div className="section-label">
@@ -59,6 +68,19 @@ export function AssetPanel({
           />
         ))
       )}
+
+      {manualEntry}
+
+      {/* Why the form is gone once a card is on file. The server refuses a
+        * second asset for the same order — that guard is what stops the same
+        * gift card being bought twice — so saying nothing here would read as a
+        * missing button rather than a deliberate limit. */}
+      {manualEntry === undefined && !isPayment && assets.length > 0 && !anySent ? (
+        <p className="muted" style={{ marginBlockEnd: 0 }}>
+          برای هر سفارش فقط یک دارایی تحویل ثبت می‌شود تا کارت دوباره خریده نشود. اگر این دارایی اشتباه است، پیش از
+          ارسال با مدیر عملیات هماهنگ کنید.
+        </p>
+      ) : null}
     </div>
   );
 }

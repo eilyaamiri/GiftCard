@@ -18,7 +18,9 @@ const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
  */
 const VARIANTS = {
   GIFT_CARD: {
-    heading: "کد و پین گیفت‌کارت",
+    heading: "ثبت دستی کد و پین",
+    intro:
+      "کد و پین را از هر جایی که تهیه کرده‌اید — بیرون از پنل هم — می‌توانید همین‌جا وارد کنید. برای ارسال به مشتری نه به پاسخ تأمین‌کننده نیاز دارید و نه به درخواست از ادمین.",
     submit: "ثبت کد برای ارسال",
     saving: "در حال ثبت…",
     referenceLabel: "کد پیگیری تأمین‌کننده",
@@ -35,6 +37,7 @@ const VARIANTS = {
   },
   INTERNATIONAL_PAYMENT: {
     heading: "ثبت نتیجهٔ پرداخت",
+    intro: "پس از انجام پرداخت روی سرویس خارجی، مدرک آن را همین‌جا ثبت کنید.",
     submit: "ثبت نتیجهٔ پرداخت",
     saving: "در حال ثبت…",
     referenceLabel: "کد رهگیری تراکنش",
@@ -176,6 +179,10 @@ export function SupplierResultForm({
 
   const body = (
     <>
+      <p className="muted" style={{ marginBlockStart: 0 }}>
+        {copy.intro}
+      </p>
+
       <p className="warning">
         {variant === "INTERNATIONAL_PAYMENT"
           ? "این فرم فقط یک‌بار برای هر سفارش پذیرفته می‌شود. اگر پرداخت قبلاً انجام شده، هرگز پرداخت تازه‌ای ثبت نکنید."
@@ -340,9 +347,10 @@ export function SupplierResultForm({
     </>
   );
 
-  /* Nested inside the send card, where the operator is already looking when they
-   * have a code in hand — a second bordered card there would read as a separate
-   * screen rather than the first step of sending. */
+  /* Nested inside the delivery-asset card, under whatever that card has to say
+   * about the order: an operator holding a code looks for it where the asset
+   * lives, and a second bordered card there would read as a separate screen
+   * rather than the missing half of the one they are already on. */
   if (chrome === "inline") {
     return (
       <section style={INLINE_SECTION}>
@@ -360,10 +368,12 @@ export function SupplierResultForm({
   );
 }
 
+/* The rule sits above: this section closes the card it is nested in, and a
+ * trailing border would draw a line along the card's own bottom edge. */
 const INLINE_SECTION = {
-  marginBlockEnd: 18,
-  paddingBlockEnd: 18,
-  borderBlockEnd: "1px solid var(--line)",
+  marginBlockStart: 18,
+  paddingBlockStart: 18,
+  borderBlockStart: "1px solid var(--line)",
 } as const;
 
 /** The asset types mean different things on a payment task than on a card. */

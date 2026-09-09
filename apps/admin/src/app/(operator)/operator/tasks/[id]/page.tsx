@@ -139,7 +139,10 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
                 <h3>درخواست کد گیفت‌کارت</h3>
                 <span>اتصال به {item.code}</span>
               </div>
-              <p className="muted">اگر برای تکمیل این تسک به کد یا پین تأمین‌کننده نیاز دارید، درخواست را برای ادمین ارسال کنید.</p>
+              <p className="muted">
+                اگر کد یا پین را در دست دارید، آن را مستقیم در کارت «دارایی تحویل» ثبت کنید؛ این درخواست فقط برای
+                زمانی است که کد را در اختیار ندارید و باید ادمین آن را تأمین کند.
+              </p>
               <GiftCardRequestForm workItemId={item.id} />
             </div>
           ) : null}
