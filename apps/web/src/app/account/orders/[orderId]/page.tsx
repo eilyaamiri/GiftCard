@@ -30,6 +30,14 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
     .then((response) => response.order.delivery)
     .catch(() => null);
 
+  const deliveryPresentation =
+    delivery === null
+      ? null
+      : await api.paymentReceiptStatus(order.orderNumber).catch(() => ({
+          available: false,
+          purpose: "GIFT_CARD" as const,
+        }));
+
   const view = orderStatusView(order.status);
   const payable = order.status === "AWAITING_PAYMENT" || order.status === "PAYMENT_PENDING";
   const timeline: ReadonlyArray<{ readonly label: string; readonly at: string | null }> = [
@@ -65,7 +73,14 @@ export default async function AccountOrderPage({ params }: { params: Promise<{ o
         ))}
       </div>
 
-      {delivery !== null ? <DeliveryCard delivery={delivery} orderNumber={order.orderNumber} /> : null}
+      {delivery !== null ? (
+        <DeliveryCard
+          delivery={delivery}
+          orderNumber={order.orderNumber}
+          paymentReceiptAvailable={deliveryPresentation?.available ?? false}
+          purpose={deliveryPresentation?.purpose ?? "GIFT_CARD"}
+        />
+      ) : null}
 
       <div className="hero-actions">
         {payable ? (

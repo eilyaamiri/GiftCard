@@ -9,6 +9,11 @@ import {
 } from '@barat/notifications';
 
 import { AuditModule } from '../audit/audit.module';
+import { AdminSettingsController } from './admin-settings.controller';
+import {
+  ADMIN_SETTINGS_DATABASE,
+  AdminSettingsService,
+} from './admin-settings.service';
 import { AuthContextService } from './auth-context.service';
 import { AuthController } from './auth.controller';
 import { CustomerReadService } from './customer-read.service';
@@ -35,13 +40,15 @@ import { StaffAuthService } from './staff-auth.service';
 @Global()
 @Module({
   imports: [AuditModule],
-  controllers: [AuthController, StaffAuthController],
+  controllers: [AuthController, StaffAuthController, AdminSettingsController],
   providers: [
     { provide: IDENTITY_DATABASE, useValue: prisma },
+    { provide: ADMIN_SETTINGS_DATABASE, useValue: prisma },
     { provide: SMS_PROVIDER, useFactory: () => new MockSmsProvider() },
     { provide: EMAIL_PROVIDER, useFactory: () => new MockEmailProvider() },
     SessionService,
     StaffAuthService,
+    AdminSettingsService,
     AuthContextService,
     CustomerReadService,
     OtpService,
@@ -54,6 +61,7 @@ import { StaffAuthService } from './staff-auth.service';
     StaffAuthService,
     AuthContextService,
     CustomerReadService,
+    EMAIL_PROVIDER,
   ],
 })
 export class IdentityModule {}

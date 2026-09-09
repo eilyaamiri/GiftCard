@@ -120,6 +120,8 @@ export const api = {
     request<T>(path, { method: "PATCH", body: JSON.stringify(payload ?? {}) }, schema),
   put: <T>(path: string, payload?: unknown, schema?: z.ZodType<T>) =>
     request<T>(path, { method: "PUT", body: JSON.stringify(payload ?? {}) }, schema),
+  postForm: <T>(path: string, form: FormData, schema?: z.ZodType<T>) =>
+    request<T>(path, { method: "POST", body: form }, schema),
   uploadProductImage: (productId: string, file: File) => {
     const form = new FormData();
     form.append("image", file);

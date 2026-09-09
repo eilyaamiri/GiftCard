@@ -242,6 +242,57 @@ describe('claiming', () => {
     expect((await h.service.getById(item.id)).assignedToStaffId).toBeNull();
   });
 
+  /**
+   * Settings tells the admin that closing a queue «برداشتن تسک جدید توسط
+   * اپراتور را متوقف می‌کند؛ تسک‌های موجود و دسترسی مدیران دست‌نخورده می‌ماند».
+   * Both halves of that sentence are load-bearing, so both are pinned here.
+   */
+  it('stops operator claims from a deactivated queue while managers still reach it', async () => {
+    const h = harness();
+    h.store.addStaff({ id: 'mgr-1', role: 'OPS_MANAGER', isActive: true });
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+
+    h.store.setQueueActive('GIFT_CARD_MANUAL', false);
+
+    await expect(h.service.claim(item.id, 'op-1')).rejects.toThrow();
+    expect((await h.service.getById(item.id)).assignedToStaffId).toBeNull();
+
+    // A manager does not claim through queue membership, so closing the queue
+    // never locks the work away from the people who have to unblock it.
+    await expect(h.service.claim(item.id, 'mgr-1')).resolves.toMatchObject({
+      assignedToStaffId: 'mgr-1',
+    });
+  });
+
+  it('lets an operator claim again once the queue is reopened', async () => {
+    const h = harness();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    h.store.setQueueActive('GIFT_CARD_MANUAL', false);
+    await expect(h.service.claim(item.id, 'op-1')).rejects.toThrow();
+
+    h.store.setQueueActive('GIFT_CARD_MANUAL', true);
+
+    await expect(h.service.claim(item.id, 'op-1')).resolves.toMatchObject({
+      assignedToStaffId: 'op-1',
+    });
+  });
+
+  /**
+   * Work already in an operator's hands is theirs to finish. Closing the queue
+   * mid-shift must not strand a half-done fulfillment.
+   */
+  it('leaves an already-claimed item completable after its queue is deactivated', async () => {
+    const h = harness();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+
+    h.store.setQueueActive('GIFT_CARD_MANUAL', false);
+
+    await h.service.start(item.id, 'op-1');
+    await h.service.complete(item.id, 'op-1', 'delivered');
+    expect((await h.service.getById(item.id)).status).toBe('COMPLETED');
+  });
+
   it('frees the order lock when the item completes, so a re-fulfillment is possible', async () => {
     const h = harness();
     const item = await h.service.onOrderPaid({ orderId: 'order-1' });

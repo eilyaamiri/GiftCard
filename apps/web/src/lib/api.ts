@@ -258,6 +258,10 @@ const accountOrdersSchema = pagedSchema(accountOrderSchema);
 const accountPaymentsSchema = pagedSchema(accountPaymentSchema);
 const accountRefundsSchema = pagedSchema(accountRefundSchema);
 const supportTicketsSchema = z.array(supportTicketSchema);
+const paymentReceiptStatusSchema = z.object({
+  available: z.boolean(),
+  purpose: z.enum(["GIFT_CARD", "INTERNATIONAL_PAYMENT"]),
+});
 
 export type Paged<TItem> = { readonly items: readonly TItem[]; readonly meta: z.infer<typeof pageMetaSchema> };
 
@@ -277,6 +281,12 @@ export const api = {
   services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),
+  paymentReceiptStatus: (number: string) =>
+    request<z.infer<typeof paymentReceiptStatusSchema>>(
+      `/api/orders/${encodeURIComponent(number)}/payment-receipt/status`,
+      undefined,
+      paymentReceiptStatusSchema,
+    ),
   /**
    * Ask for the plaintext of a delivered card. POST because the server audits
    * the read and counts it — a GET would sit in history and proxy logs.

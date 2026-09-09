@@ -176,7 +176,9 @@ export class PrismaWorkItemStore implements WorkItemStore {
 
   async isQueueMember(queueKey: QueueKey, staffId: string): Promise<boolean> {
     const membership = await this.db.queueMembership.findFirst({
-      where: { staffUserId: staffId, queue: { key: queueKey } },
+      // Deactivating a queue stops new operator claims without hiding its
+      // existing work items from managers or disrupting assigned work.
+      where: { staffUserId: staffId, queue: { key: queueKey, isActive: true } },
       select: { id: true },
     });
     return membership !== null;

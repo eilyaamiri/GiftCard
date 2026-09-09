@@ -29,7 +29,13 @@ const CODE_STYLE = {
  * card was actually delivered, records `GIFT_CARD_CODE_VIEWED` before it
  * decrypts, and answers with an error the customer can read.
  */
-export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
+export function RevealCode({
+  orderNumber,
+  variant = "GIFT_CARD",
+}: {
+  readonly orderNumber: string;
+  readonly variant?: "GIFT_CARD" | "INTERNATIONAL_PAYMENT";
+}) {
   const [revealed, setRevealed] = useState<RevealedDelivery | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
@@ -48,13 +54,15 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
       setError(
         cause instanceof ApiClientError
           ? cause.message
-          : "نمایش کد ممکن نشد. کمی بعد دوباره تلاش کنید.",
+          : variant === "INTERNATIONAL_PAYMENT"
+            ? "نمایش نتیجهٔ پرداخت ممکن نشد. کمی بعد دوباره تلاش کنید."
+            : "نمایش کد ممکن نشد. کمی بعد دوباره تلاش کنید.",
       );
     } finally {
       inFlight.current = false;
       setBusy(false);
     }
-  }, [orderNumber]);
+  }, [orderNumber, variant]);
 
   useEffect(() => {
     void reveal();
@@ -80,7 +88,14 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
           onClick={() => void reveal()}
           disabled={busy}
         >
-          <Eye size={16} aria-hidden="true" /> {busy ? "در حال دریافت کد..." : "نمایش کد"}
+          <Eye size={16} aria-hidden="true" />{" "}
+          {busy
+            ? variant === "INTERNATIONAL_PAYMENT"
+              ? "در حال دریافت نتیجه..."
+              : "در حال دریافت کد..."
+            : variant === "INTERNATIONAL_PAYMENT"
+              ? "نمایش جزئیات نتیجه"
+              : "نمایش کد"}
         </button>
       </>
     );
@@ -109,7 +124,7 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
         ) : null}
         {revealed.deliveryUrl !== null ? (
           <div className="summary-line">
-            <span>لینک دریافت</span>
+            <span>{variant === "INTERNATIONAL_PAYMENT" ? "لینک تأییدیهٔ پرداخت" : "لینک دریافت"}</span>
             <strong>
               <a href={revealed.deliveryUrl} target="_blank" rel="noreferrer noopener">
                 باز کردن لینک
@@ -119,7 +134,9 @@ export function RevealCode({ orderNumber }: { readonly orderNumber: string }) {
         ) : null}
         {revealed.code === null && revealed.deliveryUrl === null ? (
           <p className="muted" style={{ margin: 0 }}>
-            این سفارش کدی برای نمایش ندارد؛ کارت مستقیماً به ایمیل شما ارسال شده است.
+            {variant === "INTERNATIONAL_PAYMENT"
+              ? "نتیجهٔ پرداخت به ایمیل شما ارسال شده است."
+              : "این سفارش کدی برای نمایش ندارد؛ کارت مستقیماً به ایمیل شما ارسال شده است."}
           </p>
         ) : null}
       </div>

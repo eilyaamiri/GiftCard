@@ -10,6 +10,11 @@ import { SHIPPED_CHECKLIST_TEMPLATES } from './checklist-templates';
 import { FulfillmentService } from './fulfillment.service';
 import { GiftCardAssetService, GIFT_CARD_AUDIT_ACTIONS } from './gift-card-asset.service';
 import { SEND_BLOCKERS } from './checklist-evaluation';
+import type {
+  PaymentReceiptService,
+  PaymentReceiptInfo,
+  StoredPaymentReceipt,
+} from './payment-receipt.service';
 import { MockAssetDeliveryTransport } from './transports/mock-asset-delivery.transport';
 import { InMemoryFulfillmentStore, type SeedFulfillment } from './testing/in-memory-fulfillment.store';
 
@@ -31,10 +36,49 @@ interface AuditEvent {
   readonly payload: string;
 }
 
+class InMemoryPaymentReceiptService {
+  receipt: StoredPaymentReceipt | null = null;
+  savedOrderId: string | null = null;
+
+  async save(
+    orderId: string,
+    file: { readonly mimetype: string; readonly buffer: Buffer },
+  ): Promise<PaymentReceiptInfo> {
+    const uploadedAt = new Date('2026-09-08T10:00:00.000Z');
+    this.savedOrderId = orderId;
+    this.receipt = {
+      contentType: 'image/png',
+      sizeBytes: file.buffer.length,
+      uploadedAt,
+      content: Buffer.from(file.buffer),
+      filename: 'payment-receipt.png',
+    };
+    return this.receipt;
+  }
+
+  async info(orderId: string): Promise<PaymentReceiptInfo | null> {
+    if (this.receipt === null || orderId !== this.savedOrderId) return null;
+    const { contentType, sizeBytes, uploadedAt } = this.receipt;
+    return { contentType, sizeBytes, uploadedAt };
+  }
+
+  async read(orderId: string): Promise<StoredPaymentReceipt> {
+    if (this.receipt === null || orderId !== this.savedOrderId) {
+      throw new Error('payment receipt not found');
+    }
+    return this.receipt;
+  }
+
+  async readIfExists(orderId: string): Promise<StoredPaymentReceipt | null> {
+    return this.receipt !== null && orderId === this.savedOrderId ? this.receipt : null;
+  }
+}
+
 interface Harness {
   readonly service: FulfillmentService;
   readonly store: InMemoryFulfillmentStore;
   readonly transport: MockAssetDeliveryTransport;
+  readonly receipts: InMemoryPaymentReceiptService;
   readonly events: AuditEvent[];
 }
 
@@ -58,13 +102,21 @@ function harness(seed: SeedFulfillment = {}): Harness {
   const audit = new AuditService(writer);
   const checklists = new ChecklistService(store, audit);
   const assets = new GiftCardAssetService(store, audit);
-  const service = new FulfillmentService(store, transport, checklists, assets, audit, {
+  const receipts = new InMemoryPaymentReceiptService();
+  const service = new FulfillmentService(
+    store,
+    transport,
+    checklists,
+    assets,
+    audit,
+    receipts as unknown as PaymentReceiptService,
+    {
     /* A fresh buffer per call, like the real config: the service zeroes the key
      * it is handed as soon as it has finished with it. */
     bankDetailsEncryptionKey: () => Buffer.alloc(32, 7),
   } as never);
 
-  return { service, store, transport, events };
+  return { service, store, transport, receipts, events };
 }
 
 /** Records a CODE_PIN asset with the given actual cost, as an operator would. */
@@ -478,6 +530,7 @@ describe('international payment', () => {
     return harness({
       workItemType: 'INTERNATIONAL_PAYMENT',
       queueKey: 'SAAS_PAYMENT',
+      quotedSupplierCost: '24.99',
       internationalPayment: {
         serviceNameFa: 'ابزارهای هوش مصنوعی',
         payableAmount: '24.99',
@@ -489,6 +542,116 @@ describe('international payment', () => {
       serviceAccountPasswordEnvelope: seal(ACCOUNT_PASSWORD, Buffer.alloc(32, 7), ACCOUNT_AAD),
     });
   }
+
+  async function prepareProviderDirectPayment(h: Harness): Promise<void> {
+    await h.service.recordSupplierResult({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      supplierReference: 'PAYMENT-REF-9001',
+      actualSupplierCost: '24.99',
+      actualSupplierCurrency: 'USD',
+      asset: {
+        assetType: 'PROVIDER_DIRECT_EMAIL',
+        recipientEmail: 'buyer@example.com',
+      },
+    });
+    await h.service.setField({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'SERVICE_ACCOUNT_REFERENCE',
+      value: 'buyer@example.com',
+    });
+    for (const itemKey of ['PAYMENT_EXECUTED_ABROAD', 'SUBSCRIPTION_ACTIVE_CONFIRMED']) {
+      await h.service.checkItem({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        itemKey,
+        checked: true,
+      });
+    }
+  }
+
+  it('stores only safe receipt metadata in the workspace and audit trail', async () => {
+    const h = paymentHarness();
+    const marker = 'supplier-secret-marker';
+
+    const workspace = await h.service.uploadPaymentReceipt({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      file: { mimetype: 'image/png', buffer: Buffer.from(marker) },
+    });
+
+    expect(h.receipts.savedOrderId).toBe(h.store.orderId);
+    expect(workspace.paymentReceipt).toEqual({
+      contentType: 'image/png',
+      sizeBytes: marker.length,
+      uploadedAt: '2026-09-08T10:00:00.000Z',
+    });
+    const uploaded = h.events.filter(
+      (event) => event.action === 'FULFILLMENT_PAYMENT_RECEIPT_UPLOADED',
+    );
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0]?.payload).toContain('"replacedExisting":false');
+    expect(uploaded[0]?.payload).not.toContain(marker);
+  });
+
+  it('refuses a receipt on a gift-card task or from an operator without the claim', async () => {
+    const giftCard = harness();
+    await expect(
+      giftCard.service.uploadPaymentReceipt({
+        workItemId: giftCard.store.workItemId,
+        staff: OPERATOR,
+        file: { mimetype: 'image/png', buffer: Buffer.from('image') },
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const payment = paymentHarness();
+    await expect(
+      payment.service.uploadPaymentReceipt({
+        workItemId: payment.store.workItemId,
+        staff: { id: 'staff-without-claim', role: 'OPERATOR' },
+        file: { mimetype: 'image/png', buffer: Buffer.from('image') },
+      }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(payment.receipts.receipt).toBeNull();
+  });
+
+  it('sends a provider-direct payment result through our transport with the receipt attached', async () => {
+    const h = paymentHarness();
+    await h.service.uploadPaymentReceipt({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      file: { mimetype: 'image/png', buffer: Buffer.from('receipt-bytes') },
+    });
+    await prepareProviderDirectPayment(h);
+
+    const outcome = await h.service.sendToCustomer({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+    });
+
+    expect(outcome.delivered).toBe(true);
+    expect(h.transport.getSendCount()).toBe(1);
+    expect(h.transport.getAttachmentCount()).toBe(1);
+    expect(outcome.workspace.checklist.isLocked).toBe(true);
+    await expect(
+      h.service.uploadPaymentReceipt({
+        workItemId: h.store.workItemId,
+        staff: OPERATOR,
+        file: { mimetype: 'image/png', buffer: Buffer.from('replacement') },
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('still sends the result e-mail when the payment screenshot is omitted', async () => {
+    const h = paymentHarness();
+    await prepareProviderDirectPayment(h);
+
+    await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+
+    expect(h.transport.getSendCount()).toBe(1);
+    expect(h.transport.getAttachmentCount()).toBe(0);
+  });
 
   it('gives the operator the site, the account and the amount to pay', async () => {
     const h = paymentHarness();
