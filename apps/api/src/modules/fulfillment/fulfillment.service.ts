@@ -126,12 +126,14 @@ export const SELF_SERVICE_DELIVERY_ACTOR: DispatchActor = {
 /**
  * How the asset reaches the customer.
  *
- * `EMAIL` is the operator path: we hold a code and mail it. `SELF_SERVICE` is the
- * automated path: the code is already encrypted against the customer's own order,
- * and they reveal it themselves on the order page. Nothing is sent anywhere, so
- * claiming an e-mail went out would be a lie in the delivery record.
+ * `EMAIL` is the operator path: we hold a code and mail it. `SELF_SERVICE` puts the
+ * same card on the customer's own order page instead, where they read it in full —
+ * the reveal endpoint decrypts it for them, so encryption is only how the code
+ * rests in our database, never what the customer is handed. Nothing is sent
+ * anywhere, so claiming an e-mail went out would be a lie in the delivery record.
  */
 export type DeliveryChannel = 'EMAIL' | 'SELF_SERVICE';
+type RequestedDeliveryChannel = DeliveryChannel | 'AUTO';
 
 /**
  * Checklist keys a self-service delivery may leave unsatisfied.
@@ -818,6 +820,11 @@ export class FulfillmentService {
       actor: staffActor(input.staff),
       reason: SECRET_READ_REASONS.DELIVERY_SEND,
       isRetry: false,
+      // Checkout permits a mobile-only customer. Send e-mail when the order has
+      // an address; otherwise publish the card to that customer's authenticated
+      // order page, where they read the code and PIN in full, instead of
+      // dead-ending the operator.
+      channel: 'AUTO',
     });
   }
 
@@ -915,10 +922,10 @@ export class FulfillmentService {
     actor: DispatchActor;
     reason: SecretReadReason;
     isRetry: boolean;
-    /** Omitted means `EMAIL`: forgetting it can only make the gate stricter. */
-    channel?: DeliveryChannel;
+    /** Omitted means `EMAIL`: callers must explicitly opt into automatic fallback. */
+    channel?: RequestedDeliveryChannel;
   }): Promise<DeliveryOutcome> {
-    const channel: DeliveryChannel = input.channel ?? 'EMAIL';
+    const requestedChannel = input.channel ?? 'EMAIL';
     const context = await this.loadContext(input.workItemId);
     if (input.actor.enforceClaim) {
       this.assertCanOperate(context, { id: input.actor.id, role: input.actor.role as StaffRole });
@@ -928,6 +935,18 @@ export class FulfillmentService {
 
     const assets = await this.assets.listForOrder(context.orderId);
     const asset = assets[0];
+    let channel: DeliveryChannel;
+    if (requestedChannel !== 'AUTO') {
+      channel = requestedChannel;
+    } else if (
+      asset !== undefined &&
+      this.needsOurEmail(context, asset) &&
+      this.resolveRecipient(context, asset) === null
+    ) {
+      channel = 'SELF_SERVICE';
+    } else {
+      channel = 'EMAIL';
+    }
 
     // The authoritative gate. The frontend's opinion is not consulted.
     const blockers = [...state.sendBlockers].filter(
@@ -954,7 +973,7 @@ export class FulfillmentService {
         after: { orderId: context.orderId, blockers: finalBlockers, isRetry: input.isRetry },
       });
       throw DomainErrors.conflict(
-        'ارسال برای مشتری هنوز مجاز نیست؛ چک‌لیست کامل نشده است.',
+        'ارسال برای مشتری هنوز مجاز نیست؛ یکی از شرایط الزامی تحویل برقرار نیست.',
         `send blocked for work item ${context.workItemId}: ${finalBlockers.join(',')}`,
       );
     }
@@ -996,9 +1015,9 @@ export class FulfillmentService {
     let result: { success: boolean; providerMessageId?: string; failureCode?: string };
 
     if (channel === 'SELF_SERVICE') {
-      // Nothing leaves the process. The code is already encrypted against this
-      // order, and the customer reveals it themselves; "delivered" here means
-      // "available to the buyer", which is exactly what it now is.
+      // Nothing leaves the process. `SENT` is what opens the reveal endpoint, so
+      // from here the buyer can decrypt and read the whole card on their order
+      // page; "delivered" here means "readable by the buyer", which it now is.
       result = { success: true, providerMessageId: `self-service:${asset.id}` };
     } else if (
       asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&

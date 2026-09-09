@@ -8,7 +8,12 @@ import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { ChecklistService } from './checklist.service';
 import { SHIPPED_CHECKLIST_TEMPLATES } from './checklist-templates';
 import { FulfillmentService } from './fulfillment.service';
-import { GiftCardAssetService, GIFT_CARD_AUDIT_ACTIONS } from './gift-card-asset.service';
+import {
+  GiftCardAssetService,
+  GIFT_CARD_AUDIT_ACTIONS,
+  SECRET_READ_REASONS,
+  type RevealedAssetSecret,
+} from './gift-card-asset.service';
 import { SEND_BLOCKERS } from './checklist-evaluation';
 import type {
   PaymentReceiptService,
@@ -79,6 +84,8 @@ interface Harness {
   readonly store: InMemoryFulfillmentStore;
   readonly transport: MockAssetDeliveryTransport;
   readonly receipts: InMemoryPaymentReceiptService;
+  /** The one door to plaintext — the customer reveal goes through it too. */
+  readonly assets: GiftCardAssetService;
   readonly events: AuditEvent[];
 }
 
@@ -116,7 +123,7 @@ function harness(seed: SeedFulfillment = {}): Harness {
     bankDetailsEncryptionKey: () => Buffer.alloc(32, 7),
   } as never);
 
-  return { service, store, transport, receipts, events };
+  return { service, store, transport, receipts, assets, events };
 }
 
 /** Records a CODE_PIN asset with the given actual cost, as an operator would. */
@@ -141,6 +148,23 @@ async function tickBooleans(h: Harness): Promise<void> {
       checked: true,
     });
   }
+}
+
+/**
+ * What the customer's own order page would put on screen.
+ *
+ * `POST /orders/:orderNumber/delivery/reveal` checks the order belongs to the
+ * session and that the asset is `SENT`, then makes exactly this call — so what
+ * comes back here is what the buyer reads. Encryption is how the code rests in
+ * the database; it is never what the customer is handed.
+ */
+async function revealAsBuyer(h: Harness): Promise<RevealedAssetSecret> {
+  return h.assets.readSecret({
+    assetId: h.store.rawAssets()[0]?.id ?? 'no-asset',
+    actorId: 'customer-1',
+    actorType: 'CUSTOMER',
+    reason: SECRET_READ_REASONS.CUSTOMER_REVEAL,
+  });
 }
 
 beforeEach(() => {
@@ -269,6 +293,45 @@ describe('send gate', () => {
     expect(outcome.workspace.checklist.isLocked).toBe(true);
   });
 
+  it('publishes a manually fulfilled card to a mobile-only customer account', async () => {
+    const h = harness({ deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+    // Mirrors the production report exactly: the operator had explicitly ticked
+    // every row, including the legacy delivery-email row, so the workspace
+    // showed no blocker and opened the final confirmation modal.
+    const ready = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'DELIVERY_EMAIL_PRESENT',
+      checked: true,
+    });
+    expect(ready.canSend).toBe(true);
+
+    const outcome = await h.service.sendToCustomer({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+    });
+
+    expect(outcome.delivered).toBe(true);
+    expect(h.transport.getSendCount()).toBe(0);
+    expect(h.store.rawAssets()[0]?.status).toBe('SENT');
+    expect(h.store.attempts[0]?.recipientMasked).toBe('self-service');
+    expect(outcome.workspace.checklist.isLocked).toBe(true);
+    const sentEvent = h.events.find(
+      (event) => event.action === 'FULFILLMENT_SENT_TO_CUSTOMER',
+    );
+    expect(sentEvent).toMatchObject({ actor: OPERATOR.id });
+    expect(sentEvent?.payload).toContain('SELF_SERVICE');
+
+    /* The point of the whole channel: the buyer must end up with a code they
+     * can read and redeem. Not the mask, not the ciphertext — the card exactly
+     * as the operator typed it, PIN included. */
+    const buyerSees = await revealAsBuyer(h);
+    expect(buyerSees.code).toBe(PLAINTEXT_CODE);
+    expect(buyerSees.pin).toBe(PLAINTEXT_PIN);
+  });
+
   it('locks the checklist after a send, so a second send is refused', async () => {
     const h = harness();
     await recordAsset(h, '100.00');
@@ -304,6 +367,12 @@ describe('self-service delivery', () => {
     expect(h.transport.getSendCount()).toBe(0);
     expect(h.store.rawAssets()[0]?.status).toBe('SENT');
     expect(h.store.attempts[0]?.recipientMasked).toBe('self-service');
+
+    // Published means readable: the same card, in full, on the order page.
+    await expect(revealAsBuyer(h)).resolves.toMatchObject({
+      code: PLAINTEXT_CODE,
+      pin: PLAINTEXT_PIN,
+    });
   });
 
   it('still refuses when a blocking item other than the e-mail is unsatisfied', async () => {
