@@ -188,6 +188,16 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
                 <span>شروع</span>
                 <span className="bp-ltr">{item.startedAt ? formatJalaliDate(item.startedAt) : "—"}</span>
               </div>
+              {/* The server stamps `completedAt` on any transition that releases
+                  the order lock — the complete button and the fail button both
+                  do — so the label follows the status rather than claiming every
+                  closed task was finished successfully. `TaskLifecyclePanel`
+                  refreshes this route after the click, which is what puts the
+                  time on screen straight away. */}
+              <div className="kv-row">
+                <span>{item.status === "FAILED" ? "بسته‌شدن" : "تکمیل"}</span>
+                <span className="bp-ltr">{item.completedAt ? formatJalaliDate(item.completedAt) : "—"}</span>
+              </div>
               <div className="kv-row">
                 <span>موعد</span>
                 <span className="bp-ltr">{item.dueAt ? formatJalaliDate(item.dueAt) : "—"}</span>
