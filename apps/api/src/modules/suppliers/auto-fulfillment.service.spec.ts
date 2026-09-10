@@ -153,6 +153,10 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
     quotedSupplierCost: COST.amount,
     quotedSupplierCurrency: COST.currency,
   });
+  // One escalator for both services, on the same work-item store the assertions
+  // read: a cost-variance review lands next to the task, as in production.
+  const workItemsService = new WorkItemsService(workItems, audit);
+
   const fulfillment = new FulfillmentService(
     fulfillmentStore,
     new MockAssetDeliveryTransport(),
@@ -161,11 +165,11 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
     audit,
     { info: async () => null, readIfExists: async () => null } as never,
     { bankDetailsEncryptionKey: () => Buffer.alloc(32, 7) } as never,
+    workItemsService,
   );
 
   const provider = new MockSupplierProvider({ availability: { 'MOCK-SKU-1': 'AVAILABLE' } });
   const providers = options.withAdapter === false ? [] : [provider];
-  const workItemsService = new WorkItemsService(workItems, audit);
   const suppliers = new SuppliersService(
     supplierStore,
     providers,

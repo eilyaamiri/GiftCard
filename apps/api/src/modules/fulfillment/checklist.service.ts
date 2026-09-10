@@ -152,7 +152,7 @@ export class ChecklistService {
       }
     }
 
-    const sendBlockers = computeSendBlockers({ context, evaluation, variance, isLocked });
+    const sendBlockers = computeSendBlockers({ context, evaluation, isLocked });
 
     const view: ChecklistView = {
       id: record.id,
@@ -178,8 +178,8 @@ export class ChecklistService {
    * SYSTEM_VERIFIED and REQUIRED_FIELD rows can initially pass from their
    * underlying state, but neither is system-only: once an operator confirms one,
    * it becomes a normal BOOLEAN item with a named verifier and timestamp. Manager-
-   * only rows from old templates are excluded from the active checklist and remain
-   * separate from the independent cost-variance gate.
+   * only rows from old templates are excluded from the active checklist; the cost
+   * variance is assessed separately from the checklist either way.
    */
   async confirmItem(input: {
     context: FulfillmentContext;

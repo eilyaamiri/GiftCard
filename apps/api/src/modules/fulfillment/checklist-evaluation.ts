@@ -25,13 +25,22 @@ export const DELIVERABLE_ORDER_STATUSES: readonly OrderStatus[] = [
   'FULFILLING',
 ];
 
+/**
+ * Note what is NOT here: a cost variance.
+ *
+ * An out-of-tolerance supplier cost is a question about our own spend, not about
+ * the customer's entitlement — they paid, and the card is bought and sitting in
+ * our database. Holding the delivery until a manager is free punishes the buyer
+ * for our accounting, and the money has already left either way. So the variance
+ * is assessed, audited and routed to a manager for review (see
+ * `FulfillmentService.flagCostVariance`), and the send goes ahead regardless.
+ */
 export const SEND_BLOCKERS = {
   CHECKLIST_LOCKED: 'CHECKLIST_LOCKED',
   PAYMENT_NOT_VERIFIED: 'PAYMENT_NOT_VERIFIED',
   ORDER_NOT_DELIVERABLE: 'ORDER_NOT_DELIVERABLE',
   ASSET_MISSING: 'ASSET_MISSING',
   ACTUAL_COST_MISSING: 'ACTUAL_COST_MISSING',
-  COST_VARIANCE_UNAPPROVED: 'COST_VARIANCE_UNAPPROVED',
   CHECKLIST_INCOMPLETE: 'CHECKLIST_INCOMPLETE',
   DELIVERY_EMAIL_MISSING: 'DELIVERY_EMAIL_MISSING',
 } as const;
@@ -157,8 +166,8 @@ export function evaluateChecklist(input: {
   const { checklist, context, isLocked } = input;
 
   // Manager-only rows from an older template are no longer part of any active
-  // checklist. The financial cost-variance gate remains enforced independently
-  // in `computeSendBlockers`; hiding a legacy row cannot release that gate.
+  // checklist. The cost variance is assessed independently of them either way,
+  // so hiding a legacy row cannot hide a spend from its review.
   const activeRecords = checklist.items.filter((record) => record.type !== 'MANAGER_APPROVAL');
 
   // A locked checklist is frozen: it is the record of what was true at the moment
@@ -190,7 +199,9 @@ export function evaluateChecklist(input: {
     blockedReason = 'CHECKLIST_ITEM_FAILED';
   } else if (waitingApproval) {
     checklistStatus = 'BLOCKED';
-    blockedReason = SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED;
+    // A blocking row someone put in WAITING_APPROVAL. Not the cost gate — that
+    // one no longer exists — so it is named for what it actually is.
+    blockedReason = 'CHECKLIST_ITEM_WAITING_APPROVAL';
   } else if (unsatisfiedKeys.length === 0) {
     checklistStatus = 'READY_FOR_REVIEW';
   } else {
@@ -206,14 +217,18 @@ export function evaluateChecklist(input: {
  * Every condition is re-derived from the database snapshot. The frontend may have
  * shown a green checklist; that carries no weight here. An empty result means the
  * send may proceed.
+ *
+ * Every blocker below is a reason the customer cannot be given the card yet: no
+ * verified payment, no card on file, an order in a state that cannot be
+ * delivered. A cost variance is none of those — it is deliberately absent, and
+ * is handled as a review instead. See {@link SEND_BLOCKERS}.
  */
 export function computeSendBlockers(input: {
   context: FulfillmentContext;
   evaluation: ChecklistEvaluation;
-  variance: CostVarianceAssessment | null;
   isLocked: boolean;
 }): readonly SendBlocker[] {
-  const { context, evaluation, variance, isLocked } = input;
+  const { context, evaluation, isLocked } = input;
   const blockers: SendBlocker[] = [];
 
   if (isLocked) {
@@ -234,14 +249,6 @@ export function computeSendBlockers(input: {
 
   if (!isNonEmpty(context.fulfillment?.actualSupplierCost)) {
     blockers.push(SEND_BLOCKERS.ACTUAL_COST_MISSING);
-  }
-
-  if (variance !== null && variance.requiresApproval) {
-    const approved =
-      context.fulfillment?.approvedByStaffId != null && context.fulfillment?.approvedAt != null;
-    if (!approved) {
-      blockers.push(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
-    }
   }
 
   if (evaluation.unsatisfiedKeys.length > 0) {

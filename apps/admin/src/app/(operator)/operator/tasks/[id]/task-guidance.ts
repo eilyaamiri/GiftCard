@@ -41,12 +41,19 @@ export const TASK_GUIDANCE: Record<WorkItemType, TaskGuidance> = {
       "پس از اصلاح اطلاعات، کار را تکمیل کنید تا تحویل ادامه یابد.",
     ],
   },
+  /*
+   * Two escalations share this type: an unanswered supplier purchase, and a
+   * cost-variance review — an out-of-tolerance spend no longer holds the card, so
+   * a manager actually opening this task is the only remaining check on it. The
+   * last step is written for that second case.
+   */
   SUPPLIER_FOLLOWUP: {
     headline: "پاسخ تأمین‌کننده را پیگیری کنید؛ هرگز خرید دوم انجام ندهید.",
     steps: [
       "وضعیت خرید قبلی را نزد تأمین‌کننده استعلام کنید.",
       "نتیجهٔ پیگیری را در یادداشت پایانی کار ثبت کنید.",
       "اگر خرید انجام شده، نتیجهٔ آن را روی همان سفارش ثبت کنید — نه یک خرید تازه.",
+      "اگر این کار برای بررسی اختلاف هزینهٔ تأمین باز شده است، در تسک تحویل همان سفارش و در کارت «اختلاف هزینهٔ تأمین‌کننده» مبلغ ثبت‌شده را با استعلام مقایسه کنید و آن را تأیید یا اصلاح کنید؛ کد مشتری از قبل ارسال شده و منتظر این بررسی نیست.",
     ],
   },
   UNKNOWN_OUTCOME: {

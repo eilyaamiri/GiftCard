@@ -293,8 +293,9 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
       const outcome = await this.fulfillment.deliverBySelfService(target.workItemId);
       delivered = outcome.delivered;
     } catch {
-      // The send gate refused (an unapproved cost variance, say). The card is
-      // bought and stored; an operator resolves the blocker and sends it.
+      // The send gate refused (a missing delivery e-mail, say — no longer a cost
+      // variance, which is reviewed instead of enforced). The card is bought and
+      // stored; an operator resolves the blocker and sends it.
       delivered = false;
     }
 

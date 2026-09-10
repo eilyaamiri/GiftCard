@@ -122,9 +122,12 @@ export function FulfillmentPanel({
           variance={workspace.costVariance}
           recordedCost={workspace.supplierCost}
           canApprove={canApprove}
-          /* Correcting is pointless once the card is gone: the checklist locks on
-           * send, and the API refuses the call from that moment on. */
-          canCorrect={canCorrect && !workspace.checklist.isLocked}
+          /* Still offered after the send. The variance no longer holds the card,
+           * so the review a manager answers regularly arrives once the customer
+           * already has it — and a review that cannot fix a wrong figure would be
+           * a review of nothing. The API accepts the correction from a manager
+           * past the lock for the same reason. */
+          canCorrect={canCorrect}
           onApprove={async (reason) => {
             setWorkspace(await fulfillment.approveCostVariance(workItemId, reason));
           }}
