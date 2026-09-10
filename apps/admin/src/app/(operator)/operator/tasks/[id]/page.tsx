@@ -102,6 +102,10 @@ export default async function OperatorTaskDetailPage({ params }: { params: Promi
                   <p className="detail-value">{order.itemTitleFa ?? "—"}</p>
                 </div>
                 <div>
+                  <p className="detail-label">منطقه</p>
+                  <p className="detail-value bp-ltr">{order.region ?? "—"}</p>
+                </div>
+                <div>
                   <p className="detail-label">مبلغ پرداختی مشتری</p>
                   <p className="detail-value">{formatIrrStringAsToman(order.totalAmountIrr, { withSuffix: true })}</p>
                 </div>

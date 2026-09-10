@@ -17,6 +17,7 @@ export const operatorOrderSchema = z.object({
   totalAmountIrr: z.string(),
   currency: z.string(),
   itemTitleFa: z.string().nullable(),
+  region: z.string().nullable(),
   createdAt: isoDateTimeSchema,
   paidAt: isoDateTimeSchema.nullable(),
   fulfilledAt: isoDateTimeSchema.nullable(),

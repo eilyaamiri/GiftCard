@@ -604,7 +604,7 @@ export class OrdersService implements OrderPaymentBridge {
 
   /* ------------------------------------------------------------- mappers */
 
-  private toSummaryDto(row: OrderRow): OrderSummaryDto {
+  private toSummaryDto(row: OrderRow): OrderSummaryDto & { readonly region: string | null } {
     return {
       id: row.id,
       orderNumber: row.orderNumber,
@@ -613,6 +613,7 @@ export class OrdersService implements OrderPaymentBridge {
       displayAmountToman: row.displayAmountToman.toString() as IrrString,
       currency: row.currency,
       itemTitleFa: itemTitleFa(row),
+      region: row.quote.sku?.region ?? null,
       createdAt: row.createdAt.toISOString(),
       paidAt: row.paidAt?.toISOString() ?? null,
       fulfilledAt: row.fulfilledAt?.toISOString() ?? null,
