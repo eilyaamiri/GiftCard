@@ -272,6 +272,9 @@ describe('toAudienceBreakdown / against computeQuote output', () => {
         pricing.computeQuote(
           {
             supplierCostUsd: new Decimal(testCase.usd),
+            /* Bought at face value: this suite is about the fold summing to the
+             * total, not about where the margin came from. */
+            customerForeignAmount: new Decimal(testCase.usd),
             quantity: testCase.quantity,
             ...(testCase.discountIrr === undefined ? {} : { discountIrr: testCase.discountIrr }),
           },

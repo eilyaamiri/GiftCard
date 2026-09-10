@@ -51,14 +51,35 @@ const NON_NEGATIVE_IRR_FIELDS = [
  *   effectiveFxRate = marketFxRate
  *                   + applyBps(marketFxRate, fxSpreadBps)
  *                   + applyBps(marketFxRate, fxRiskBufferBps)
- *   supplierCostIrr = floor(supplierCostUsd x quantity x effectiveFxRate)
- *   paymentFee      = applyBps(supplierCostIrr, paymentFeeBps) + paymentFeeFixedIrr
- *   serviceFee      = applyBps(supplierCostIrr, serviceFeeBps) + serviceFeeFixedIrr
+ *   customerAmount  = floor(customerForeignAmount x quantity x effectiveFxRate)
+ *   supplierCostIrr = floor(supplierCostUsd      x quantity x effectiveFxRate)
+ *   paymentFee      = applyBps(customerAmount, paymentFeeBps) + paymentFeeFixedIrr
+ *   serviceFee      = applyBps(customerAmount, serviceFeeBps) + serviceFeeFixedIrr
  *   operationalFee  = operationalFeeIrr
- *   margin          = max(applyBps(supplierCostIrr, targetMarginBps), minimumMarginIrr)
+ *   productMargin   = customerAmount - supplierCostIrr
+ *   targetMargin    = applyBps(customerAmount, targetMarginBps)
+ *   margin          = max(productMargin + targetMargin, minimumMarginIrr)
  *   subtotal        = supplierCostIrr + paymentFee + serviceFee
  *                   + operationalFee + margin - discount
  *   finalAmountIrr  = roundUp(subtotal, roundingStepIrr)
+ *
+ * THE CHARGE BASE IS THE FACE VALUE, NOT THE COST. A $25 gift card is charged as
+ * $25 at the rate the site advertises, whatever we paid the supplier for it.
+ * Pricing off the cost instead — which is what this engine used to do — meant a
+ * card bought at $20.25 was sold for less than the dollars inside it were worth,
+ * so the better the purchase, the worse the deal we offered.
+ *
+ * Buying below face value now shows up where it belongs, as `productMargin`. The
+ * subtotal telescopes to `customerAmount + fees + targetMargin - discount`
+ * whenever the floor is not binding, which is why the component list still sums
+ * to `finalAmountIrr` with `supplierCostIrr` (via its FX lines) as its first
+ * entry: the supplier cost is an internal fact about OUR side of the trade, and
+ * the customer's fold in `quote-presentation.ts` reassembles the goods line as
+ * `supplierCostIrr + margin` — exactly the face value at the advertised rate.
+ *
+ * A service has no face value distinct from its cost, so its caller passes the
+ * same number for both, `productMargin` is zero, and the formula collapses back
+ * to the cost-plus one above.
  *
  * Two properties are load-bearing and must survive every future edit:
  *
@@ -82,6 +103,8 @@ export function computeQuote(
 
   const unitSupplierCostUsd = new FinancialDecimal(input.supplierCostUsd.toString());
   const totalSupplierCostUsd = unitSupplierCostUsd.mul(input.quantity.toString());
+  const unitCustomerForeignAmount = new FinancialDecimal(input.customerForeignAmount.toString());
+  const totalCustomerForeignAmount = unitCustomerForeignAmount.mul(input.quantity.toString());
 
   /*
    * The market observation is the snapshot MIDPOINT. buy/sell are retained on
@@ -115,13 +138,28 @@ export function computeQuote(
   const fxSpreadAmount = supplierCostAfterSpreadIrr - marketSupplierCostIrr;
   const fxRiskBufferAmount = supplierCostIrr - supplierCostAfterSpreadIrr;
 
-  const paymentFee = applyBps(supplierCostIrr, rule.paymentFeeBps) + rule.paymentFeeFixedIrr;
-  const serviceFee = applyBps(supplierCostIrr, rule.serviceFeeBps) + rule.serviceFeeFixedIrr;
+  /*
+   * The charge base. Converted at the SAME effective rate as the cost, so the
+   * pre-invoice quotes one rate and one rate only — the customer can multiply
+   * the face value by the rate we show them and arrive at our goods line.
+   */
+  const customerAmountIrr = decimalToIrr(totalCustomerForeignAmount, effectiveFxRate);
+
+  const paymentFee = applyBps(customerAmountIrr, rule.paymentFeeBps) + rule.paymentFeeFixedIrr;
+  const serviceFee = applyBps(customerAmountIrr, rule.serviceFeeBps) + rule.serviceFeeFixedIrr;
   const operationalFee = rule.operationalFeeIrr;
 
-  const targetMargin = applyBps(supplierCostIrr, rule.targetMarginBps);
-  const marginFloorApplied = targetMargin < rule.minimumMarginIrr;
-  const marginAmount = marginFloorApplied ? rule.minimumMarginIrr : targetMargin;
+  /*
+   * Margin has two sources and they are recorded separately: the gap between
+   * face value and what we paid, plus the rule's own markup. Their sum can be
+   * negative when a card costs more than it is worth — a supplier price that
+   * needs a human, not a silent loss — so `minimumMarginIrr` still floors it.
+   */
+  const productMarginAmount = customerAmountIrr - supplierCostIrr;
+  const targetMarginAmount = applyBps(customerAmountIrr, rule.targetMarginBps);
+  const earnedMargin = productMarginAmount + targetMarginAmount;
+  const marginFloorApplied = earnedMargin < rule.minimumMarginIrr;
+  const marginAmount = marginFloorApplied ? rule.minimumMarginIrr : earnedMargin;
   const discountAmount = input.discountIrr ?? 0n;
 
   const amountBeforeDiscount =
@@ -177,9 +215,15 @@ export function computeQuote(
     marketSupplierCostIrr,
     supplierCostIrr,
 
+    customerForeignAmount: decimalToPlainString(unitCustomerForeignAmount),
+    totalCustomerForeignAmount: decimalToPlainString(totalCustomerForeignAmount),
+    customerAmountIrr,
+
     paymentFee,
     serviceFee,
     operationalFee,
+    productMarginAmount,
+    targetMarginAmount,
     marginAmount,
     marginFloorApplied,
     discountAmount,
@@ -299,6 +343,9 @@ function validatePricingArguments(
   }
   if (!input.supplierCostUsd.isFinite() || input.supplierCostUsd.lessThan(0)) {
     throw new RangeError('Supplier cost must be a finite non-negative Decimal');
+  }
+  if (!input.customerForeignAmount.isFinite() || input.customerForeignAmount.lessThan(0)) {
+    throw new RangeError('Customer foreign amount must be a finite non-negative Decimal');
   }
   if (input.discountIrr !== undefined && input.discountIrr < 0n) {
     throw new RangeError('Discount may not be negative');

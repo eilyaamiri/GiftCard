@@ -8,7 +8,22 @@ import type {
 
 /** Inputs to the pure pricing formula. USD cost is exact Decimal, never number. */
 export interface PricingInput {
+  /**
+   * What one unit costs US, in USD — a negotiated number that has nothing to do
+   * with what is printed on the card. It sets our cost and our margin; it never
+   * sets the price.
+   */
   readonly supplierCostUsd: Decimal;
+  /**
+   * What the customer is buying, in USD, per unit: the face value of a gift
+   * card, or the requested amount of a service. THIS is what the price is
+   * computed from, so that a $25 card is charged as $25 at the rate the site
+   * advertises rather than as whatever we happened to pay for it.
+   *
+   * Required, with no default, on purpose: a caller that cannot tell the two
+   * apart has to say so explicitly by passing the supplier cost twice.
+   */
+  readonly customerForeignAmount: Decimal;
   readonly quantity: number;
   readonly discountIrr?: bigint;
 }
@@ -61,9 +76,26 @@ export interface PricingBreakdown {
   readonly marketSupplierCostIrr: bigint;
   readonly supplierCostIrr: bigint;
 
+  /**
+   * The charge base: what the customer is buying, converted at the rate they are
+   * shown. Fees and the target margin are all bps of this, and it is the figure
+   * the pre-invoice's «بهای کالا» line is built from.
+   */
+  readonly customerForeignAmount: string;
+  readonly totalCustomerForeignAmount: string;
+  readonly customerAmountIrr: bigint;
+
   readonly paymentFee: bigint;
   readonly serviceFee: bigint;
   readonly operationalFee: bigint;
+  /**
+   * The two halves of `marginAmount`, kept apart for the admin: what buying
+   * below face value earned us (`productMarginAmount`) versus what the rule's
+   * `targetMarginBps` added on top (`targetMarginAmount`). Their sum is the
+   * margin unless `minimumMarginIrr` had to lift it.
+   */
+  readonly productMarginAmount: bigint;
+  readonly targetMarginAmount: bigint;
   readonly marginAmount: bigint;
   readonly marginFloorApplied: boolean;
   readonly discountAmount: bigint;

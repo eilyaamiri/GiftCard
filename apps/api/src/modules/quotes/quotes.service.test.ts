@@ -597,6 +597,39 @@ describe('QuotesService.createQuote', () => {
     expect(Number.isFinite(ttlMs)).toBe(true);
   });
 
+  it('prices a gift card from its face value, not from what the supplier charges', async () => {
+    /*
+     * The SKU is a $50 card we buy at $46.512345. At a 920,000 mid rate and this
+     * rule's 2.0% spread + buffer the effective rate is 938,400, so:
+     *
+     *   charge base   = 50        x 938,400 = 46,920,000   <- what is quoted
+     *   supplier cost = 46.512345 x 938,400 = 43,647,184   <- what it costs us
+     *   fees          = 1% + 2% of base + 50,000 = 1,457,600
+     *   margin        = (46,920,000 - 43,647,184) + 5% of base = 5,618,816
+     *   final         = roundUp(50,723,600, 10,000)       = 50,730,000
+     */
+    const response = await context.service.createQuote(createRequest(), ACTOR);
+    const row = context.db.only();
+    const snapshot = row['snapshot'] as Record<string, unknown>;
+
+    expect(snapshot['customerForeignAmount']).toBe('50');
+    expect(snapshot['customerAmountIrr']).toBe('46920000');
+    expect(row['finalAmountIrr']).toBe(50_730_000n);
+
+    /* The internal figures are untouched by the change of charge base — the
+     * fulfillment tolerance check reads `supplierCostUsd` and compares it to a
+     * real invoice, so it has to stay the negotiated price. */
+    expect(snapshot['supplierCostUsd']).toBe('46.512345');
+    expect(snapshot['supplierCostIrr']).toBe('43647184');
+    expect(snapshot['productMarginAmount']).toBe('3272816');
+    expect(snapshot['targetMarginAmount']).toBe('2346000');
+
+    /* And the customer is charged more than the 50 dollars are worth, which is
+     * the entire point: a card bought cheaply is not a card sold cheaply. */
+    expect(BigInt(row['finalAmountIrr'] as bigint)).toBeGreaterThan(46_920_000n);
+    expect(response.quote.supplierCostUsd).toBe('50');
+  });
+
   it('never exposes supplier identity or supplier cost to the customer', async () => {
     const response = await context.service.createQuote(createRequest({ quantity: 2 }), ACTOR);
     const serialised = JSON.stringify(response);

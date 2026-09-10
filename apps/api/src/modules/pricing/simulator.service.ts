@@ -45,6 +45,15 @@ export class SimulatorService {
     const fx = suppliedFxSnapshot ?? buildSimulatorFxSnapshot(request.marketFxRate);
     const input: PricingInput = {
       supplierCostUsd: new Decimal(request.supplierCostForeign),
+      /*
+       * GAP: `simulateQuoteRequestSchema` in the frozen `@barat/contracts` has
+       * no field for what the customer is buying — it predates the split
+       * between face value and supplier cost. Until the Foundation agent adds
+       * one, the simulator prices a hypothetical card whose face value equals
+       * its cost, so it answers "what would this rule charge on a zero-discount
+       * purchase?" rather than reproducing a real SKU's quote.
+       */
+      customerForeignAmount: new Decimal(request.supplierCostForeign),
       quantity: request.quantity,
       ...(request.discountIrr === undefined
         ? {}

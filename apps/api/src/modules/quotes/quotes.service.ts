@@ -25,7 +25,7 @@ import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type SkuQuoteTarget } from '../catalog/catalog.service';
 import { PricingRuleService, toEnginePricingRule } from '../pricing/pricing-rule.service';
-import type { PricingRule } from '../pricing/pricing.types';
+import type { PricingBreakdown, PricingRule } from '../pricing/pricing.types';
 import {
   QUOTES_DATABASE,
   QUOTE_FX_AGGREGATOR,
@@ -148,8 +148,17 @@ export class QuotesService {
     }
 
     const rule = toEnginePricingRule(ruleRecord);
+    /*
+     * Two different dollars go into a quote: what the customer is buying (the
+     * card's face value) and what it costs us. The price is built from the
+     * first; the second only decides how much of that price is margin.
+     */
     const breakdown = this.pricing.computeQuote(
-      { supplierCostUsd: new Decimal(supplierCostUsd), quantity },
+      {
+        supplierCostUsd: new Decimal(supplierCostUsd),
+        customerForeignAmount: new Decimal(unitCustomerForeignAmount(target, input)),
+        quantity,
+      },
       rule,
       fx,
     );
@@ -158,7 +167,9 @@ export class QuotesService {
     const expiresAt = new Date(now.getTime() + rule.quoteTtlSeconds * 1_000);
     const quoteId = makeQuoteId();
     const quoteNumber = makeQuoteNumber(now);
-    const foreignAmount = customerForeignAmount(target, input, quantity);
+    /* Taken from the breakdown rather than recomputed, so the dollars shown to
+     * the customer are provably the dollars the price was built from. */
+    const foreignAmount = breakdown.totalCustomerForeignAmount;
     const serviceAccount =
       target.kind === 'service' ? this.sealServiceAccount(input.serviceFields ?? {}) : null;
     const snapshot = makeSnapshot({
@@ -169,6 +180,7 @@ export class QuotesService {
       target,
       rule,
       fx,
+      breakdown,
       wireBreakdown,
       foreignAmount,
       serviceAccount,
@@ -612,11 +624,19 @@ function makeQuoteNumber(now: Date): string {
   return `BQ-${day}-${suffix}`;
 }
 
-function customerForeignAmount(
-  target: QuoteTarget,
-  input: CreateQuoteRequest,
-  quantity: number,
-): string {
+/**
+ * What ONE unit is worth to the customer, in USD.
+ *
+ * For a gift card that is the face value printed on it — the number the site
+ * advertises and the number the price is computed from — never the supplier's
+ * discounted cost, which the customer neither sees nor buys at. For a service
+ * the customer names the amount themselves and there is nothing else it could
+ * be, so the two coincide and buying "below face value" cannot arise.
+ *
+ * The engine multiplies by quantity; returning a per-unit figure keeps that
+ * multiplication in exactly one place.
+ */
+function unitCustomerForeignAmount(target: QuoteTarget, input: CreateQuoteRequest): string {
   if (target.kind === 'service') {
     const amount = input.requestedAmountForeign;
     if (amount === undefined) {
@@ -626,9 +646,7 @@ function customerForeignAmount(
     }
     return amount;
   }
-  return new Decimal(target.sku.sku.faceValue.toString())
-    .mul(quantity.toString())
-    .toFixed(Math.min(6, new Decimal(target.sku.sku.faceValue.toString()).decimalPlaces()));
+  return target.sku.sku.faceValue.toString();
 }
 
 function makeSnapshot(params: {
@@ -639,6 +657,10 @@ function makeSnapshot(params: {
   readonly target: QuoteTarget;
   readonly rule: PricingRule;
   readonly fx: FxRateSnapshot;
+  /* The internal result as well as the wire one: the charge base and the two
+   * halves of the margin have no field in the frozen wire DTO, and an amount
+   * that cannot be re-derived years later is not an auditable amount. */
+  readonly breakdown: PricingBreakdown;
   readonly wireBreakdown: ReturnType<QuotePricingService['toWirePricingBreakdown']>;
   readonly foreignAmount: string;
   /** Sealed already: this function never sees a plaintext credential. */
@@ -654,6 +676,7 @@ function makeSnapshot(params: {
     target,
     rule,
     fx,
+    breakdown,
     wireBreakdown,
     foreignAmount,
     serviceAccount,
@@ -689,6 +712,11 @@ function makeSnapshot(params: {
     fxRiskBufferAmount: wireBreakdown.fxRiskBufferAmount,
     supplierCostUsd: databaseDecimalString(wireBreakdown.supplierCostForeign),
     supplierCostIrr: wireBreakdown.supplierCostIrr,
+    /* The charge base and how the margin was earned — admin/operator figures,
+     * never shown to the customer, but the reason the price is what it is. */
+    customerAmountIrr: breakdown.customerAmountIrr.toString(),
+    productMarginAmount: breakdown.productMarginAmount.toString(),
+    targetMarginAmount: breakdown.targetMarginAmount.toString(),
     paymentFee: wireBreakdown.paymentFee,
     serviceFee: wireBreakdown.serviceFee,
     operationalFee: wireBreakdown.operationalFee,
