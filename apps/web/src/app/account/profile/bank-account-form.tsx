@@ -5,10 +5,21 @@ import { ShieldCheck } from "lucide-react";
 import { Badge, Checkbox, FormMessage, Input, Label, Ltr, formatJalaliDate, toLatinDigits } from "@barat/ui";
 import { api, ApiClientError, type AccountProfile } from "@/lib/api";
 
-/** Group a partly-typed IBAN as `IR12 3456 …`, the way a bank statement prints it. */
-function formatIban(value: string): string {
-  const canonical = toLatinDigits(value).replace(/[\s-]/g, "").toUpperCase().slice(0, 26);
-  return canonical.replace(/(.{4})/g, "$1 ").trim();
+/**
+ * The 24 digits that follow `IR`, grouped in fours.
+ *
+ * `IR` is printed beside the field rather than typed into it — it is the same on
+ * every Iranian IBAN, so asking for it only invites a customer to delete it by
+ * accident. A pasted full IBAN still works: its prefix is dropped here.
+ */
+function formatIbanDigits(value: string): string {
+  const digits = toLatinDigits(value)
+    .trim()
+    .toUpperCase()
+    .replace(/^IR/, "")
+    .replace(/\D/g, "")
+    .slice(0, 24);
+  return digits.replace(/(.{4})/g, "$1 ").trim();
 }
 
 /** Group a partly-typed card as `6037 9900 0000 0121`. */
@@ -26,6 +37,11 @@ function formatCard(value: string): string {
  * add nothing to it. A profile with no name cannot make the claim at all, so the
  * form asks for the name first instead of failing on submit.
  *
+ * The IBAN and the card are alternatives, not a pair: either one identifies an
+ * account we can pay into, so the form asks for at least one and takes both when
+ * they are offered. Leaving one blank on a later edit keeps whatever is on file
+ * for it — the way to withdraw a number is the delete button.
+ *
  * Only masked values ever come back from the API, so there is nothing here that
  * could re-display a full IBAN or card number, not even right after saving.
  */
@@ -39,7 +55,8 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
   const canDeclare = !profile.requiresProfileCompletion && holderName.length > 0;
 
   const [editing, setEditing] = useState(false);
-  const [iban, setIban] = useState("");
+  /** Digits only. The `IR` in front of them is fixed text, not state. */
+  const [ibanDigits, setIbanDigits] = useState("");
   const [cardNumber, setCardNumber] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +66,7 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
 
   function open() {
     setEditing(true);
-    setIban("");
+    setIbanDigits("");
     setCardNumber("");
     setConfirmed(false);
     setError(null);
@@ -63,22 +80,31 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
     setIbanError(null);
     setCardError(null);
 
+    const iban = ibanDigits.replace(/\s/g, "");
+    const card = toLatinDigits(cardNumber).replace(/[\s-]/g, "");
+
+    if (iban.length === 0 && card.length === 0) {
+      setError("شماره شبا یا شماره کارت را وارد کنید؛ دست‌کم یکی از این دو لازم است.");
+      return;
+    }
     if (!confirmed) {
-      setError("برای ثبت، باید تأیید کنید که شبا و کارت به نام خودتان است.");
+      setError("برای ثبت، باید تأیید کنید که این حساب به نام خودتان است.");
       return;
     }
 
     setBusy(true);
     try {
       await api.saveBankAccount({
-        /* Sent unformatted; the API normalises Persian digits and separators
-         * and runs the checksums that actually decide validity. */
-        iban: toLatinDigits(iban).replace(/[\s-]/g, "").toUpperCase(),
-        cardNumber: toLatinDigits(cardNumber).replace(/[\s-]/g, ""),
+        /* A blank field is left out rather than sent empty: the API reads a
+         * missing number as "unchanged", not as "wrong". What is sent goes
+         * unformatted — the API normalises Persian digits and separators and
+         * runs the checksums that actually decide validity. */
+        ...(iban.length > 0 ? { iban: `IR${iban}` } : {}),
+        ...(card.length > 0 ? { cardNumber: card } : {}),
         ownershipConfirmed: confirmed,
       });
       setEditing(false);
-      setIban("");
+      setIbanDigits("");
       setCardNumber("");
       router.refresh();
     } catch (err) {
@@ -114,8 +140,8 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
         <div>
           <h3>حساب بانکی برای بازگشت وجه</h3>
           <p className="muted">
-            اگر مبلغی به شما بازگردانده شود، فقط به همین حساب واریز می‌شود. شماره شبا و شماره کارت
-            باید هر دو به نام خودتان باشد.
+            اگر مبلغی به شما بازگردانده شود، فقط به همین حساب واریز می‌شود. شماره شبا یا شماره کارت
+            — وارد کردن یکی از این دو کافی است — و هر کدام که ثبت می‌کنید باید به نام خودتان باشد.
           </p>
         </div>
         {stored ? (
@@ -141,17 +167,27 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
           </div>
           <div className="summary-line">
             <span>شماره شبا</span>
-            <strong className="profile-identity-value">
-              <Ltr>{stored.maskedIban}</Ltr>
-              {stored.ibanBankName ? <small className="muted">{stored.ibanBankName}</small> : null}
-            </strong>
+            {/* A number the customer chose not to give is shown as absent, not
+              * as an empty value: they may add it later from this same form. */}
+            {stored.maskedIban ? (
+              <strong className="profile-identity-value">
+                <Ltr>{stored.maskedIban}</Ltr>
+                {stored.ibanBankName ? <small className="muted">{stored.ibanBankName}</small> : null}
+              </strong>
+            ) : (
+              <span className="muted">ثبت نشده</span>
+            )}
           </div>
           <div className="summary-line">
             <span>شماره کارت</span>
-            <strong className="profile-identity-value">
-              <Ltr>{stored.maskedCardNumber}</Ltr>
-              {stored.cardBankName ? <small className="muted">{stored.cardBankName}</small> : null}
-            </strong>
+            {stored.maskedCardNumber ? (
+              <strong className="profile-identity-value">
+                <Ltr>{stored.maskedCardNumber}</Ltr>
+                {stored.cardBankName ? <small className="muted">{stored.cardBankName}</small> : null}
+              </strong>
+            ) : (
+              <span className="muted">ثبت نشده</span>
+            )}
           </div>
           <div className="summary-line">
             <span>تاریخ تأیید مالکیت</span>
@@ -179,8 +215,8 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
         <form onSubmit={submit} noValidate>
           {stored ? (
             <FormMessage tone="hint">
-              برای ویرایش، هر دو شماره را دوباره وارد کنید. مقادیر قبلی رمزنگاری‌شده‌اند و قابل
-              نمایش نیستند.
+              فقط شماره‌ای را که می‌خواهید تغییر دهید وارد کنید؛ شمارهٔ دیگر دست‌نخورده می‌ماند.
+              مقادیر قبلی رمزنگاری‌شده‌اند و قابل نمایش نیستند، برای همین اینجا خالی‌اند.
             </FormMessage>
           ) : null}
           <div className="field">
@@ -192,21 +228,27 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
             </FormMessage>
           </div>
 
+          <FormMessage tone="hint" id="bankNumbersHint">
+            پر کردن یکی از دو شمارهٔ زیر کافی است؛ اگر هر دو را وارد کنید، هر دو ثبت می‌شوند.
+          </FormMessage>
+
           <div className="field">
-            <Label htmlFor="bankIban" required>
-              شماره شبا
-            </Label>
+            <Label htmlFor="bankIban">شماره شبا</Label>
+            {/* `IR` is an adornment, not part of the value: the customer types
+              * the 24 digits and cannot delete or mistype the country code. */}
             <Input
               id="bankIban"
               name="iban"
-              inputMode="text"
+              className={ibanError ? "bank-number-field is-invalid" : "bank-number-field"}
+              startAdornment={<span className="bank-number-prefix">IR</span>}
+              inputMode="numeric"
               autoComplete="off"
               ltr
-              placeholder="IR00 0000 0000 0000 0000 0000 00"
-              value={iban}
-              onChange={(event) => setIban(formatIban(event.target.value))}
+              placeholder="0000 0000 0000 0000 0000 0000"
+              value={ibanDigits}
+              onChange={(event) => setIbanDigits(formatIbanDigits(event.target.value))}
               invalid={Boolean(ibanError)}
-              aria-describedby={ibanError ? "bankIbanError" : undefined}
+              aria-describedby={ibanError ? "bankIbanError" : "bankNumbersHint"}
             />
             <FormMessage tone="error" id="bankIbanError">
               {ibanError}
@@ -214,9 +256,7 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
           </div>
 
           <div className="field">
-            <Label htmlFor="bankCardNumber" required>
-              شماره کارت
-            </Label>
+            <Label htmlFor="bankCardNumber">شماره کارت</Label>
             <Input
               id="bankCardNumber"
               name="cardNumber"
@@ -227,7 +267,7 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
               value={cardNumber}
               onChange={(event) => setCardNumber(formatCard(event.target.value))}
               invalid={Boolean(cardError)}
-              aria-describedby={cardError ? "bankCardNumberError" : undefined}
+              aria-describedby={cardError ? "bankCardNumberError" : "bankNumbersHint"}
             />
             <FormMessage tone="error" id="bankCardNumberError">
               {cardError}
@@ -243,7 +283,7 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
               className="bank-attestation-checkbox"
               label={
                 <span className="bank-attestation-copy">
-                  <strong>تأیید می‌کنم این شبا و کارت به نام خودم است.</strong>
+                  <strong>تأیید می‌کنم این حساب به نام خودم است.</strong>
                   <small id="ownershipConfirmedHint">
                     واریز به حساب شخص دیگر انجام نمی‌شود و در صورت مغایرت، بازگشت وجه متوقف می‌شود.
                   </small>

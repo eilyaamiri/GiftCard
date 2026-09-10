@@ -37,14 +37,36 @@ export const updateAccountEmailRequestSchema = z.object({
 export type UpdateAccountEmailRequest = z.infer<typeof updateAccountEmailRequestSchema>;
 
 /**
+ * A number the customer left blank. The form submits both fields whichever one
+ * was filled in, so an empty string has to mean "not provided" rather than "an
+ * invalid number"; from here on that is `undefined`.
+ *
+ * Only the size guard lives here. Length and checksum belong to
+ * `bank-details.utils.ts`, which rejects each one with the Persian message the
+ * customer should actually read.
+ */
+const optionalBankNumber = z
+  .string()
+  .trim()
+  .max(40)
+  .transform((value) => (value.length === 0 ? undefined : value))
+  /* Last, so the key itself is optional rather than a required `string |
+   * undefined` — a caller may leave the field out entirely. */
+  .optional();
+
+/**
  * Deliberately loose on shape and strict on meaning: the IBAN and the card may
  * arrive with spaces, dashes or Persian digits, and the checksum rules in
  * `bank-details.utils.ts` decide whether they are real. `ownershipConfirmed` is
- * the customer's statement that both belong to them.
+ * the customer's statement that what they sent belongs to them.
+ *
+ * Either number alone is a usable payout destination, so neither is required
+ * here. "At least one of the two" is enforced by `BankDetailsService`, which can
+ * say so in Persian and can see what is already on file.
  */
 export const saveBankAccountRequestSchema = z.object({
-  iban: z.string().trim().min(20).max(40),
-  cardNumber: z.string().trim().min(16).max(25),
+  iban: optionalBankNumber,
+  cardNumber: optionalBankNumber,
   ownershipConfirmed: z.boolean(),
 });
 export type SaveBankAccountRequest = z.infer<typeof saveBankAccountRequestSchema>;

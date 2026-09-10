@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { open } from '../../common/crypto/aead-envelope';
 import { BaratDomainException } from '../../common/errors/domain.exception';
+import { saveBankAccountRequestSchema } from '../identity/identity.schemas';
 import { BankDetailsService } from './bank-details.service';
 import type { CustomersDatabase } from './customers.tokens';
 
@@ -39,9 +40,23 @@ function harness(
         void args;
         return stored;
       }),
-      upsert: vi.fn(async (args: { create: Record<string, unknown> }) => {
+      upsert: vi.fn(async (args: { create: Record<string, unknown>; update: Record<string, unknown> }) => {
         created(args);
-        stored = { ...args.create, updatedAt: new Date('2026-09-01T00:00:00.000Z') };
+        /* The real upsert takes one branch or the other, and the difference
+         * matters here: `update` only carries the columns the service chose to
+         * write, so an untouched number has to survive it. */
+        stored =
+          stored === null
+            ? {
+                /* The nullable columns start as NULL in the database, so a row
+                 * built here has to start the same way rather than leaving them
+                 * off the object entirely. */
+                ibanBankName: null,
+                cardBankName: null,
+                ...args.create,
+                updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+              }
+            : { ...stored, ...args.update, updatedAt: new Date('2026-09-02T00:00:00.000Z') };
         return stored;
       }),
       delete: vi.fn(async (args: unknown) => {
@@ -61,6 +76,27 @@ function harness(
   const service = new BankDetailsService(database, config, { record } as never);
   return { service, database, created, deleted, record, row: () => stored };
 }
+
+describe('saveBankAccountRequestSchema', () => {
+  it('reads a blank field as a number the customer did not provide', () => {
+    /* The form submits both boxes whichever one was filled in, so an empty
+     * string must not travel on as a number to validate. */
+    const parsed = saveBankAccountRequestSchema.parse({
+      iban: VALID_IBAN,
+      cardNumber: '   ',
+      ownershipConfirmed: true,
+    });
+
+    expect(parsed.iban).toBe(VALID_IBAN);
+    expect(parsed.cardNumber).toBeUndefined();
+  });
+
+  it('accepts a payload that names only one of the two', () => {
+    expect(
+      saveBankAccountRequestSchema.parse({ cardNumber: VALID_CARD, ownershipConfirmed: true }),
+    ).toMatchObject({ cardNumber: VALID_CARD });
+  });
+});
 
 describe('BankDetailsService.save', () => {
   it('refuses to store details the customer has not claimed as their own', async () => {
@@ -159,6 +195,79 @@ describe('BankDetailsService.save', () => {
     expect(entry).not.toContain('cardEncrypted');
   });
 
+  it('stores an IBAN on its own, with nothing readable standing in for the card', async () => {
+    const { service, row } = harness();
+
+    const saved = await service.save(
+      'customer-a',
+      { iban: VALID_IBAN, ownershipConfirmed: true },
+      ACTOR,
+    );
+
+    expect(saved.maskedIban).toBe('IR56017***************1234');
+    /* Absent, not "an empty card number": the column the frozen schema insists
+     * on is blank and never reaches the customer as a value. */
+    expect(saved.maskedCardNumber).toBeNull();
+    expect(saved.cardBankName).toBeNull();
+    expect(row()?.cardEncrypted).toBe('');
+    expect(row()?.cardMasked).toBe('');
+  });
+
+  it('stores a card on its own', async () => {
+    const { service, row } = harness();
+
+    const saved = await service.save(
+      'customer-a',
+      { cardNumber: VALID_CARD, ownershipConfirmed: true },
+      ACTOR,
+    );
+
+    expect(saved.maskedCardNumber).toBe('6037-99**-****-0121');
+    expect(saved.maskedIban).toBeNull();
+    expect(saved.ibanBankName).toBeNull();
+    expect(open(String(row()?.cardEncrypted), KEY, CARD_AAD)).toBe(VALID_CARD);
+    expect(row()?.ibanEncrypted).toBe('');
+  });
+
+  it('refuses a declaration that names no account at all', async () => {
+    const { service, created } = harness();
+
+    const error = await service
+      .save('customer-a', { ownershipConfirmed: true }, ACTOR)
+      .catch((thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(BaratDomainException);
+    expect((error as BaratDomainException).details?.[0]?.path).toBe('iban');
+    expect(created).not.toHaveBeenCalled();
+  });
+
+  it('leaves the number already on file alone when only the other one is re-declared', async () => {
+    const { service } = harness();
+    await service.save('customer-a', { iban: VALID_IBAN, ownershipConfirmed: true }, ACTOR);
+
+    const saved = await service.save(
+      'customer-a',
+      { cardNumber: VALID_CARD, ownershipConfirmed: true },
+      ACTOR,
+    );
+
+    expect(saved.maskedCardNumber).toBe('6037-99**-****-0121');
+    expect(saved.maskedIban).toBe('IR56017***************1234');
+  });
+
+  it('reports the resulting account in the audit trail, not just the half that changed', async () => {
+    const { service, record } = harness();
+    await service.save('customer-a', { iban: VALID_IBAN, ownershipConfirmed: true }, ACTOR);
+    await service.save('customer-a', { cardNumber: VALID_CARD, ownershipConfirmed: true }, ACTOR);
+
+    expect(record.mock.calls[1]?.[0]).toMatchObject({
+      after: {
+        ibanMasked: 'IR56017***************1234',
+        cardMasked: '6037-99**-****-0121',
+      },
+    });
+  });
+
   it('clears an earlier verification when the numbers are re-declared', async () => {
     const { service, row } = harness({
       existing: {
@@ -204,6 +313,26 @@ describe('BankDetailsService.get', () => {
       maskedIban: 'IR56017***************1234',
       maskedCardNumber: '6037-99**-****-0121',
       isVerified: false,
+    });
+  });
+
+  it('reads a blank column back as a number that was never declared', async () => {
+    const { service } = harness({
+      existing: {
+        holderName: 'یکتا کریمی',
+        ibanMasked: 'IR56017***************1234',
+        ibanBankName: 'بانک ملی ایران',
+        cardMasked: '',
+        cardBankName: null,
+        ownershipAttestedAt: new Date('2026-09-01T00:00:00.000Z'),
+        verifiedAt: null,
+        updatedAt: new Date('2026-09-01T00:00:00.000Z'),
+      },
+    });
+
+    await expect(service.get('customer-a')).resolves.toMatchObject({
+      maskedIban: 'IR56017***************1234',
+      maskedCardNumber: null,
     });
   });
 
