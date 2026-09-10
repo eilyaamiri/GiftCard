@@ -256,6 +256,31 @@ export const revealedDeliverySchema = z.object({
 });
 export type RevealedDelivery = z.infer<typeof revealedDeliverySchema>;
 
+/**
+ * A line in the account bell.
+ *
+ * `kind` is left open on purpose: the API derives these from orders, refunds and
+ * support replies, and a new kind must not blank the whole list in a browser
+ * that shipped before it. The panel renders `title`/`body` as they arrive and
+ * only uses `kind` to pick an icon, with a fallback.
+ */
+export const accountNotificationSchema = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().nullable(),
+  href: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type AccountNotification = z.infer<typeof accountNotificationSchema>;
+
+export const accountNotificationFeedSchema = z.object({
+  items: z.array(accountNotificationSchema),
+  /** Server time the feed was built; the panel keeps it as its read marker. */
+  generatedAt: isoDateTimeSchema,
+});
+export type AccountNotificationFeed = z.infer<typeof accountNotificationFeedSchema>;
+
 const accountOrdersSchema = pagedSchema(accountOrderSchema);
 const accountPaymentsSchema = pagedSchema(accountPaymentSchema);
 const accountRefundsSchema = pagedSchema(accountRefundSchema);
@@ -316,6 +341,7 @@ export const api = {
   accountOrder: (orderId: string) => request<AccountOrder>(`/api/account/orders/${encodeURIComponent(orderId)}`, undefined, accountOrderSchema),
   accountPayments: (params?: { readonly page?: number; readonly pageSize?: number }) => request<Paged<AccountPayment>>(`/api/account/payments${pageQuery(params)}`, undefined, accountPaymentsSchema),
   accountRefunds: (params?: { readonly page?: number; readonly pageSize?: number }) => request<Paged<AccountRefund>>(`/api/account/refunds${pageQuery(params)}`, undefined, accountRefundsSchema),
+  accountNotifications: () => request<AccountNotificationFeed>("/api/account/notifications", undefined, accountNotificationFeedSchema),
   supportRequests: () => request<readonly SupportTicket[]>("/api/account/support", undefined, supportTicketsSchema),
   createSupportRequest: (payload: CreateSupportRequest) => request<SupportTicket>("/api/account/support", { method: "POST", body: JSON.stringify(payload) }, supportTicketSchema),
   supportRequest: (ticketId: string) => request<SupportTicket>(`/api/account/support/${encodeURIComponent(ticketId)}`, undefined, supportTicketSchema),

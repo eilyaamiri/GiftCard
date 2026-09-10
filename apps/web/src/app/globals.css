@@ -162,11 +162,25 @@ a { color:inherit; text-decoration:none; }
 .account-profile-logout { width:100%; min-height:40px; display:flex; align-items:center; justify-content:center; gap:8px; padding:0 10px; color:#b73a3a; background:#fffafa; border:1px solid #f3dada; border-radius:9px; cursor:pointer; font-size:11px; font-weight:900; }
 .account-profile-logout:hover,.account-profile-logout:focus-visible { background:#fdeceb; outline:2px solid #f3dada; outline-offset:1px; }
 .account-profile-logout:disabled { cursor:progress; opacity:.65; }
-.account-icon-button { width:40px; height:40px; display:grid; place-items:center; color:var(--slate); background:#fff; border:1px solid var(--line); border-radius:11px; cursor:pointer; }
+.account-icon-button { position:relative; width:40px; height:40px; display:grid; place-items:center; color:var(--slate); background:#fff; border:1px solid var(--line); border-radius:11px; cursor:pointer; }
 .account-icon-button:hover,.account-icon-button:focus-visible,.account-notifications[open] .account-icon-button { color:var(--teal); border-color:#8adcd9; background:var(--soft); outline:none; }
-.account-notification-menu { position:absolute; z-index:35; top:calc(100% + 8px); left:0; width:250px; padding:14px; background:#fff; border:1px solid var(--line); border-radius:13px; box-shadow:0 14px 32px rgba(11,29,51,.12); }
-.account-notification-menu strong { display:block; color:var(--ink); font-size:12px; }
-.account-notification-menu p { margin:7px 0 0; color:var(--slate); font-size:10px; line-height:1.8; }
+.account-notification-dot { position:absolute; top:6px; right:6px; width:8px; height:8px; background:#e25555; border:2px solid #fff; border-radius:50%; box-sizing:content-box; }
+.account-notification-menu { position:absolute; z-index:35; top:calc(100% + 8px); left:0; width:min(360px,calc(100vw - 28px)); overflow:hidden; background:#fff; border:1px solid var(--line); border-radius:13px; box-shadow:0 14px 32px rgba(11,29,51,.12); }
+.account-notification-head { min-height:48px; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 14px; border-bottom:1px solid var(--line); }
+.account-notification-head strong { color:var(--ink); font-size:12px; }
+.account-notification-head span { color:var(--teal); font-size:9px; font-weight:900; }
+.account-notification-list { max-height:min(430px,calc(100vh - 150px)); display:grid; gap:2px; overflow-y:auto; padding:6px; }
+.account-notification-item { min-width:0; display:flex; align-items:flex-start; gap:10px; padding:10px 9px; color:var(--ink); border-radius:9px; }
+.account-notification-item:hover,.account-notification-item:focus-visible { background:var(--soft); outline:none; }
+.account-notification-kind { width:30px; height:30px; flex:0 0 30px; display:grid; place-items:center; color:var(--teal); background:var(--mint); border-radius:9px; }
+.account-notification-copy { min-width:0; display:grid; gap:3px; }
+.account-notification-copy strong { color:var(--ink); font-size:11px; line-height:1.7; }
+.account-notification-copy > span { overflow:hidden; color:var(--slate); font-size:10px; line-height:1.7; text-overflow:ellipsis; white-space:nowrap; }
+.account-notification-copy time { color:#8a9aa8; direction:ltr; font-size:9px; text-align:right; }
+.account-notification-state { min-height:92px; display:grid; place-items:center; align-content:center; gap:8px; margin:0; padding:18px; color:var(--slate); font-size:10px; line-height:1.8; text-align:center; }
+.account-notification-state p { margin:0; }
+.account-notification-state button { min-height:30px; padding:0 11px; color:var(--teal); background:var(--soft); border:1px solid #bce8e6; border-radius:8px; cursor:pointer; font:inherit; font-weight:900; }
+.account-notification-state button:hover,.account-notification-state button:focus-visible { background:var(--mint); outline:2px solid #bce8e6; outline-offset:1px; }
 .account-panel-search { position:relative; min-width:0; width:min(280px,27vw); direction:rtl; }
 .account-search-field { width:100%; height:40px; display:flex; align-items:center; gap:8px; padding:0 12px; color:var(--slate); background:var(--soft); border:1px solid transparent; border-radius:11px; }
 .account-search-field:focus-within { border-color:#8adcd9; background:#fff; }

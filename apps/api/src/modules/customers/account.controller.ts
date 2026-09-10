@@ -26,8 +26,10 @@ import { CurrentCustomer, RequestMetadata } from '../identity/rbac/current-actor
 import { CustomerScoped } from '../identity/rbac/roles.decorator';
 import { AccountService } from './account.service';
 import { BankDetailsService } from './bank-details.service';
+import { NotificationsService } from './notifications.service';
 import { SupportService, type SupportTicketDto } from './support.service';
 import type {
+  AccountNotificationFeed,
   AccountOrderDto,
   AccountPaymentDto,
   AccountRefundDto,
@@ -53,7 +55,17 @@ export class AccountController {
     private readonly account: AccountService,
     private readonly support: SupportService,
     private readonly bankDetails: BankDetailsService,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  @Get('notifications')
+  @ApiOperation({ summary: "The signed-in customer's notification feed" })
+  @ApiOkResponse({
+    description: 'Derived from the caller’s own orders, refunds and support replies',
+  })
+  async notificationFeed(@CurrentCustomer() customerId: string): Promise<AccountNotificationFeed> {
+    return this.notifications.list(customerId);
+  }
 
   @Get('profile')
   @ApiOperation({ summary: 'The signed-in customer profile' })

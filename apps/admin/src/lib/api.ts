@@ -102,6 +102,23 @@ export const staffLoginResponseSchema = staffUserSchema.extend({
 });
 export type StaffLoginResponse = z.infer<typeof staffLoginResponseSchema>;
 
+/** A derived line in the staff bell; unknown future kinds still render safely. */
+export const staffNotificationSchema = z.object({
+  id: z.string().min(1),
+  kind: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().nullable(),
+  href: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type StaffNotification = z.infer<typeof staffNotificationSchema>;
+
+export const staffNotificationFeedSchema = z.object({
+  items: z.array(staffNotificationSchema),
+  generatedAt: isoDateTimeSchema,
+});
+export type StaffNotificationFeed = z.infer<typeof staffNotificationFeedSchema>;
+
 export const api = {
   staffLogin: (payload: StaffLoginRequest) =>
     request<StaffLoginResponse>(
@@ -110,6 +127,12 @@ export const api = {
       staffLoginResponseSchema,
     ),
   staffMe: () => request<StaffUser>("/api/auth/staff/me", undefined, staffUserSchema),
+  staffNotifications: () =>
+    request<StaffNotificationFeed>(
+      "/api/staff/notifications",
+      undefined,
+      staffNotificationFeedSchema,
+    ),
   staffLogout: () =>
     request<LogoutResponse>("/api/auth/staff/logout", { method: "POST" }, logoutResponseSchema),
 
