@@ -69,6 +69,45 @@ export interface AccountRefundDto {
   readonly processedAt: string | null;
 }
 
+/* --------------------------------------------------------- notification feed */
+
+export type AccountNotificationKind =
+  | 'ORDER_PLACED'
+  | 'ORDER_PAID'
+  | 'ORDER_DELIVERED'
+  | 'ORDER_CANCELLED'
+  | 'ORDER_FAILED'
+  | 'ORDER_REVIEW_REQUIRED'
+  | 'REFUND_REQUESTED'
+  | 'REFUND_COMPLETED'
+  | 'REFUND_REJECTED'
+  | 'REFUND_FAILED'
+  | 'SUPPORT_REPLY';
+
+/**
+ * One line in the customer's notification list.
+ *
+ * `id` is derived from the row and the event (`order:<id>:paid`), not generated,
+ * so the same event keeps the same id across requests. The client's read marker
+ * depends on that stability.
+ */
+export interface AccountNotificationDto {
+  readonly id: string;
+  readonly kind: AccountNotificationKind;
+  /** Ready to render. The API owns the Persian copy, as it does for errors. */
+  readonly title: string;
+  readonly body: string | null;
+  /** Panel-relative destination, or `null` when there is nowhere to go. */
+  readonly href: string | null;
+  readonly createdAt: string;
+}
+
+export interface AccountNotificationFeed {
+  readonly items: readonly AccountNotificationDto[];
+  /** Server time the feed was built. The client stores it as its read marker. */
+  readonly generatedAt: string;
+}
+
 export interface PagedResult<TItem> {
   readonly items: readonly TItem[];
   readonly meta: {

@@ -1,7 +1,13 @@
 import { Module } from '@nestjs/common';
+import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
 import { PrismaWorkItemStore } from './prisma-workitem.store';
+import { StaffNotificationsController } from './staff-notifications.controller';
+import {
+  STAFF_NOTIFICATIONS_DATABASE,
+  StaffNotificationsService,
+} from './staff-notifications.service';
 import { WorkItemsController } from './workitems.controller';
 import { WorkItemsService } from './workitems.service';
 import { FULFILLMENT_TRIGGER, WORK_ITEM_ESCALATOR, WORK_ITEM_STORE } from './workitems.types';
@@ -13,9 +19,11 @@ import { FULFILLMENT_TRIGGER, WORK_ITEM_ESCALATOR, WORK_ITEM_STORE } from './wor
  */
 @Module({
   imports: [AuditModule],
-  controllers: [WorkItemsController],
+  controllers: [WorkItemsController, StaffNotificationsController],
   providers: [
     { provide: WORK_ITEM_STORE, useClass: PrismaWorkItemStore },
+    { provide: STAFF_NOTIFICATIONS_DATABASE, useValue: prisma },
+    StaffNotificationsService,
     WorkItemsService,
     { provide: FULFILLMENT_TRIGGER, useExisting: WorkItemsService },
     { provide: WORK_ITEM_ESCALATOR, useExisting: WorkItemsService },

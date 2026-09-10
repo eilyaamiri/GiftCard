@@ -8,6 +8,7 @@ import { BankDetailsService } from './bank-details.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CUSTOMERS_DATABASE } from './customers.tokens';
+import { NotificationsService } from './notifications.service';
 import { SupportController } from './support.controller';
 import { SupportService } from './support.service';
 
@@ -26,6 +27,7 @@ import { SupportService } from './support.service';
     AccountService,
     BankDetailsService,
     CustomersService,
+    NotificationsService,
     SupportService,
   ],
   exports: [AccountService, CustomersService, SupportService],

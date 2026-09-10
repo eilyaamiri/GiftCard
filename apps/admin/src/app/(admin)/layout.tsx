@@ -25,6 +25,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AppShell
         sections={sections}
         title={title}
+        staffId={staff.id}
         staffName={staff.email}
         staffRoleLabel={STAFF_ROLE_LABELS[staff.role]}
         profileShortcuts={profileShortcuts}

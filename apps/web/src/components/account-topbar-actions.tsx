@@ -1,19 +1,32 @@
 'use client';
 
 import Link from 'next/link';
+import { formatJalaliDate, toPersianDigits } from '@barat/ui';
 import {
   Bell,
+  CircleAlert,
+  CircleCheckBig,
+  CreditCard,
   ChevronDown,
   LayoutDashboard,
   LifeBuoy,
+  MessageCircle,
   ReceiptText,
+  RotateCcw,
   Search,
   Settings2,
   ShoppingBag,
   type LucideIcon,
 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LogoutButton } from '@/app/account/logout-button';
+import { api, type AccountNotificationFeed } from '@/lib/api';
+import {
+  readMarkerStorageKey,
+  readStoredMarker,
+  unreadCount,
+  writeStoredMarker,
+} from '@/lib/notification-feed';
 
 interface AccountShortcut {
   href: string;
@@ -29,6 +42,17 @@ const SHORTCUTS: readonly AccountShortcut[] = [
   { href: '/account/support', label: 'پشتیبانی و تیکت‌ها', icon: LifeBuoy },
 ];
 
+const NOTIFICATION_POLL_MS = 60_000;
+
+function notificationIcon(kind: string): LucideIcon {
+  if (kind === 'SUPPORT_REPLY') return MessageCircle;
+  if (kind.startsWith('REFUND_')) return RotateCcw;
+  if (kind === 'ORDER_DELIVERED') return CircleCheckBig;
+  if (kind === 'ORDER_PAID') return CreditCard;
+  if (kind === 'ORDER_CANCELLED' || kind === 'ORDER_FAILED') return CircleAlert;
+  return ShoppingBag;
+}
+
 export function AccountTopbarActions({
   name,
   customerCode,
@@ -39,8 +63,74 @@ export function AccountTopbarActions({
   initial: string;
 }>) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [notificationFeed, setNotificationFeed] = useState<AccountNotificationFeed | null>(null);
+  const [notificationStatus, setNotificationStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  const [notificationReadThrough, setNotificationReadThrough] = useState<string | null>(null);
   const profileRef = useRef<HTMLDetailsElement>(null);
   const notificationsRef = useRef<HTMLDetailsElement>(null);
+  const notificationReadThroughRef = useRef<string | null>(null);
+  const notificationRequestRef = useRef(0);
+  const mountedRef = useRef(false);
+  const notificationStorageKey = readMarkerStorageKey(customerCode);
+
+  const markNotificationsRead = useCallback(
+    (marker: string) => {
+      notificationReadThroughRef.current = marker;
+      setNotificationReadThrough(marker);
+      writeStoredMarker(notificationStorageKey, marker);
+    },
+    [notificationStorageKey],
+  );
+
+  const refreshNotifications = useCallback(async () => {
+    const requestId = ++notificationRequestRef.current;
+    try {
+      const nextFeed = await api.accountNotifications();
+      if (!mountedRef.current || requestId !== notificationRequestRef.current) return;
+
+      setNotificationFeed(nextFeed);
+      setNotificationStatus('ready');
+      /* Seed on first load, and keep the marker moving while the panel is open —
+       * the customer is looking at the list as the new lines arrive. */
+      if (notificationReadThroughRef.current === null || notificationsRef.current?.open) {
+        markNotificationsRead(nextFeed.generatedAt);
+      }
+    } catch {
+      if (mountedRef.current && requestId === notificationRequestRef.current) {
+        setNotificationStatus('error');
+      }
+    }
+  }, [markNotificationsRead]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const storedMarker = readStoredMarker(notificationStorageKey);
+    notificationReadThroughRef.current = storedMarker;
+    setNotificationReadThrough(storedMarker);
+    void refreshNotifications();
+
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    }, NOTIFICATION_POLL_MS);
+    const refreshVisibleFeed = () => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    };
+    document.addEventListener('visibilitychange', refreshVisibleFeed);
+
+    return () => {
+      mountedRef.current = false;
+      notificationRequestRef.current += 1;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisibleFeed);
+    };
+  }, [notificationStorageKey, refreshNotifications]);
+
+  const unreadNotificationCount = unreadCount(
+    notificationFeed?.items ?? [],
+    notificationReadThrough,
+  );
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase('fa');
   const searchResults =
     normalizedQuery.length === 0
@@ -104,17 +194,84 @@ export function AccountTopbarActions({
         className="account-notifications"
         ref={notificationsRef}
         onToggle={(event) => {
-          if (event.currentTarget.open && profileRef.current) {
-            profileRef.current.open = false;
-          }
+          if (!event.currentTarget.open) return;
+          if (profileRef.current) profileRef.current.open = false;
+          if (notificationFeed !== null) markNotificationsRead(notificationFeed.generatedAt);
+          void refreshNotifications();
         }}
       >
-        <summary className="account-icon-button" aria-label="اعلان‌ها">
+        <summary
+          className="account-icon-button"
+          aria-label={
+            unreadNotificationCount > 0
+              ? `${toPersianDigits(unreadNotificationCount)} اعلان خوانده‌نشده`
+              : 'اعلان‌ها'
+          }
+        >
           <Bell size={18} aria-hidden="true" />
+          {unreadNotificationCount > 0 ? (
+            <span className="account-notification-dot" aria-hidden="true" />
+          ) : null}
         </summary>
         <div className="account-notification-menu">
-          <strong>اعلان‌ها</strong>
-          <p>اعلان جدیدی برای حساب شما ثبت نشده است.</p>
+          <div className="account-notification-head">
+            <strong>اعلان‌ها</strong>
+            {unreadNotificationCount > 0 ? (
+              <span>{toPersianDigits(unreadNotificationCount)} خوانده‌نشده</span>
+            ) : null}
+          </div>
+          {notificationFeed !== null && notificationFeed.items.length > 0 ? (
+            <div className="account-notification-list" role="list">
+              {notificationFeed.items.map((notification) => {
+                const NotificationIcon = notificationIcon(notification.kind);
+                const content = (
+                  <>
+                    <span className="account-notification-kind">
+                      <NotificationIcon size={15} aria-hidden="true" />
+                    </span>
+                    <span className="account-notification-copy">
+                      <strong>{notification.title}</strong>
+                      {notification.body ? <span>{notification.body}</span> : null}
+                      <time dateTime={notification.createdAt}>
+                        {formatJalaliDate(notification.createdAt)}
+                      </time>
+                    </span>
+                  </>
+                );
+
+                return notification.href ? (
+                  <Link
+                    href={notification.href}
+                    className="account-notification-item"
+                    role="listitem"
+                    key={notification.id}
+                    onClick={() => {
+                      if (notificationsRef.current) notificationsRef.current.open = false;
+                    }}
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <div className="account-notification-item" role="listitem" key={notification.id}>
+                    {content}
+                  </div>
+                );
+              })}
+            </div>
+          ) : notificationStatus === 'loading' ? (
+            <p className="account-notification-state" aria-live="polite">
+              در حال دریافت اعلان‌ها…
+            </p>
+          ) : notificationStatus === 'error' ? (
+            <div className="account-notification-state" role="alert">
+              <p>دریافت اعلان‌ها ممکن نشد.</p>
+              <button type="button" onClick={() => void refreshNotifications()}>
+                تلاش دوباره
+              </button>
+            </div>
+          ) : (
+            <p className="account-notification-state">اعلان جدیدی برای حساب شما ثبت نشده است.</p>
+          )}
         </div>
       </details>
 

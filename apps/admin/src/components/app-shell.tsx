@@ -1,9 +1,17 @@
 'use client';
 
 import Link from 'next/link';
+import { formatJalaliDate, toPersianDigits } from '@barat/ui';
 import { usePathname } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavSection } from '@/lib/nav';
+import { api, type StaffNotificationFeed } from '@/lib/api';
+import {
+  readMarkerStorageKey,
+  readStoredMarker,
+  unreadCount,
+  writeStoredMarker,
+} from '@/lib/notification-feed';
 import { Icon } from '@/components/icon-map';
 import { LogoutButton } from '@/app/login/logout-button';
 
@@ -13,6 +21,17 @@ export interface ProfileShortcut {
   icon: string;
 }
 
+const NOTIFICATION_POLL_MS = 60_000;
+
+function notificationIcon(kind: string): string {
+  if (kind === 'SUPPORT_CUSTOMER_REPLY') return 'life-buoy';
+  if (kind === 'TASK_SLA_BREACHED' || kind === 'TASK_DUE_SOON') {
+    return 'message-square-warning';
+  }
+  if (kind === 'QUEUE_TASK_WAITING') return 'list-checks';
+  return 'clipboard-list';
+}
+
 /**
  * Shared admin/operator shell: 260px navy sidebar + 74px topbar.
  * RBAC filtering here is a convenience only — the API enforces the real rule.
@@ -20,6 +39,7 @@ export interface ProfileShortcut {
 export function AppShell({
   sections,
   title,
+  staffId,
   staffName,
   staffRoleLabel,
   profileShortcuts,
@@ -27,6 +47,7 @@ export function AppShell({
 }: {
   sections: NavSection[];
   title: string;
+  staffId: string;
   staffName: string;
   staffRoleLabel: string;
   profileShortcuts: readonly ProfileShortcut[];
@@ -34,6 +55,74 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
+  const [notificationFeed, setNotificationFeed] = useState<StaffNotificationFeed | null>(null);
+  const [notificationStatus, setNotificationStatus] = useState<'loading' | 'ready' | 'error'>(
+    'loading',
+  );
+  const [notificationReadThrough, setNotificationReadThrough] = useState<string | null>(null);
+  const profileRef = useRef<HTMLDetailsElement>(null);
+  const notificationsRef = useRef<HTMLDetailsElement>(null);
+  const notificationReadThroughRef = useRef<string | null>(null);
+  const notificationRequestRef = useRef(0);
+  const mountedRef = useRef(false);
+  const notificationStorageKey = readMarkerStorageKey(staffId);
+
+  const markNotificationsRead = useCallback(
+    (marker: string) => {
+      notificationReadThroughRef.current = marker;
+      setNotificationReadThrough(marker);
+      writeStoredMarker(notificationStorageKey, marker);
+    },
+    [notificationStorageKey],
+  );
+
+  const refreshNotifications = useCallback(async () => {
+    const requestId = ++notificationRequestRef.current;
+    try {
+      const nextFeed = await api.staffNotifications();
+      if (!mountedRef.current || requestId !== notificationRequestRef.current) return;
+
+      setNotificationFeed(nextFeed);
+      setNotificationStatus('ready');
+      /* Seed on first load, and keep the marker moving while the panel is open —
+       * the operator is looking at the list as the new lines arrive. */
+      if (notificationReadThroughRef.current === null || notificationsRef.current?.open) {
+        markNotificationsRead(nextFeed.generatedAt);
+      }
+    } catch {
+      if (mountedRef.current && requestId === notificationRequestRef.current) {
+        setNotificationStatus('error');
+      }
+    }
+  }, [markNotificationsRead]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    const storedMarker = readStoredMarker(notificationStorageKey);
+    notificationReadThroughRef.current = storedMarker;
+    setNotificationReadThrough(storedMarker);
+    void refreshNotifications();
+
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    }, NOTIFICATION_POLL_MS);
+    const refreshVisibleFeed = () => {
+      if (document.visibilityState === 'visible') void refreshNotifications();
+    };
+    document.addEventListener('visibilitychange', refreshVisibleFeed);
+
+    return () => {
+      mountedRef.current = false;
+      notificationRequestRef.current += 1;
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', refreshVisibleFeed);
+    };
+  }, [notificationStorageKey, refreshNotifications]);
+
+  const unreadNotificationCount = unreadCount(
+    notificationFeed?.items ?? [],
+    notificationReadThrough,
+  );
   const searchableLinks = useMemo(() => sections.flatMap((section) => section.items), [sections]);
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase('fa');
   const searchResults =
@@ -94,7 +183,15 @@ export function AppShell({
         <header className="topbar">
           <p className="topbar-title">{title}</p>
           <div className="topbar-actions">
-            <details className="staff-profile">
+            <details
+              className="staff-profile"
+              ref={profileRef}
+              onToggle={(event) => {
+                if (event.currentTarget.open && notificationsRef.current) {
+                  notificationsRef.current.open = false;
+                }
+              }}
+            >
               <summary className="staff-profile-trigger" aria-label="باز کردن منوی پروفایل">
                 <span className="avatar">{staffName.slice(0, 1)}</span>
                 <span className="staff-profile-copy">
@@ -127,13 +224,91 @@ export function AppShell({
               </div>
             </details>
 
-            <details className="topbar-notifications">
-              <summary className="icon-button" aria-label="اعلان‌ها">
+            <details
+              className="topbar-notifications"
+              ref={notificationsRef}
+              onToggle={(event) => {
+                if (!event.currentTarget.open) return;
+                if (profileRef.current) profileRef.current.open = false;
+                if (notificationFeed !== null) markNotificationsRead(notificationFeed.generatedAt);
+                void refreshNotifications();
+              }}
+            >
+              <summary
+                className="icon-button"
+                aria-label={
+                  unreadNotificationCount > 0
+                    ? `${toPersianDigits(unreadNotificationCount)} اعلان خوانده‌نشده`
+                    : 'اعلان‌ها'
+                }
+              >
                 <Icon name="bell" size={17} />
+                {unreadNotificationCount > 0 ? (
+                  <span className="topbar-notification-dot" aria-hidden="true" />
+                ) : null}
               </summary>
               <div className="topbar-notification-menu">
-                <strong>اعلان‌ها</strong>
-                <p>اعلان جدیدی برای شما ثبت نشده است.</p>
+                <div className="topbar-notification-head">
+                  <strong>اعلان‌ها</strong>
+                  {unreadNotificationCount > 0 ? (
+                    <span>{toPersianDigits(unreadNotificationCount)} خوانده‌نشده</span>
+                  ) : null}
+                </div>
+                {notificationFeed !== null && notificationFeed.items.length > 0 ? (
+                  <div className="topbar-notification-list" role="list">
+                    {notificationFeed.items.map((notification) => {
+                      const content = (
+                        <>
+                          <span className="topbar-notification-kind">
+                            <Icon name={notificationIcon(notification.kind)} size={14} />
+                          </span>
+                          <span className="topbar-notification-copy">
+                            <strong>{notification.title}</strong>
+                            {notification.body ? <span>{notification.body}</span> : null}
+                            <time dateTime={notification.createdAt}>
+                              {formatJalaliDate(notification.createdAt)}
+                            </time>
+                          </span>
+                        </>
+                      );
+
+                      return notification.href ? (
+                        <Link
+                          href={notification.href}
+                          className="topbar-notification-item"
+                          role="listitem"
+                          key={notification.id}
+                          onClick={() => {
+                            if (notificationsRef.current) notificationsRef.current.open = false;
+                          }}
+                        >
+                          {content}
+                        </Link>
+                      ) : (
+                        <div
+                          className="topbar-notification-item"
+                          role="listitem"
+                          key={notification.id}
+                        >
+                          {content}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : notificationStatus === 'loading' ? (
+                  <p className="topbar-notification-state" aria-live="polite">
+                    در حال دریافت اعلان‌ها…
+                  </p>
+                ) : notificationStatus === 'error' ? (
+                  <div className="topbar-notification-state" role="alert">
+                    <p>دریافت اعلان‌ها ممکن نشد.</p>
+                    <button type="button" onClick={() => void refreshNotifications()}>
+                      تلاش دوباره
+                    </button>
+                  </div>
+                ) : (
+                  <p className="topbar-notification-state">اعلان جدیدی برای شما ثبت نشده است.</p>
+                )}
               </div>
             </details>
 
