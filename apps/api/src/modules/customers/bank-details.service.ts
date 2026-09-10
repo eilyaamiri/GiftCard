@@ -29,6 +29,18 @@ const IBAN_AAD = 'barat-pay:customer-bank-iban:v1';
 const CARD_AAD = 'barat-pay:customer-bank-card:v1';
 
 /**
+ * "This number was never given to us".
+ *
+ * GAP: `CustomerBankAccount` in the frozen Prisma schema makes all four of
+ * `ibanEncrypted`, `ibanMasked`, `cardEncrypted` and `cardMasked` non-nullable,
+ * from a time when a customer had to declare both. They may now declare either
+ * one, so the empty string stands in for the missing column until Foundation can
+ * make those columns nullable in one controlled pass. It never leaves this file:
+ * `get()` turns it back into `null` before anything else sees it.
+ */
+const NOT_PROVIDED = '';
+
+/**
  * The customer's own payout details.
  *
  * Two rules shape everything here:
@@ -38,7 +50,9 @@ const CARD_AAD = 'barat-pay:customer-bank-card:v1';
  *    confirmation checkbox does not already claim. The stored holder is a
  *    snapshot of the profile name on file, so the record is tied to the
  *    identity the account was opened with, and a customer with no name on file
- *    cannot save payout details at all.
+ *    cannot save payout details at all. An IBAN and a card declared this way
+ *    name the same person, so either one on its own is a payout destination and
+ *    the customer is asked for one, not for both.
  * 2. **Nothing readable is stored or returned.** The IBAN and the card number go
  *    into AES-256-GCM envelopes; the masked forms are what every DTO, audit row
  *    and log line sees. This service has no read path for the plaintext — a
@@ -72,9 +86,9 @@ export class BankDetailsService {
 
     return {
       holderName: row.holderName,
-      maskedIban: row.ibanMasked,
+      maskedIban: row.ibanMasked === NOT_PROVIDED ? null : row.ibanMasked,
       ibanBankName: row.ibanBankName,
-      maskedCardNumber: row.cardMasked,
+      maskedCardNumber: row.cardMasked === NOT_PROVIDED ? null : row.cardMasked,
       cardBankName: row.cardBankName,
       ownershipAttestedAt: row.ownershipAttestedAt.toISOString(),
       isVerified: row.verifiedAt !== null,
@@ -91,22 +105,34 @@ export class BankDetailsService {
       throw DomainErrors.validation([
         {
           path: 'ownershipConfirmed',
-          message: 'باید تأیید کنید که شبا و کارت به نام خودتان است.',
+          message: 'باید تأیید کنید که این حساب به نام خودتان است.',
+        },
+      ]);
+    }
+    if (input.iban === undefined && input.cardNumber === undefined) {
+      throw DomainErrors.validation([
+        {
+          path: 'iban',
+          message: 'شماره شبا یا شماره کارت را وارد کنید؛ دست‌کم یکی از این دو لازم است.',
         },
       ]);
     }
 
     const holderName = await this.holderNameOnFile(customerId);
-    const iban = normalizeIban(input.iban);
-    const cardNumber = normalizeCardNumber(input.cardNumber);
+    const iban = input.iban === undefined ? null : normalizeIban(input.iban);
+    const cardNumber = input.cardNumber === undefined ? null : normalizeCardNumber(input.cardNumber);
 
+    /* Only what was sent is written. A customer correcting one of the two
+     * numbers leaves the other field blank, and the number already on file is
+     * theirs until they say otherwise — the way to take one back is the delete
+     * button, not an empty box. */
     const data = {
       holderName,
       ...this.encryptDetails(iban, cardNumber),
-      ibanMasked: maskIban(iban),
-      ibanBankName: ibanBankName(iban),
-      cardMasked: maskCardNumber(cardNumber),
-      cardBankName: cardBankName(cardNumber),
+      ...(iban === null ? {} : { ibanMasked: maskIban(iban), ibanBankName: ibanBankName(iban) }),
+      ...(cardNumber === null
+        ? {}
+        : { cardMasked: maskCardNumber(cardNumber), cardBankName: cardBankName(cardNumber) }),
       ownershipAttestedAt: new Date(),
       /* Re-declaring the details drops any earlier confirmation: a new number
        * has not been checked against anything. */
@@ -120,12 +146,29 @@ export class BankDetailsService {
 
     await this.database.customerBankAccount.upsert({
       where: { customerId },
-      create: { customerId, ...data },
+      /* The blanks come first so anything in `data` wins: on a first save the
+       * side the customer skipped has no column value at all, and the frozen
+       * schema will not take a null. */
+      create: {
+        customerId,
+        ibanEncrypted: NOT_PROVIDED,
+        ibanMasked: NOT_PROVIDED,
+        cardEncrypted: NOT_PROVIDED,
+        cardMasked: NOT_PROVIDED,
+        ...data,
+      },
       update: data,
     });
 
-    /* Masked values only. The envelopes are left out entirely rather than
-     * relying on the audit redactor to catch their field names. */
+    const saved = await this.get(customerId);
+    if (!saved) {
+      throw DomainErrors.notFound('CustomerBankAccount');
+    }
+
+    /* Masked values only, read back from the saved record so an untouched
+     * number is reported as it stands rather than as `undefined`. The envelopes
+     * are left out entirely rather than relying on the audit redactor to catch
+     * their field names. */
     await this.audit.record({
       actor: customerId,
       actorType: 'CUSTOMER',
@@ -134,20 +177,16 @@ export class BankDetailsService {
       entityId: customerId,
       before,
       after: {
-        holderName: data.holderName,
-        ibanMasked: data.ibanMasked,
-        ibanBankName: data.ibanBankName,
-        cardMasked: data.cardMasked,
-        cardBankName: data.cardBankName,
+        holderName: saved.holderName,
+        ibanMasked: saved.maskedIban,
+        ibanBankName: saved.ibanBankName,
+        cardMasked: saved.maskedCardNumber,
+        cardBankName: saved.cardBankName,
       },
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
 
-    const saved = await this.get(customerId);
-    if (!saved) {
-      throw DomainErrors.notFound('CustomerBankAccount');
-    }
     return saved;
   }
 
@@ -175,16 +214,25 @@ export class BankDetailsService {
     return { removed: true };
   }
 
-  /** The key is zeroed the moment the two envelopes exist; it never outlives them. */
+  /**
+   * The key is zeroed the moment the envelopes exist; it never outlives them.
+   *
+   * A number that was not sent produces no envelope and no key at all, so the
+   * column it belongs to is left out of the write entirely.
+   */
   private encryptDetails(
-    iban: string,
-    cardNumber: string,
-  ): { ibanEncrypted: string; cardEncrypted: string } {
+    iban: string | null,
+    cardNumber: string | null,
+  ): { ibanEncrypted?: string; cardEncrypted?: string } {
+    if (iban === null && cardNumber === null) {
+      return {};
+    }
+
     const key = this.config.bankDetailsEncryptionKey();
     try {
       return {
-        ibanEncrypted: seal(iban, key, IBAN_AAD),
-        cardEncrypted: seal(cardNumber, key, CARD_AAD),
+        ...(iban === null ? {} : { ibanEncrypted: seal(iban, key, IBAN_AAD) }),
+        ...(cardNumber === null ? {} : { cardEncrypted: seal(cardNumber, key, CARD_AAD) }),
       };
     } finally {
       key.fill(0);

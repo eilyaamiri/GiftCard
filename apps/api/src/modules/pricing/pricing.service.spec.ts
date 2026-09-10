@@ -72,8 +72,16 @@ function fxAt(midRate: string, overrides: Partial<FxRateSnapshot> = {}): FxRateS
   }) as FxRateSnapshot;
 }
 
+/**
+ * Face value defaults to the supplier cost, which is the "bought at exactly what
+ * it is worth" case: `productMargin` is zero and the formula reduces to the
+ * cost-plus one. Every case below that does not name a face value is therefore
+ * testing fees, rounding and guards in isolation from the discount a supplier
+ * gives us. The cases that DO care pass `customerForeignAmount` explicitly.
+ */
 function input(overrides: Partial<PricingInput> = {}): PricingInput {
-  return { supplierCostUsd: new Decimal('10'), quantity: 1, ...overrides };
+  const { supplierCostUsd = new Decimal('10'), quantity = 1, ...rest } = overrides;
+  return { supplierCostUsd, customerForeignAmount: supplierCostUsd, quantity, ...rest };
 }
 
 /* ============================================================================
@@ -675,6 +683,160 @@ describe('computeQuote / bps precision', () => {
     expect(result.supplierCostIrr).toBe(19_200_000n);
     expect(result.marginAmount).toBe(19_200_000n);
     expect(result.finalAmountIrr).toBe(38_400_000n);
+  });
+});
+
+/* ============================================================================
+ * Face value vs supplier cost
+ *
+ * The case that motivated the split. A $25 Apple card bought from a supplier at
+ * a 19% discount used to be SOLD off the $20.25 we paid, so the customer handed
+ * over less rial than the 25 dollars inside the card were worth and the better
+ * we bought, the worse the deal we offered. The face value is the charge base;
+ * the discount is ours to keep, as margin.
+ * ==========================================================================*/
+
+describe('computeQuote / a gift card bought below face value', () => {
+  /*
+   *   effectiveFxRate = 1,920,000 + 1.5% + 1.0%    = 1,968,000
+   *   customerAmount  = 25.00 x 1,968,000          =  49,200,000   <- charge base
+   *   supplierCostIrr = 20.25 x 1,968,000          =  39,852,000   <- internal
+   *   paymentFee      = 1.5% of base + 5,000       =     743,000
+   *   serviceFee      = 2.0% of base + 20,000      =   1,004,000
+   *   operationalFee  =                                   50,000
+   *   productMargin   = 49,200,000 - 39,852,000    =   9,348,000
+   *   targetMargin    = 4.0% of base               =   1,968,000
+   *   margin          = 11,316,000 > floor         =  11,316,000
+   *   subtotal        = cost + fees + margin       =  52,965,000
+   *   finalAmountIrr  = roundUp to 10,000          =  52,970,000
+   */
+  const result = computeQuote(
+    input({
+      supplierCostUsd: new Decimal('20.25'),
+      customerForeignAmount: new Decimal('25'),
+    }),
+    rule(),
+    fxAt('1920000'),
+  );
+
+  it('prices from the face value, not from what we paid', () => {
+    expect(result.customerForeignAmount).toBe('25');
+    expect(result.totalCustomerForeignAmount).toBe('25');
+    expect(result.customerAmountIrr).toBe(49_200_000n);
+    /* The whole point: the customer pays MORE than the dollars are worth, not
+     * less. Under the old cost-based formula this comparison was inverted. */
+    expect(result.finalAmountIrr).toBeGreaterThan(result.customerAmountIrr);
+  });
+
+  it('keeps the supplier cost meaning the supplier cost', () => {
+    /* Fulfillment compares this against the operator's real invoice through
+     * `maxSupplierCostToleranceBps`. If it ever drifts to the face value, every
+     * genuine purchase looks like an under-charge and stalls for approval. */
+    expect(result.supplierCostUsd).toBe('20.25');
+    expect(result.supplierCostIrr).toBe(39_852_000n);
+    expect(result.marketSupplierCostIrr).toBe(38_880_000n);
+    expect(result.fxSpreadAmount).toBe(583_200n);
+    expect(result.fxRiskBufferAmount).toBe(388_800n);
+  });
+
+  it('charges fees on what the customer buys, not on what we paid', () => {
+    expect(result.paymentFee).toBe(743_000n);
+    expect(result.serviceFee).toBe(1_004_000n);
+    expect(result.operationalFee).toBe(50_000n);
+  });
+
+  it('books the supplier discount as margin, alongside the rule markup', () => {
+    expect(result.productMarginAmount).toBe(9_348_000n);
+    expect(result.targetMarginAmount).toBe(1_968_000n);
+    expect(result.marginAmount).toBe(11_316_000n);
+    expect(result.marginFloorApplied).toBe(false);
+  });
+
+  it('produces the exact total and still reconciles its components', () => {
+    expect(result.subtotal).toBe(52_965_000n);
+    expect(result.roundingAdjustment).toBe(5_000n);
+    expect(result.finalAmountIrr).toBe(52_970_000n);
+    expect(result.displayAmountToman).toBe(5_297_000n);
+    expect(sumIrr(result.components.map((component) => component.amountIrr))).toBe(
+      result.finalAmountIrr,
+    );
+  });
+
+  it('reports a contribution that reflects the real cost', () => {
+    expect(result.contributionIrr).toBe(12_325_000n);
+    expect(result.effectiveMarginBps).toBe(2_327);
+  });
+
+  it('folds to face value plus markup for the customer', () => {
+    /*
+     * `quote-presentation.ts` shows «بهای کالا» as supplierCost + margin. That
+     * identity is what lets the customer multiply 25 by the advertised rate and
+     * recognise the goods line, so it is asserted here rather than left to the
+     * presenter to preserve by accident.
+     */
+    expect(result.supplierCostIrr + result.marginAmount).toBe(
+      result.customerAmountIrr + result.targetMarginAmount,
+    );
+    expect(result.supplierCostIrr + result.marginAmount).toBe(51_168_000n);
+  });
+
+  it('scales the face value with quantity, and the fixed fees not at all', () => {
+    const three = computeQuote(
+      input({
+        supplierCostUsd: new Decimal('20.25'),
+        customerForeignAmount: new Decimal('25'),
+        quantity: 3,
+      }),
+      rule(),
+      fxAt('1920000'),
+    );
+
+    expect(three.customerForeignAmount).toBe('25'); // per unit
+    expect(three.totalCustomerForeignAmount).toBe('75');
+    expect(three.customerAmountIrr).toBe(147_600_000n);
+    expect(three.supplierCostIrr).toBe(119_556_000n);
+    expect(three.productMarginAmount).toBe(28_044_000n);
+    expect(three.targetMarginAmount).toBe(5_904_000n);
+    expect(three.paymentFee).toBe(2_219_000n); // bps x3, the 5,000 charged once
+    expect(three.serviceFee).toBe(2_972_000n);
+    expect(three.operationalFee).toBe(50_000n);
+    expect(three.finalAmountIrr).toBe(158_750_000n);
+  });
+});
+
+describe('computeQuote / a supplier price above face value', () => {
+  /*
+   * A misconfigured offer, or a supplier who raised their price. Face value
+   * alone would sell $12 of cost for $10 of card. The margin floor is what
+   * stops that: the quote stays above cost and the loss never happens quietly.
+   */
+  const result = computeQuote(
+    input({
+      supplierCostUsd: new Decimal('12'),
+      customerForeignAmount: new Decimal('10'),
+    }),
+    rule(),
+    fxAt('1920000'),
+  );
+
+  it('never quotes below the supplier cost', () => {
+    expect(result.customerAmountIrr).toBe(19_680_000n);
+    expect(result.supplierCostIrr).toBe(23_616_000n);
+    expect(result.finalAmountIrr).toBe(24_580_000n);
+    expect(result.finalAmountIrr).toBeGreaterThan(result.supplierCostIrr);
+  });
+
+  it('records the negative product margin and applies the floor', () => {
+    expect(result.productMarginAmount).toBe(-3_936_000n);
+    expect(result.targetMarginAmount).toBe(787_200n);
+    expect(result.marginFloorApplied).toBe(true);
+    expect(result.marginAmount).toBe(200_000n);
+  });
+
+  it('still reconciles its component lines to the total', () => {
+    expect(sumIrr(result.components.map((component) => component.amountIrr))).toBe(
+      result.finalAmountIrr,
+    );
   });
 });
 

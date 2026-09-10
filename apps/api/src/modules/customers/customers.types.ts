@@ -10,9 +10,11 @@ import type { RefundStatus } from '@barat/database';
 export interface BankAccountDto {
   /** Snapshot of the profile name the details were declared under. */
   readonly holderName: string;
-  readonly maskedIban: string;
+  /** `null` when the customer declared a card only. */
+  readonly maskedIban: string | null;
   readonly ibanBankName: string | null;
-  readonly maskedCardNumber: string;
+  /** `null` when the customer declared an IBAN only. */
+  readonly maskedCardNumber: string | null;
   readonly cardBankName: string | null;
   readonly ownershipAttestedAt: string;
   /** False until a bank inquiry confirms the holder; nothing does that yet. */

@@ -100,9 +100,10 @@ function pagedSchema<TItem>(item: z.ZodType<TItem>) {
 export const bankAccountSchema = z.object({
   /** Snapshot of the profile name; the customer cannot type a different one. */
   holderName: z.string().min(1),
-  maskedIban: z.string().min(1),
+  /** `null` when the customer declared a card only, and the other way round. */
+  maskedIban: z.string().min(1).nullable(),
   ibanBankName: z.string().nullable(),
-  maskedCardNumber: z.string().min(1),
+  maskedCardNumber: z.string().min(1).nullable(),
   cardBankName: z.string().nullable(),
   ownershipAttestedAt: isoDateTimeSchema,
   /** Self-declared until a bank inquiry confirms the holder. */
@@ -134,8 +135,9 @@ export type UpdateAccountEmail = z.infer<typeof updateAccountEmailSchema>;
  * standing between a typo and a payout.
  */
 export const saveBankAccountSchema = z.object({
-  iban: z.string().trim().min(20).max(40),
-  cardNumber: z.string().trim().min(16).max(25),
+  /** Either number is a payout destination on its own; at least one is required. */
+  iban: z.string().trim().max(40).optional(),
+  cardNumber: z.string().trim().max(25).optional(),
   ownershipConfirmed: z.boolean(),
 });
 export type SaveBankAccount = z.infer<typeof saveBankAccountSchema>;
