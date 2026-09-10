@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { InlineError, messageFor } from "../../../_components/error-notice";
 import {
+  canEnterDeliveryAssetManually,
   fulfillment,
   type FulfillmentWorkspace,
   type RecordSupplierResultInput,
@@ -90,9 +91,7 @@ export function FulfillmentPanel({
       ) : null}
 
       {/* A payment task files its proof after the money has moved, so the form
-          belongs where the work is. A gift card is the opposite: the code IS the
-          delivery, so its form sits inside the send card, next to the button it
-          unlocks. */}
+          belongs where the work is, above the record of it. */}
       {payment && !hasAsset && !workspace.checklist.isLocked ? (
         <SupplierResultForm disabled={!canOperate} variant="INTERNATIONAL_PAYMENT" onSubmit={recordSupplierResult} />
       ) : null}
@@ -102,6 +101,20 @@ export function FulfillmentPanel({
         assets={workspace.assets}
         canOperate={canOperate}
         variant={payment ? "INTERNATIONAL_PAYMENT" : "GIFT_CARD"}
+        /* A gift card is the opposite: the code IS the delivery, so it is typed
+           into the card that holds the delivery asset — the operator who already
+           has a code in hand does not have to find the supplier flow or wait for
+           an admin to answer a code request. */
+        manualEntry={
+          canEnterDeliveryAssetManually(workspace) ? (
+            <SupplierResultForm
+              disabled={!canOperate}
+              variant="GIFT_CARD"
+              chrome="inline"
+              onSubmit={recordSupplierResult}
+            />
+          ) : undefined
+        }
       />
 
       {workspace.costVariance ? (
@@ -109,9 +122,12 @@ export function FulfillmentPanel({
           variance={workspace.costVariance}
           recordedCost={workspace.supplierCost}
           canApprove={canApprove}
-          /* Correcting is pointless once the card is gone: the checklist locks on
-           * send, and the API refuses the call from that moment on. */
-          canCorrect={canCorrect && !workspace.checklist.isLocked}
+          /* Still offered after the send. The variance no longer holds the card,
+           * so the review a manager answers regularly arrives once the customer
+           * already has it — and a review that cannot fix a wrong figure would be
+           * a review of nothing. The API accepts the correction from a manager
+           * past the lock for the same reason. */
+          canCorrect={canCorrect}
           onApprove={async (reason) => {
             setWorkspace(await fulfillment.approveCostVariance(workItemId, reason));
           }}
@@ -138,16 +154,6 @@ export function FulfillmentPanel({
       <FinalActionPanel
         workspace={workspace}
         canOperate={canOperate}
-        codeEntry={
-          !payment && !hasAsset && !workspace.checklist.isLocked ? (
-            <SupplierResultForm
-              disabled={!canOperate}
-              variant="GIFT_CARD"
-              chrome="inline"
-              onSubmit={recordSupplierResult}
-            />
-          ) : undefined
-        }
         onRecordCost={async (input) => {
           setError(null);
           setWorkspace(await fulfillment.recordActualCost(workItemId, input));

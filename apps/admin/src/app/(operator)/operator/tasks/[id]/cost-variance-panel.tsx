@@ -16,17 +16,22 @@ const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
 export const SUPPLIER_COST_ANCHOR = "supplier-cost";
 
 /**
- * Manager approval for a supplier cost variance, and the correction of the
- * figure that produced it.
+ * Manager review of a supplier cost variance, and the correction of the figure
+ * that produced it.
  *
  * An OPERATOR never sees either control, and that is only the cosmetic half:
  * the API refuses both calls for any role outside ADMIN / OPS_MANAGER /
  * MANAGEMENT, and refuses the approval again when the approver is the same
- * person who holds the claim or recorded the cost. Approval is a second pair of
- * eyes by construction, not by convention.
+ * person who holds the delivery claim or recorded the cost. Approval is a second
+ * pair of eyes by construction, not by convention.
  *
  * The two controls sit together because they answer the same question from
- * opposite sides: "was this really what we paid?" — yes, release it; no, fix it.
+ * opposite sides: "was this really what we paid?" — yes, sign it off; no, fix it.
+ *
+ * What neither control does any more is release the card. An out-of-tolerance
+ * spend is raised as its own review in the escalations queue and the delivery
+ * goes ahead, so this panel is about our own books; the copy below must not
+ * suggest a customer is waiting on it.
  */
 export function CostVariancePanel({
   variance,
@@ -90,17 +95,19 @@ export function CostVariancePanel({
         </div>
         <div className="cost-item">
           <span>وضعیت</span>
-          <strong>{variance.requiresApproval ? "نیازمند تأیید مدیر" : "بدون نیاز به تأیید"}</strong>
+          <strong>{variance.requiresApproval ? "در انتظار بررسی مدیر" : "بدون نیاز به بررسی"}</strong>
         </div>
       </div>
 
       {!variance.requiresApproval ? (
-        <p className="muted">اختلاف هزینه در محدودهٔ مجاز است و مانع ارسال نمی‌شود.</p>
+        <p className="muted">هزینهٔ ثبت‌شده در محدودهٔ مجاز است؛ بررسی جداگانه‌ای لازم نیست.</p>
       ) : canApprove ? (
         <>
           <p className="warning">
-            تأیید شما در گزارش رخدادها ثبت می‌شود. اگر خودتان این کار را برداشته‌اید یا هزینه را ثبت کرده‌اید، سرویس
-            تأیید شما را نمی‌پذیرد و باید مدیر دیگری تأیید کند.
+            این اختلاف برای بررسی شما در صف «پیگیری تأمین‌کننده» ثبت شده است. تحویل کد به مشتری متوقف نشده؛ اینجا فقط
+            دربارهٔ مبلغ خرید تصمیم می‌گیرید: تأیید کنید یا مبلغ را اصلاح کنید. تأیید شما در گزارش رخدادها ثبت می‌شود و
+            اگر هزینه را خودتان ثبت کرده باشید یا این کار روی میز شما باشد، سرویس تأیید شما را نمی‌پذیرد و مدیر دیگری
+            باید آن را بررسی کند.
           </p>
           <label style={{ display: "grid", gap: 6, fontSize: 12 }}>
             دلیل تأیید (الزامی)
@@ -125,14 +132,14 @@ export function CostVariancePanel({
         </>
       ) : (
         <p className="warning">
-          این اختلاف از حد مجاز بیشتر است و تا تأیید مدیر عملیات یا مدیر سیستم، ارسال برای مشتری مسدود می‌ماند. شما اجازهٔ
-          تأیید آن را ندارید.
+          این اختلاف از حد مجاز بیشتر است و برای بررسی مدیر عملیات یا مدیر سیستم ثبت شده است. ارسال کد برای مشتری به آن
+          وابسته نیست و کار خود را ادامه دهید؛ بررسی مبلغ خرید بر عهدهٔ مدیر است.
         </p>
       )}
 
       {/* Offered whenever a figure is on file, not only when it is over
-        * tolerance: a price typed too LOW is just as wrong, and is the case that
-        * would otherwise slip through unnoticed because it raises no hold. */}
+        * tolerance: a price typed too LOW is just as wrong, and — now that no
+        * variance holds a delivery — nothing else would ever catch it. */}
       {canCorrect && recordedCost ? (
         <CorrectCostForm recordedCost={recordedCost} onSubmit={onCorrect} />
       ) : null}
@@ -211,7 +218,8 @@ function CorrectCostForm({
           {formatDecimalString(recordedCost.actualSupplierCost)} {recordedCost.actualSupplierCurrency ?? ""}
         </span>{" "}
         است. با ثبت مبلغ تازه، اختلاف هزینه دوباره محاسبه می‌شود و اگر قبلاً تأییدی روی مبلغ قبلی گرفته شده باشد، آن
-        تأیید باطل می‌شود. مبلغ قبلی، مبلغ تازه و دلیل شما در گزارش رخدادها ثبت می‌شوند.
+        تأیید باطل می‌شود. مبلغ قبلی، مبلغ تازه و دلیل شما در گزارش رخدادها ثبت می‌شوند. این اصلاح فقط سند هزینهٔ ما را
+        تغییر می‌دهد؛ کدی که برای مشتری ارسال شده دست‌نخورده می‌ماند.
       </p>
 
       <div className="form-grid">

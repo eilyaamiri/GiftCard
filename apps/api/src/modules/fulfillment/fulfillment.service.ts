@@ -6,9 +6,10 @@ import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService, type AuditActorType } from '../audit/audit.service';
 import { openServiceAccountPassword } from '../quotes/service-account-fields';
 import type { StaffContext } from '../workitems/staff-context';
+import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
 import { ChecklistService, type ChecklistState } from './checklist.service';
 import { SEND_BLOCKERS, type SendBlocker } from './checklist-evaluation';
-import { assessCostVariance, type CostVarianceAssessment } from './cost-variance';
+import { assessCostVariance, COST_VARIANCE_REASONS, type CostVarianceAssessment } from './cost-variance';
 import {
   GiftCardAssetService,
   SECRET_READ_REASONS,
@@ -126,12 +127,14 @@ export const SELF_SERVICE_DELIVERY_ACTOR: DispatchActor = {
 /**
  * How the asset reaches the customer.
  *
- * `EMAIL` is the operator path: we hold a code and mail it. `SELF_SERVICE` is the
- * automated path: the code is already encrypted against the customer's own order,
- * and they reveal it themselves on the order page. Nothing is sent anywhere, so
- * claiming an e-mail went out would be a lie in the delivery record.
+ * `EMAIL` is the operator path: we hold a code and mail it. `SELF_SERVICE` puts the
+ * same card on the customer's own order page instead, where they read it in full —
+ * the reveal endpoint decrypts it for them, so encryption is only how the code
+ * rests in our database, never what the customer is handed. Nothing is sent
+ * anywhere, so claiming an e-mail went out would be a lie in the delivery record.
  */
 export type DeliveryChannel = 'EMAIL' | 'SELF_SERVICE';
+type RequestedDeliveryChannel = DeliveryChannel | 'AUTO';
 
 /**
  * Checklist keys a self-service delivery may leave unsatisfied.
@@ -156,6 +159,16 @@ const AUTOMATED_PURCHASE_CHECKLIST_KEYS: readonly string[] = [
   'ASSET_MATCHES_ORDER',
 ];
 
+/**
+ * Prefix of the deterministic code that makes a cost-variance review idempotent.
+ *
+ * The variance figure is part of the code on purpose: replaying the same flag
+ * reuses the open review, while a *different* figure — a correction, a second
+ * cost entry — raises a fresh one, because a manager who already closed the
+ * review of 2000 bps has said nothing about 4000 bps.
+ */
+const COST_VARIANCE_REVIEW_PREFIX = 'COST_VARIANCE_REVIEW';
+
 function staffActor(staff: StaffContext): DispatchActor {
   return { id: staff.id, role: staff.role, actorType: 'STAFF', enforceClaim: true };
 }
@@ -173,6 +186,7 @@ export class FulfillmentService {
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(PaymentReceiptService) private readonly receipts: PaymentReceiptService,
     @Inject(AppConfigService) private readonly config: AppConfigService,
+    @Inject(WORK_ITEM_ESCALATOR) private readonly escalator: WorkItemEscalator,
   ) {}
 
   /* ---------------------------------------------------------------------- */
@@ -281,7 +295,8 @@ export class FulfillmentService {
 
   /**
    * Stores what the supplier actually gave us: the asset, the reference and the
-   * real cost. This is the single write that can trigger a cost-variance hold.
+   * real cost. An out-of-tolerance cost is flagged for a manager here; it does
+   * not stop the operator from carrying on and delivering.
    *
    * It refuses to create a second asset for an order. An order that already has
    * an asset has already been paid for at the supplier; creating another would
@@ -368,20 +383,14 @@ export class FulfillmentService {
     });
 
     if (variance !== null && variance.requiresApproval) {
-      await this.audit.record({
+      await this.flagCostVariance({
+        fulfillmentId: fulfillment.id,
+        orderId: context.orderId,
+        variance,
         actor: input.staff.id,
         actorType: 'STAFF',
         actorRole: input.staff.role,
-        action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
-        entity: 'Fulfillment',
-        entityId: fulfillment.id,
-        after: {
-          orderId: context.orderId,
-          reason: variance.reason,
-          costVarianceBps: variance.varianceBps,
-          toleranceBps: variance.toleranceBps,
-          recordedBy: input.staff.id,
-        },
+        recordedBy: input.staff.id,
       });
     }
 
@@ -403,8 +412,8 @@ export class FulfillmentService {
    * This does that one thing. It never creates an asset, and it refuses to
    * overwrite a cost already on record — correcting a recorded amount is a
    * finance action, not an operator one. The variance assessment is the same
-   * one `recordSupplierResult` runs, so a cost entered here can still trip the
-   * approval hold.
+   * one `recordSupplierResult` runs, so a cost entered here raises the same
+   * manager review — and, like there, does not hold the send.
    */
   async recordActualCost(input: {
     workItemId: string;
@@ -475,20 +484,14 @@ export class FulfillmentService {
     });
 
     if (variance.requiresApproval) {
-      await this.audit.record({
+      await this.flagCostVariance({
+        fulfillmentId: record.id,
+        orderId: context.orderId,
+        variance,
         actor: input.staff.id,
         actorType: 'STAFF',
         actorRole: input.staff.role,
-        action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
-        entity: 'Fulfillment',
-        entityId: record.id,
-        after: {
-          orderId: context.orderId,
-          reason: variance.reason,
-          costVarianceBps: variance.varianceBps,
-          toleranceBps: variance.toleranceBps,
-          recordedBy: input.staff.id,
-        },
+        recordedBy: input.staff.id,
       });
     }
 
@@ -505,14 +508,20 @@ export class FulfillmentService {
    * properties that keep it from being a way around the gate:
    *
    *   1. Only a manager role may call it. An operator who fat-fingers a price
-   *      asks a manager, exactly as they would to release the variance.
+   *      asks a manager, exactly as they would to have the variance reviewed.
    *   2. The variance is re-assessed against the new figure, so a correction
-   *      can raise a hold as easily as it can clear one.
+   *      can raise a review as easily as it can settle one.
    *   3. Any existing approval is voided by the write itself. A manager
    *      approved one number; that verdict says nothing about a different one.
    *
-   * It also cannot run after the send: once the checklist is locked the
-   * customer already has the card, and the spend is a closed financial record.
+   * It deliberately survives the send. It used to refuse once the checklist was
+   * locked, which was safe only while a variance held the delivery: there was
+   * always a window between the wrong figure and the card going out. There
+   * isn't one any more — a mistyped 470.00 now flags a review and the card
+   * leaves in the same minute — so refusing after the lock would mean the
+   * review a manager was sent could establish that the number is wrong and
+   * still leave it wrong for good. The delivery is untouched by this; only our
+   * own record of what we paid changes, under a named manager and a reason.
    */
   async correctActualCost(input: {
     workItemId: string;
@@ -526,14 +535,6 @@ export class FulfillmentService {
     if (!MANAGER_APPROVAL_ROLE_SET.has(input.staff.role)) {
       throw DomainErrors.forbidden(
         `role ${input.staff.role} may not correct a recorded supplier cost`,
-      );
-    }
-
-    const checklist = await this.checklists.ensure(context);
-    if (checklist.isLocked) {
-      throw DomainErrors.conflict(
-        'این سفارش قبلاً ارسال شده و هزینهٔ آن قابل اصلاح نیست.',
-        `work item ${context.workItemId} checklist is locked`,
       );
     }
 
@@ -602,21 +603,15 @@ export class FulfillmentService {
     });
 
     if (variance.requiresApproval) {
-      await this.audit.record({
+      await this.flagCostVariance({
+        fulfillmentId: record.id,
+        orderId: context.orderId,
+        variance,
         actor: input.staff.id,
         actorType: 'STAFF',
         actorRole: input.staff.role,
-        action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
-        entity: 'Fulfillment',
-        entityId: record.id,
-        after: {
-          orderId: context.orderId,
-          reason: variance.reason,
-          costVarianceBps: variance.varianceBps,
-          toleranceBps: variance.toleranceBps,
-          recordedBy: input.staff.id,
-          source: 'COST_CORRECTION',
-        },
+        recordedBy: input.staff.id,
+        source: 'COST_CORRECTION',
       });
     }
 
@@ -697,19 +692,15 @@ export class FulfillmentService {
       });
 
       if (variance.requiresApproval) {
-        await this.audit.record({
+        await this.flagCostVariance({
+          fulfillmentId: fulfillment.id,
+          orderId: context.orderId,
+          variance,
           actor: input.actorId,
           actorType: 'SYSTEM',
-          action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
-          entity: 'Fulfillment',
-          entityId: fulfillment.id,
-          after: {
-            orderId: context.orderId,
-            reason: variance.reason,
-            costVarianceBps: variance.varianceBps,
-            toleranceBps: variance.toleranceBps,
-            source: 'AUTOMATED_SUPPLIER_PURCHASE',
-          },
+          // Nobody typed this figure; the supplier returned it.
+          recordedBy: null,
+          source: 'AUTOMATED_SUPPLIER_PURCHASE',
         });
       }
     }
@@ -718,18 +709,137 @@ export class FulfillmentService {
   }
 
   /* ---------------------------------------------------------------------- */
+  /* Cost variance review                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * Routes an out-of-tolerance spend to a manager, without touching the send.
+   *
+   * Every path that records a supplier cost ends here when the variance needs a
+   * human: the operator's entry, the separate cost entry, a manager's
+   * correction, and an automated purchase. Two things happen, in this order:
+   *
+   *   1. A review work item is opened on the order. It is a *separate* item —
+   *      it does not take the order lock and does not replace the fulfillment
+   *      task — so the operator carries on and delivers while it waits for a
+   *      manager. This is the durable half: the audit trail has no read
+   *      endpoint yet, so without a work item a flagged variance would exist
+   *      only in a table nobody looks at, and would be lost the moment the
+   *      fulfillment task closed.
+   *   2. The flag is written to the audit trail, carrying the review's id.
+   *
+   * A failure to open the review must not fail the caller. The spend has
+   * already been written by then, and throwing here would strand the order
+   * behind an asset that exists but cannot be re-recorded — which is exactly
+   * the kind of hold this whole change removes. The audit row is still written,
+   * with a null review id, so the failure is visible rather than silent.
+   */
+  private async flagCostVariance(input: {
+    fulfillmentId: string;
+    orderId: string;
+    variance: CostVarianceAssessment;
+    actor: string;
+    actorType: AuditActorType;
+    actorRole?: StaffRole;
+    /** The staff member whose figure produced the variance, if a person typed it. */
+    recordedBy: string | null;
+    source?: string;
+  }): Promise<void> {
+    const reviewWorkItemId = await this.openCostVarianceReview(input);
+
+    await this.audit.record({
+      actor: input.actor,
+      actorType: input.actorType,
+      ...(input.actorRole === undefined ? {} : { actorRole: input.actorRole }),
+      action: FULFILLMENT_AUDIT_ACTIONS.COST_VARIANCE_FLAGGED,
+      entity: 'Fulfillment',
+      entityId: input.fulfillmentId,
+      after: {
+        orderId: input.orderId,
+        reason: input.variance.reason,
+        costVarianceBps: input.variance.varianceBps,
+        toleranceBps: input.variance.toleranceBps,
+        recordedBy: input.recordedBy,
+        ...(input.source === undefined ? {} : { source: input.source }),
+        reviewWorkItemId,
+      },
+    });
+  }
+
+  private async openCostVarianceReview(input: {
+    fulfillmentId: string;
+    orderId: string;
+    variance: CostVarianceAssessment;
+    actor: string;
+    recordedBy: string | null;
+  }): Promise<string | null> {
+    try {
+      const review = await this.escalator.openEscalation({
+        code: `${COST_VARIANCE_REVIEW_PREFIX}:${input.fulfillmentId}:${String(input.variance.varianceBps ?? input.variance.reason)}`,
+        orderId: input.orderId,
+        type: 'SUPPLIER_FOLLOWUP',
+        queueKey: 'SUPPLIER_ISSUE',
+        title: 'بررسی اختلاف هزینهٔ تأمین',
+        /*
+         * The figures are spelled out here because this text is all a manager
+         * gets: the payload is never rendered, and the approve/correct controls
+         * live on the *delivery* task of this order — the fulfillment row is
+         * scoped to that work item, so this review's own workspace shows no cost
+         * card. Saying where to go is what makes the review actionable. No card
+         * material and no amount in currency, only the basis-point figures that
+         * the audit trail already carries.
+         */
+        description: this.describeCostVarianceReview(input.variance),
+        // No priority given, so it takes the escalation default and sits with the
+        // other escalations. It no longer holds anything up, which makes a
+        // manager actually opening it the only safeguard left on the spend.
+        payload: {
+          fulfillmentId: input.fulfillmentId,
+          reason: input.variance.reason,
+          costVarianceBps: input.variance.varianceBps,
+          toleranceBps: input.variance.toleranceBps,
+          recordedBy: input.recordedBy,
+        },
+        actor: input.actor,
+      });
+      return review.id;
+    } catch {
+      return null;
+    }
+  }
+
+  /** The whole brief a manager reads on the review. See its call site. */
+  private describeCostVarianceReview(variance: CostVarianceAssessment): string {
+    const finding =
+      variance.reason === COST_VARIANCE_REASONS.CURRENCY_MISMATCH
+        ? 'واحد پول هزینهٔ ثبت‌شدهٔ تأمین با واحد پول استعلام یکی نیست، بنابراین قابل مقایسه نیست.'
+        : variance.varianceBps === null
+          ? 'برای هزینهٔ ثبت‌شدهٔ تأمین مبنای مقایسه‌ای وجود ندارد، بنابراین بودجه‌دار بودن این خرید اثبات نشده است.'
+          : `هزینهٔ واقعی تأمین ${variance.varianceBps} بیس‌پوینت بیشتر از مبلغ استعلام است؛ حد مجاز ${variance.toleranceBps} بیس‌پوینت است.`;
+
+    return `${finding} تحویل کد به مشتری متوقف نشده است و این بررسی فقط دربارهٔ مبلغ خرید است. برای تأیید یا اصلاح مبلغ، در همین سفارش به تسک تحویل بروید و کارت «اختلاف هزینهٔ تأمین‌کننده» را باز کنید.`;
+  }
+
+  /* ---------------------------------------------------------------------- */
   /* Cost variance approval                                                  */
   /* ---------------------------------------------------------------------- */
 
   /**
-   * A manager releases a spend that exceeded the quoted cost by more than the
-   * pricing rule's tolerance.
+   * A manager's verdict on a spend that exceeded the quoted cost by more than
+   * the pricing rule's tolerance.
+   *
+   * This no longer releases a delivery — the card reaches the customer without
+   * waiting for it. What it records is that a second pair of eyes looked at the
+   * money and accepted it, which is why it is still worth having, and why it
+   * deliberately still works after the send: the review it answers is usually
+   * opened *while* the operator is delivering.
    *
    * Two rules are enforced here and nowhere else:
    *   1. The approver must hold a manager role.
-   *   2. The approver must not be the operator who recorded the spend. Four-eyes
-   *      is the entire point of the control; an operator approving their own
-   *      variance is the exact failure it exists to prevent.
+   *   2. The approver must not be the person who recorded the spend, nor the
+   *      operator working the order it belongs to. Four-eyes is the entire
+   *      point of the control; approving your own variance is the exact failure
+   *      it exists to prevent.
    */
   async approveCostVariance(input: {
     workItemId: string;
@@ -752,7 +862,20 @@ export class FulfillmentService {
       );
     }
 
-    if (fulfillment.fulfilledByStaffId === input.staff.id || context.assignedToStaffId === input.staff.id) {
+    /*
+     * The claim rule is scoped to the work item the fulfillment belongs to.
+     * A cost-variance review is a *separate* work item on the same order, so a
+     * manager who claims that review would otherwise be reading it as "you hold
+     * the claim, you may not approve" — locking the only person the review was
+     * raised for out of answering it. Holding the claim on the delivery itself
+     * still disqualifies, and so does having recorded the figure, which is the
+     * clause four-eyes actually rests on.
+     */
+    const holdsDeliveryClaim =
+      context.assignedToStaffId === input.staff.id &&
+      (fulfillment.workItemId === null || fulfillment.workItemId === context.workItemId);
+
+    if (fulfillment.fulfilledByStaffId === input.staff.id || holdsDeliveryClaim) {
       throw DomainErrors.forbidden(
         `staff ${input.staff.id} may not approve their own cost variance on fulfillment ${fulfillment.id}`,
       );
@@ -818,6 +941,11 @@ export class FulfillmentService {
       actor: staffActor(input.staff),
       reason: SECRET_READ_REASONS.DELIVERY_SEND,
       isRetry: false,
+      // Checkout permits a mobile-only customer. Send e-mail when the order has
+      // an address; otherwise publish the card to that customer's authenticated
+      // order page, where they read the code and PIN in full, instead of
+      // dead-ending the operator.
+      channel: 'AUTO',
     });
   }
 
@@ -841,10 +969,11 @@ export class FulfillmentService {
    * Hands an automatically purchased asset to the customer's own order page.
    *
    * The same `dispatch` as the operator SEND button, so the same send gate runs:
-   * payment verified, order deliverable, asset stored, actual cost recorded, cost
-   * variance approved if it needs approval. Nothing about "the system bought it"
-   * relaxes any of that — the one difference is that no message is sent, because
-   * the customer reveals the code themselves.
+   * payment verified, order deliverable, asset stored, actual cost recorded,
+   * checklist complete. Nothing about "the system bought it" relaxes any of that —
+   * the one difference is that no message is sent, because the customer reveals
+   * the code themselves. An out-of-tolerance cost is not in that list; it is
+   * flagged for a manager and the card still goes out.
    *
    * No plaintext is read here and none is returned. The caller learns only whether
    * the asset is now available to its buyer.
@@ -915,10 +1044,10 @@ export class FulfillmentService {
     actor: DispatchActor;
     reason: SecretReadReason;
     isRetry: boolean;
-    /** Omitted means `EMAIL`: forgetting it can only make the gate stricter. */
-    channel?: DeliveryChannel;
+    /** Omitted means `EMAIL`: callers must explicitly opt into automatic fallback. */
+    channel?: RequestedDeliveryChannel;
   }): Promise<DeliveryOutcome> {
-    const channel: DeliveryChannel = input.channel ?? 'EMAIL';
+    const requestedChannel = input.channel ?? 'EMAIL';
     const context = await this.loadContext(input.workItemId);
     if (input.actor.enforceClaim) {
       this.assertCanOperate(context, { id: input.actor.id, role: input.actor.role as StaffRole });
@@ -928,6 +1057,18 @@ export class FulfillmentService {
 
     const assets = await this.assets.listForOrder(context.orderId);
     const asset = assets[0];
+    let channel: DeliveryChannel;
+    if (requestedChannel !== 'AUTO') {
+      channel = requestedChannel;
+    } else if (
+      asset !== undefined &&
+      this.needsOurEmail(context, asset) &&
+      this.resolveRecipient(context, asset) === null
+    ) {
+      channel = 'SELF_SERVICE';
+    } else {
+      channel = 'EMAIL';
+    }
 
     // The authoritative gate. The frontend's opinion is not consulted.
     const blockers = [...state.sendBlockers].filter(
@@ -954,7 +1095,7 @@ export class FulfillmentService {
         after: { orderId: context.orderId, blockers: finalBlockers, isRetry: input.isRetry },
       });
       throw DomainErrors.conflict(
-        'ارسال برای مشتری هنوز مجاز نیست؛ چک‌لیست کامل نشده است.',
+        'ارسال برای مشتری هنوز مجاز نیست؛ یکی از شرایط الزامی تحویل برقرار نیست.',
         `send blocked for work item ${context.workItemId}: ${finalBlockers.join(',')}`,
       );
     }
@@ -996,9 +1137,9 @@ export class FulfillmentService {
     let result: { success: boolean; providerMessageId?: string; failureCode?: string };
 
     if (channel === 'SELF_SERVICE') {
-      // Nothing leaves the process. The code is already encrypted against this
-      // order, and the customer reveals it themselves; "delivered" here means
-      // "available to the buyer", which is exactly what it now is.
+      // Nothing leaves the process. `SENT` is what opens the reveal endpoint, so
+      // from here the buyer can decrypt and read the whole card on their order
+      // page; "delivered" here means "readable by the buyer", which it now is.
       result = { success: true, providerMessageId: `self-service:${asset.id}` };
     } else if (
       asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&

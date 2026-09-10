@@ -89,6 +89,13 @@ function harness(offers: readonly SupplierOfferView[] = [offer()]): Harness {
     orderId: ORDER_ID,
     workItemId: WORK_ITEM_ID,
   });
+
+  // The real escalator, shared by both services: the supplier escalations these
+  // tests assert on and the cost-variance review a fulfillment may raise land in
+  // the same store, exactly as they do in production.
+  const workItems = new InMemoryWorkItemStore();
+  const escalator = new WorkItemsService(workItems, audit);
+
   const fulfillment = new FulfillmentService(
     fulfillmentStore,
     new MockAssetDeliveryTransport(),
@@ -97,10 +104,9 @@ function harness(offers: readonly SupplierOfferView[] = [offer()]): Harness {
     audit,
     { info: async () => null, readIfExists: async () => null } as never,
     { bankDetailsEncryptionKey: () => Buffer.alloc(32, 7) } as never,
+    escalator,
   );
 
-  const workItems = new InMemoryWorkItemStore();
-  const escalator = new WorkItemsService(workItems, audit);
   const provider = new MockSupplierProvider({ availability: { 'MOCK-SKU-1': 'AVAILABLE' } });
 
   return {

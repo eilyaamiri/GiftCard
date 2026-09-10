@@ -94,13 +94,20 @@ export const costVarianceSchema = z.object({
 });
 export type CostVarianceAssessment = z.infer<typeof costVarianceSchema>;
 
+/**
+ * A cost variance is deliberately not in this list.
+ *
+ * The API stopped emitting `COST_VARIANCE_UNAPPROVED`: an out-of-tolerance spend
+ * is now routed to a manager as its own review while the card goes out. Keeping a
+ * value here that the server never sends would only invite UI that claims a hold
+ * that no longer exists.
+ */
 export const SEND_BLOCKER_VALUES = [
   "CHECKLIST_LOCKED",
   "PAYMENT_NOT_VERIFIED",
   "ORDER_NOT_DELIVERABLE",
   "ASSET_MISSING",
   "ACTUAL_COST_MISSING",
-  "COST_VARIANCE_UNAPPROVED",
   "CHECKLIST_INCOMPLETE",
   "DELIVERY_EMAIL_MISSING",
 ] as const;
@@ -299,9 +306,8 @@ export const SEND_BLOCKER_LABEL: Record<SendBlocker, string> = {
   CHECKLIST_LOCKED: "این سفارش قبلاً ارسال شده و چک‌لیست قفل است.",
   PAYMENT_NOT_VERIFIED: "پرداخت سفارش هنوز تأیید نشده است.",
   ORDER_NOT_DELIVERABLE: "وضعیت سفارش اجازهٔ تحویل نمی‌دهد.",
-  ASSET_MISSING: "هنوز نتیجهٔ تأمین‌کننده ثبت نشده است.",
+  ASSET_MISSING: "دارایی تحویل هنوز ثبت نشده است؛ آن را در کارت «دارایی تحویل» وارد کنید.",
   ACTUAL_COST_MISSING: "هزینهٔ واقعی تأمین‌کننده ثبت نشده است.",
-  COST_VARIANCE_UNAPPROVED: "اختلاف هزینه بیش از حد مجاز است و تأیید مدیر می‌خواهد.",
   CHECKLIST_INCOMPLETE: "موارد الزامی چک‌لیست هنوز تکمیل نشده‌اند.",
   DELIVERY_EMAIL_MISSING: "ایمیل تحویل مشتری ثبت نشده است.",
 };
@@ -355,6 +361,28 @@ export const DELIVERY_ASSET_TYPE_LABEL: Record<DeliveryAssetType, string> = {
 /** Only these two asset types hold an encrypted secret worth revealing. */
 export function hasRevealableSecret(assetType: DeliveryAssetType): boolean {
   return assetType === "CODE" || assetType === "CODE_PIN";
+}
+
+/**
+ * Whether the gift-card task offers the operator a form to type the delivery
+ * asset in by hand.
+ *
+ * An operator often already holds the code — bought outside the panel, sent by
+ * a supplier over another channel — and then needs neither the provider flow
+ * nor an admin code request to finish the order. This decides only what is
+ * drawn; the server stays the guard, and it refuses on the same two grounds:
+ * an order that already has an asset (creating a second one would mean buying
+ * the same card twice) and a checklist that is locked because the card is gone.
+ *
+ * A payment task is excluded because its form is its own card above the record,
+ * not a section of it.
+ */
+export function canEnterDeliveryAssetManually(workspace: FulfillmentWorkspace): boolean {
+  return (
+    workspace.internationalPayment === null &&
+    workspace.assets.length === 0 &&
+    !workspace.checklist.isLocked
+  );
 }
 
 /**

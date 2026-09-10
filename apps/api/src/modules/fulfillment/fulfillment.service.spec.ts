@@ -4,11 +4,17 @@ import { randomBytes } from 'node:crypto';
 import { seal } from '../../common/crypto/aead-envelope';
 import { SERVICE_ACCOUNT_PASSWORD_AAD as ACCOUNT_AAD } from '../quotes/service-account-fields';
 import type { StaffContext } from '../workitems/staff-context';
+import type { EscalationInput, WorkItemEscalator, WorkItemSummary } from '../workitems/workitems.types';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { ChecklistService } from './checklist.service';
 import { SHIPPED_CHECKLIST_TEMPLATES } from './checklist-templates';
 import { FulfillmentService } from './fulfillment.service';
-import { GiftCardAssetService, GIFT_CARD_AUDIT_ACTIONS } from './gift-card-asset.service';
+import {
+  GiftCardAssetService,
+  GIFT_CARD_AUDIT_ACTIONS,
+  SECRET_READ_REASONS,
+  type RevealedAssetSecret,
+} from './gift-card-asset.service';
 import { SEND_BLOCKERS } from './checklist-evaluation';
 import type {
   PaymentReceiptService,
@@ -74,12 +80,38 @@ class InMemoryPaymentReceiptService {
   }
 }
 
+/**
+ * The escalation port, with the one property the real one is relied on for:
+ * idempotency by `code`. A replayed flag must reuse the open review rather than
+ * pile a second copy of it onto a manager's queue.
+ */
+class InMemoryEscalator implements WorkItemEscalator {
+  readonly opened: EscalationInput[] = [];
+  /** Set to make the next call fail, as an unreachable database would. */
+  failing = false;
+
+  async openEscalation(input: EscalationInput): Promise<WorkItemSummary> {
+    if (this.failing) {
+      throw new Error('work item store unavailable');
+    }
+    const existing = this.opened.find((item) => item.code === input.code);
+    if (existing === undefined) {
+      this.opened.push(input);
+    }
+    return { id: `review-${input.code}` } as unknown as WorkItemSummary;
+  }
+}
+
 interface Harness {
   readonly service: FulfillmentService;
   readonly store: InMemoryFulfillmentStore;
   readonly transport: MockAssetDeliveryTransport;
   readonly receipts: InMemoryPaymentReceiptService;
+  /** The one door to plaintext — the customer reveal goes through it too. */
+  readonly assets: GiftCardAssetService;
   readonly events: AuditEvent[];
+  /** Where an out-of-tolerance spend is sent for a manager to look at. */
+  readonly escalator: InMemoryEscalator;
 }
 
 function harness(seed: SeedFulfillment = {}): Harness {
@@ -103,6 +135,7 @@ function harness(seed: SeedFulfillment = {}): Harness {
   const checklists = new ChecklistService(store, audit);
   const assets = new GiftCardAssetService(store, audit);
   const receipts = new InMemoryPaymentReceiptService();
+  const escalator = new InMemoryEscalator();
   const service = new FulfillmentService(
     store,
     transport,
@@ -114,9 +147,16 @@ function harness(seed: SeedFulfillment = {}): Harness {
     /* A fresh buffer per call, like the real config: the service zeroes the key
      * it is handed as soon as it has finished with it. */
     bankDetailsEncryptionKey: () => Buffer.alloc(32, 7),
-  } as never);
+  } as never,
+    escalator,
+  );
 
-  return { service, store, transport, receipts, events };
+  return { service, store, transport, receipts, assets, events, escalator };
+}
+
+/** The cost-variance reviews raised on this order so far. */
+function reviews(h: Harness): readonly EscalationInput[] {
+  return h.escalator.opened.filter((item) => item.code.startsWith('COST_VARIANCE_REVIEW:'));
 }
 
 /** Records a CODE_PIN asset with the given actual cost, as an operator would. */
@@ -141,6 +181,23 @@ async function tickBooleans(h: Harness): Promise<void> {
       checked: true,
     });
   }
+}
+
+/**
+ * What the customer's own order page would put on screen.
+ *
+ * `POST /orders/:orderNumber/delivery/reveal` checks the order belongs to the
+ * session and that the asset is `SENT`, then makes exactly this call — so what
+ * comes back here is what the buyer reads. Encryption is how the code rests in
+ * the database; it is never what the customer is handed.
+ */
+async function revealAsBuyer(h: Harness): Promise<RevealedAssetSecret> {
+  return h.assets.readSecret({
+    assetId: h.store.rawAssets()[0]?.id ?? 'no-asset',
+    actorId: 'customer-1',
+    actorType: 'CUSTOMER',
+    reason: SECRET_READ_REASONS.CUSTOMER_REVEAL,
+  });
 }
 
 beforeEach(() => {
@@ -269,6 +326,45 @@ describe('send gate', () => {
     expect(outcome.workspace.checklist.isLocked).toBe(true);
   });
 
+  it('publishes a manually fulfilled card to a mobile-only customer account', async () => {
+    const h = harness({ deliveryEmail: null });
+    await recordAsset(h, '100.00');
+    await tickBooleans(h);
+    // Mirrors the production report exactly: the operator had explicitly ticked
+    // every row, including the legacy delivery-email row, so the workspace
+    // showed no blocker and opened the final confirmation modal.
+    const ready = await h.service.checkItem({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+      itemKey: 'DELIVERY_EMAIL_PRESENT',
+      checked: true,
+    });
+    expect(ready.canSend).toBe(true);
+
+    const outcome = await h.service.sendToCustomer({
+      workItemId: h.store.workItemId,
+      staff: OPERATOR,
+    });
+
+    expect(outcome.delivered).toBe(true);
+    expect(h.transport.getSendCount()).toBe(0);
+    expect(h.store.rawAssets()[0]?.status).toBe('SENT');
+    expect(h.store.attempts[0]?.recipientMasked).toBe('self-service');
+    expect(outcome.workspace.checklist.isLocked).toBe(true);
+    const sentEvent = h.events.find(
+      (event) => event.action === 'FULFILLMENT_SENT_TO_CUSTOMER',
+    );
+    expect(sentEvent).toMatchObject({ actor: OPERATOR.id });
+    expect(sentEvent?.payload).toContain('SELF_SERVICE');
+
+    /* The point of the whole channel: the buyer must end up with a code they
+     * can read and redeem. Not the mask, not the ciphertext — the card exactly
+     * as the operator typed it, PIN included. */
+    const buyerSees = await revealAsBuyer(h);
+    expect(buyerSees.code).toBe(PLAINTEXT_CODE);
+    expect(buyerSees.pin).toBe(PLAINTEXT_PIN);
+  });
+
   it('locks the checklist after a send, so a second send is refused', async () => {
     const h = harness();
     await recordAsset(h, '100.00');
@@ -304,6 +400,12 @@ describe('self-service delivery', () => {
     expect(h.transport.getSendCount()).toBe(0);
     expect(h.store.rawAssets()[0]?.status).toBe('SENT');
     expect(h.store.attempts[0]?.recipientMasked).toBe('self-service');
+
+    // Published means readable: the same card, in full, on the order page.
+    await expect(revealAsBuyer(h)).resolves.toMatchObject({
+      code: PLAINTEXT_CODE,
+      pin: PLAINTEXT_PIN,
+    });
   });
 
   it('still refuses when a blocking item other than the e-mail is unsatisfied', async () => {
@@ -327,14 +429,18 @@ describe('self-service delivery', () => {
     expect(h.store.rawAssets()[0]?.status).toBe('READY');
   });
 
-  it('still refuses an unapproved cost variance', async () => {
+  it('publishes the card even when the cost variance is over tolerance', async () => {
     const h = harness({ deliveryEmail: null });
     // 20% above the quoted cost, far beyond the 500bps tolerance.
     await recordAsset(h, '120.00');
     await tickBooleans(h);
 
-    await expect(h.service.deliverBySelfService(h.store.workItemId)).rejects.toThrow();
-    expect(h.store.rawAssets()[0]?.status).toBe('READY');
+    /* The customer paid and the card is bought. What we overspent on it is our
+     * problem to review, not a reason to keep them waiting for it. */
+    const outcome = await h.service.deliverBySelfService(h.store.workItemId);
+    expect(outcome.delivered).toBe(true);
+    expect(h.store.rawAssets()[0]?.status).toBe('SENT');
+    expect(reviews(h)).toHaveLength(1);
   });
 
   it('keeps the plaintext out of the delivery audit trail', async () => {
@@ -349,51 +455,171 @@ describe('self-service delivery', () => {
   });
 });
 
+/**
+ * An out-of-tolerance supplier cost is reviewed, not enforced.
+ *
+ * It used to hold the delivery until a manager released it, which meant a
+ * customer who had paid waited on our bookkeeping — and the money was already
+ * spent by then either way, so the hold bought nothing back. The variance is
+ * still measured, still audited and now actively routed to a manager as its own
+ * work item; what it no longer does is stand between the buyer and their card.
+ * These tests are the proof of both halves: the send goes through, AND the
+ * review is raised.
+ */
 describe('cost variance', () => {
-  it('blocks the send when the actual supplier cost exceeds the tolerance', async () => {
+  it('sends the card and opens a manager review when the cost exceeds the tolerance', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
     // 120 against a 100 quote is 2000 bps — four times the 500 bps ceiling.
     await recordAsset(h, '120.00');
     await tickBooleans(h);
 
     const workspace = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
-    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
     expect(workspace.costVariance?.varianceBps).toBe(2_000);
-    // Cost variance is an independent financial gate, not a manager-only
-    // checklist row. It remains blocked until the dedicated approval succeeds.
+    expect(workspace.costVariance?.requiresApproval).toBe(true);
+    expect(workspace.sendBlockers).toHaveLength(0);
+    // Cost variance is a review of our own spend, not a checklist row the
+    // operator can be made to tick.
     expect(workspace.checklist.items.some((item) => item.type === 'MANAGER_APPROVAL')).toBe(false);
     expect(workspace.checklist.items.some((item) => item.key === 'COST_VARIANCE_APPROVAL')).toBe(false);
 
-    await expect(h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR })).rejects.toThrow();
-    expect(h.transport.getSendCount()).toBe(0);
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+    expect(outcome.delivered).toBe(true);
+    expect(h.transport.getSendCount()).toBe(1);
+
+    // …and the overspend did not evaporate with the send.
+    const review = reviews(h)[0];
+    expect(reviews(h)).toHaveLength(1);
+    expect(review?.orderId).toBe(h.store.orderId);
+    expect(review?.payload?.['costVarianceBps']).toBe(2_000);
+    expect(h.events.filter((event) => event.action === 'FULFILLMENT_COST_VARIANCE_FLAGGED')).toHaveLength(1);
   });
 
-  it('allows the send after a manager approves the variance', async () => {
+  it('opens one review per figure, not one per write', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    const manager: StaffContext = { id: 'staff-admin', role: 'ADMIN' };
+    await recordAsset(h, '120.00');
+
+    // 140 is a different overspend and deserves its own answer; coming back to
+    // 120 lands on the variance a manager was already asked about, so it must
+    // reuse that review rather than add a duplicate to the queue.
+    await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: manager,
+      actualSupplierCost: '140.00',
+      reason: 'فاکتور تأمین‌کننده مبلغ دیگری نشان می‌داد',
+    });
+    await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: manager,
+      actualSupplierCost: '120.00',
+      reason: 'اصلاح قبلی اشتباه بود؛ مبلغ اولیه درست است',
+    });
+
+    // Three writes, two distinct figures, two reviews.
+    expect(h.events.filter((event) => event.action === 'FULFILLMENT_COST_VARIANCE_FLAGGED')).toHaveLength(3);
+    expect(reviews(h)).toHaveLength(2);
+    expect(reviews(h).filter((review) => review.payload?.['costVarianceBps'] === 2_000)).toHaveLength(1);
+  });
+
+  it('never lets a failed review stop the delivery', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    h.escalator.failing = true;
+
+    // The spend is written before the review is raised. Throwing here would
+    // leave an asset on file that can never be re-recorded — the order would be
+    // stuck behind exactly the kind of hold this whole rule removes.
+    await recordAsset(h, '120.00');
+    await tickBooleans(h);
+
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+    expect(outcome.delivered).toBe(true);
+
+    // The flag itself still had to be recorded, saying plainly that no review
+    // was opened, so the failure is visible rather than silent.
+    const flag = h.events.find((event) => event.action === 'FULFILLMENT_COST_VARIANCE_FLAGGED');
+    expect(flag).toBeDefined();
+    expect(flag?.payload).toContain('"reviewWorkItemId":null');
+  });
+
+  it('keeps card material out of the review it raises', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '120.00');
+
+    // The review travels to a queue, a title and a payload a manager reads.
+    // None of that is a place for a gift-card code.
+    const serialized = JSON.stringify(h.escalator.opened);
+    expect(serialized).not.toContain(PLAINTEXT_CODE);
+    expect(serialized).not.toContain(PLAINTEXT_PIN);
+  });
+
+  it('tells the manager the figures and where to answer them', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '120.00');
+
+    /* The description is the whole brief: the admin never renders a work item's
+     * payload, and the approve/correct controls live on the delivery task, not
+     * on this review — so a description that omits either the numbers or the
+     * route leaves a manager with a task they cannot act on. */
+    const description = reviews(h)[0]?.description ?? '';
+    expect(description).toContain('2000');
+    expect(description).toContain('500');
+    expect(description).toContain('تسک تحویل');
+    expect(description).toContain('متوقف نشده');
+  });
+
+  it('records a manager verdict on the variance, before or after the send', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
     await recordAsset(h, '120.00');
     await tickBooleans(h);
 
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+    expect(outcome.delivered).toBe(true);
+
+    /* The review is normally worked after the card has gone out, so the verdict
+     * has to survive the checklist lock — otherwise the work item a manager was
+     * sent could not be answered at all. */
     await h.service.approveCostVariance({
       workItemId: h.store.workItemId,
       staff: MANAGER,
       reason: 'supplier raised the price mid-purchase; margin still positive',
     });
 
-    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
-    expect(outcome.delivered).toBe(true);
-
     const approvals = h.events.filter((event) => event.action === 'APPROVE_COST_VARIANCE');
     expect(approvals).toHaveLength(1);
     expect(approvals[0]?.actor).toBe(MANAGER.id);
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.approvedByStaffId).toBe(MANAGER.id);
   });
 
-  it('does not block a spend that is inside the tolerance', async () => {
+  it('raises no review for a spend that is inside the tolerance', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
     await recordAsset(h, '104.00'); // 400 bps
     await tickBooleans(h);
 
     const workspace = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
     expect(workspace.sendBlockers).toHaveLength(0);
+    expect(reviews(h)).toHaveLength(0);
+    expect(h.events.some((event) => event.action === 'FULFILLMENT_COST_VARIANCE_FLAGGED')).toBe(false);
+  });
+
+  it('lets a manager who claimed the review answer it', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    await recordAsset(h, '120.00');
+
+    /* The review is a separate work item on the same order. Opening it from
+     * there must not read as "you hold the claim, so you may not approve" —
+     * that would lock the one person it was raised for out of answering it. */
+    h.store.workItemId = 'wi-cost-variance-review';
+    h.store.assignedToStaffId = MANAGER.id;
+
+    await h.service.approveCostVariance({
+      workItemId: 'wi-cost-variance-review',
+      staff: MANAGER,
+      reason: 'فاکتور تأمین‌کننده مبلغ را تأیید می‌کند',
+    });
+
+    const fulfillment = [...h.store.fulfillments.values()][0];
+    expect(fulfillment?.approvedByStaffId).toBe(MANAGER.id);
   });
 
   it('refuses to let an operator approve their own variance', async () => {
@@ -908,7 +1134,7 @@ describe('recording the actual cost on its own', () => {
     expect(fulfillment?.actualSupplierCost).toBe('100.00');
   });
 
-  it('raises the variance hold for an over-tolerance price recorded this way', async () => {
+  it('raises the manager review for an over-tolerance price recorded this way', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
     await recordAssetWithoutCost(h);
     await tickBooleans(h);
@@ -918,28 +1144,36 @@ describe('recording the actual cost on its own', () => {
       staff: OPERATOR,
       actualSupplierCost: '120.00',
       actualSupplierCurrency: 'USD',
+      // The reference travels with the cost here, as in the sibling test above:
+      // without it the provider-reference row stays pending and the checklist —
+      // not the variance — is what would be holding the send.
+      supplierReference: 'SUP-REF-9001',
     });
 
+    // This door reaches the same assessment as `recordSupplierResult`, so it
+    // must reach the same review — and the same non-blocking send.
     expect(workspace.costVariance?.varianceBps).toBe(2_000);
-    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
-    await expect(
-      h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR }),
-    ).rejects.toThrow();
+    expect(workspace.sendBlockers).toHaveLength(0);
+    expect(reviews(h)).toHaveLength(1);
+
+    const outcome = await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
+    expect(outcome.delivered).toBe(true);
   });
 });
 
 describe('correcting a cost that was typed wrong', () => {
   const ADMIN: StaffContext = { id: 'staff-admin', role: 'ADMIN' };
 
-  it('replaces the figure and re-derives the send gate from it', async () => {
+  it('replaces the figure and re-derives the variance from it', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
-    // 470.00 was meant to be 47.00 — a misplaced decimal point, so the send is
-    // held behind a variance the order never actually incurred.
+    // 470.00 was meant to be 47.00 — a misplaced decimal point, so a review was
+    // raised over a variance the order never actually incurred.
     await recordAsset(h, '470.00');
     await tickBooleans(h);
 
     const held = await h.service.getWorkspace(h.store.workItemId, OPERATOR);
-    expect(held.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+    expect(held.costVariance?.requiresApproval).toBe(true);
+    expect(reviews(h)).toHaveLength(1);
 
     const fixed = await h.service.correctActualCost({
       workItemId: h.store.workItemId,
@@ -950,17 +1184,18 @@ describe('correcting a cost that was typed wrong', () => {
     });
 
     expect(fixed.costVariance?.varianceBps).toBe(200);
+    expect(fixed.costVariance?.requiresApproval).toBe(false);
     expect(fixed.sendBlockers).toHaveLength(0);
 
     const fulfillment = [...h.store.fulfillments.values()][0];
     expect(fulfillment?.actualSupplierCost).toBe('102.00');
   });
 
-  it('can raise a hold, not only clear one', async () => {
+  it('can raise a review, not only settle one', async () => {
     const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
     await recordAsset(h, '102.00');
     await tickBooleans(h);
-    expect((await h.service.getWorkspace(h.store.workItemId, OPERATOR)).sendBlockers).toHaveLength(0);
+    expect(reviews(h)).toHaveLength(0);
 
     const workspace = await h.service.correctActualCost({
       workItemId: h.store.workItemId,
@@ -971,7 +1206,9 @@ describe('correcting a cost that was typed wrong', () => {
     });
 
     expect(workspace.costVariance?.varianceBps).toBe(4_000);
-    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+    expect(reviews(h)).toHaveLength(1);
+    // A figure a manager has to look at, and a customer who still gets the card.
+    expect(workspace.sendBlockers).toHaveLength(0);
   });
 
   it('voids an approval the previous figure had earned', async () => {
@@ -983,10 +1220,11 @@ describe('correcting a cost that was typed wrong', () => {
       staff: MANAGER,
       reason: 'افزایش نرخ تأمین‌کننده',
     });
-    expect((await h.service.getWorkspace(h.store.workItemId, OPERATOR)).sendBlockers).toHaveLength(0);
+    expect(reviews(h)).toHaveLength(1);
 
-    // A manager released 140.00. That verdict says nothing about 180.00, so the
-    // send must fall back behind the gate rather than inherit the old approval.
+    // A manager accepted 140.00. That verdict says nothing about 180.00, so the
+    // release is withdrawn and the new figure goes back for a fresh look —
+    // a manager who already answered 140.00 must be asked again, not assumed.
     const workspace = await h.service.correctActualCost({
       workItemId: h.store.workItemId,
       staff: ADMIN,
@@ -995,14 +1233,11 @@ describe('correcting a cost that was typed wrong', () => {
       reason: 'مبلغ اشتباه ثبت شده بود',
     });
 
-    expect(workspace.sendBlockers).toContain(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
+    expect(workspace.costVariance?.requiresApproval).toBe(true);
     const fulfillment = [...h.store.fulfillments.values()][0];
     expect(fulfillment?.approvedByStaffId).toBeNull();
     expect(fulfillment?.approvedAt).toBeNull();
-
-    await expect(
-      h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR }),
-    ).rejects.toThrow();
+    expect(reviews(h)).toHaveLength(2);
   });
 
   it('refuses an operator, even the one holding the claim', async () => {
@@ -1045,20 +1280,30 @@ describe('correcting a cost that was typed wrong', () => {
     ).rejects.toThrow();
   });
 
-  it('refuses once the card has been sent', async () => {
-    const h = harness();
-    await recordAsset(h, '100.00');
+  it('still corrects a figure after the card has been sent', async () => {
+    const h = harness({ quotedSupplierCost: '100.00', maxSupplierCostToleranceBps: 500 });
+    // 470.00 for a 47.00 card: a decimal point in the wrong place.
+    await recordAsset(h, '470.00');
     await tickBooleans(h);
     await h.service.sendToCustomer({ workItemId: h.store.workItemId, staff: OPERATOR });
 
-    await expect(
-      h.service.correctActualCost({
-        workItemId: h.store.workItemId,
-        staff: ADMIN,
-        actualSupplierCost: '50.00',
-        reason: 'اصلاح پس از ارسال',
-      }),
-    ).rejects.toThrow();
+    /* This used to be refused once the checklist locked, which was safe only
+     * while the variance held the delivery — there was always a window between
+     * the wrong figure and the card leaving. There is none now, so refusing here
+     * would mean the review a manager was sent could establish the number is
+     * wrong and still leave it wrong for good. */
+    const corrected = await h.service.correctActualCost({
+      workItemId: h.store.workItemId,
+      staff: ADMIN,
+      actualSupplierCost: '47.00',
+      actualSupplierCurrency: 'USD',
+      reason: 'جای اعشار اشتباه وارد شده بود',
+    });
+
+    expect(corrected.supplierCost?.actualSupplierCost).toBe('47.00');
+    // Our own books changed; the customer's card did not move.
+    expect(h.store.rawAssets()[0]?.status).toBe('SENT');
+    expect(h.transport.getSendCount()).toBe(1);
   });
 
   it('refuses when nothing has been recorded yet', async () => {

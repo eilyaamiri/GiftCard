@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Checkbox, Modal, toPersianDigits } from "@barat/ui";
 import { parseDecimalText } from "@/lib/format-bps";
 import { InlineError } from "../../../_components/error-notice";
@@ -22,23 +22,21 @@ const CURRENCIES = ["USD", "EUR", "GBP", "TRY", "AED"];
  * confirmation checkbox and the disabled button are here so an operator does not
  * send by reflex — they are not the gate.
  *
- * The code entry and the cost entry live in this card rather than above it
- * because a blocker the operator can clear is only useful next to the button it
- * is blocking. Neither of them weakens the gate: they fill in the two facts the
- * gate asks for, and the server re-derives the verdict afterwards.
+ * The cost entry lives in this card rather than above it because a blocker the
+ * operator can clear is only useful next to the button it is blocking. It does
+ * not weaken the gate: it fills in the one fact the gate asks for, and the
+ * server re-derives the verdict afterwards. The code itself is typed into the
+ * delivery-asset card, which is where an operator holding one looks first.
  */
 export function FinalActionPanel({
   workspace,
   canOperate,
-  codeEntry,
   onRecordCost,
   onSend,
   onRetry,
 }: {
   workspace: FulfillmentWorkspace;
   canOperate: boolean;
-  /** The code/PIN form, when no delivery asset has been recorded yet. */
-  codeEntry?: ReactNode;
   onRecordCost: (input: RecordActualCostInput) => Promise<void>;
   onSend: () => Promise<DeliveryOutcome>;
   onRetry: () => Promise<DeliveryOutcome>;
@@ -95,8 +93,6 @@ export function FinalActionPanel({
       <div className="section-label">
         <h3>ارسال برای مشتری</h3>
       </div>
-
-      {codeEntry}
 
       {codeAsset ? (
         <div className="kv-list" style={{ marginBlockEnd: 16 }}>

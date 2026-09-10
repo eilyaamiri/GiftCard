@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuditModule } from '../audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
+import { WorkItemsModule } from '../workitems/workitems.module';
 import { ChecklistService } from './checklist.service';
 import { FulfillmentController } from './fulfillment.controller';
 import { FulfillmentService } from './fulfillment.service';
@@ -18,8 +19,13 @@ import { EmailAssetDeliveryTransport } from './transports/email-asset-delivery.t
  * be provable, and they are provable precisely because they never name a
  * database or an e-mail provider.
  */
+/*
+ * `WorkItemsModule` is imported for `WORK_ITEM_ESCALATOR` alone — the port that
+ * raises a manager review for an out-of-tolerance supplier cost. It does not
+ * import this module back, so the pair is acyclic and needs no `forwardRef`.
+ */
 @Module({
-  imports: [AuditModule, IdentityModule],
+  imports: [AuditModule, IdentityModule, WorkItemsModule],
   controllers: [FulfillmentController, InternalFulfillmentController],
   providers: [
     { provide: FULFILLMENT_STORE, useClass: PrismaFulfillmentStore },
