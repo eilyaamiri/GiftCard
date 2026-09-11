@@ -360,11 +360,12 @@ export type UpdateServiceFieldRequest = z.infer<typeof updateServiceFieldRequest
  * Shared list query
  * ==========================================================================*/
 
-export interface AdminListQuery {
+export type AdminListQuery = {
   page?: number;
   pageSize?: number;
   includeInactive?: boolean;
-}
+  status?: "ALL" | "ACTIVE" | "INACTIVE";
+};
 
 export function buildListSearch(query: AdminListQuery & Record<string, string | number | boolean | undefined>): string {
   const params = new URLSearchParams();
@@ -390,6 +391,7 @@ export interface CatalogQuery {
   readonly page: number;
   readonly pageSize: number;
   readonly search?: string;
+  readonly status: "ALL" | "ACTIVE" | "INACTIVE";
 }
 
 /** Coerces untrusted `searchParams` into a query the API will actually accept. */
@@ -405,10 +407,13 @@ export function readCatalogQuery(
 
   const rawPage = Number.parseInt(first("page") ?? "1", 10);
   const search = first("search");
+  const rawStatus = first("status");
+  const status = rawStatus === "ACTIVE" || rawStatus === "INACTIVE" ? rawStatus : "ALL";
 
   return {
     page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
     pageSize,
+    status,
     // The API caps `search` at 120 characters and would 400 on anything longer.
     ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
   };
@@ -422,12 +427,14 @@ export function readCatalogQuery(
 export function catalogHref(
   basePath: string,
   query: CatalogQuery,
-  overrides: { page?: number; search?: string } = {},
+  overrides: { page?: number; search?: string; status?: "ALL" | "ACTIVE" | "INACTIVE" } = {},
 ): string {
   const params = new URLSearchParams();
   const search = overrides.search === undefined ? query.search : overrides.search;
+  const status = overrides.status === undefined ? query.status : overrides.status;
   const page = overrides.page ?? 1;
   if (search) params.set("search", search);
+  if (status !== "ALL") params.set("status", status);
   if (page > 1) params.set("page", String(page));
   const suffix = params.toString();
   return suffix ? `${basePath}?${suffix}` : basePath;

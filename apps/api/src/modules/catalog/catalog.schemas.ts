@@ -62,8 +62,12 @@ export const adminCatalogListSchema = z.object({
  * shared one would advertise a filter that suppliers and services silently
  * ignore.
  */
+export const adminProductStatusSchema = z.enum(['ALL', 'ACTIVE', 'INACTIVE']);
+export type AdminProductStatus = z.infer<typeof adminProductStatusSchema>;
+
 export const adminProductListSchema = adminCatalogListSchema.extend({
   search: z.string().max(120).optional(),
+  status: adminProductStatusSchema.default('ALL'),
 });
 
 export const adminSkuListSchema = adminCatalogListSchema.extend({
@@ -80,7 +84,9 @@ export const adminServiceFieldListSchema = z.object({
 });
 
 export type AdminCatalogListInput = z.infer<typeof adminCatalogListSchema>;
-export type AdminProductListInput = z.infer<typeof adminProductListSchema>;
+export type AdminProductListInput = Omit<z.infer<typeof adminProductListSchema>, 'status'> & {
+  status?: AdminProductStatus;
+};
 export type AdminSkuListInput = z.infer<typeof adminSkuListSchema>;
 export type AdminSupplierOfferListInput = z.infer<typeof adminSupplierOfferListSchema>;
 export type AdminServiceFieldListInput = z.infer<typeof adminServiceFieldListSchema>;

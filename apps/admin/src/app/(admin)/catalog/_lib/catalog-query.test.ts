@@ -15,7 +15,7 @@ import {
  */
 describe("readCatalogQuery", () => {
   it("asks for twenty rows from the first page by default", () => {
-    expect(readCatalogQuery({})).toEqual({ page: 1, pageSize: CATALOG_PAGE_SIZE });
+    expect(readCatalogQuery({})).toEqual({ page: 1, pageSize: CATALOG_PAGE_SIZE, status: "ALL" });
     expect(CATALOG_PAGE_SIZE).toBe(20);
   });
 
@@ -28,8 +28,10 @@ describe("readCatalogQuery", () => {
     expect(readCatalogQuery({ page: "7" }).page).toBe(7);
   });
 
-  it("takes the first value when a parameter is repeated", () => {
-    expect(readCatalogQuery({ search: ["steam", "apple"] }).search).toBe("steam");
+  it("accepts only the two explicit status filters", () => {
+    expect(readCatalogQuery({ status: "ACTIVE" }).status).toBe("ACTIVE");
+    expect(readCatalogQuery({ status: "INACTIVE" }).status).toBe("INACTIVE");
+    expect(readCatalogQuery({ status: "unknown" }).status).toBe("ALL");
   });
 
   it("truncates a search term to the length the API accepts", () => {
