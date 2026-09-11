@@ -15,11 +15,13 @@ export function ToggleActiveButton({
   label,
   confirmMessage,
   hardDelete = false,
+  activate = false,
 }: {
   path: string;
   label?: string;
   confirmMessage: string;
   hardDelete?: boolean;
+  activate?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -30,7 +32,11 @@ export function ToggleActiveButton({
     setPending(true);
     setError(null);
     try {
-      await api.del(path);
+      if (activate) {
+        await api.put(path, { isActive: true });
+      } else {
+        await api.del(path);
+      }
       router.refresh();
     } catch (caught) {
       setError(caught instanceof ApiClientError ? caught.message : "ارتباط با سرویس ممکن نیست.");
@@ -42,7 +48,7 @@ export function ToggleActiveButton({
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <button type="button" className="secondary-btn" disabled={pending} onClick={onClick}>
-        {pending ? "در حال انجام…" : (label ?? (hardDelete ? "حذف" : "غیرفعال‌سازی"))}
+        {pending ? "در حال انجام…" : (label ?? (hardDelete ? "حذف" : activate ? "فعال‌سازی" : "غیرفعال‌سازی"))}
       </button>
       {error ? (
         <span className="muted" style={{ color: "var(--red)" }}>

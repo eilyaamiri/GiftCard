@@ -53,7 +53,13 @@ export function SkuPanel({ productId, skus }: { productId: string; skus: AdminSk
                         path={`/api/admin/catalog/skus/${sku.id}`}
                         confirmMessage={`SKU «${sku.code}» غیرفعال شود؟`}
                       />
-                    ) : null}
+                    ) : (
+                      <ToggleActiveButton
+                        path={`/api/admin/catalog/skus/${sku.id}`}
+                        confirmMessage={`SKU «${sku.code}» فعال شود؟`}
+                        activate
+                      />
+                    )}
                   </span>
                 </td>
               </tr>
