@@ -4,12 +4,10 @@ import { fxProviderHealthSchema, orderSummaryDtoSchema, paginationMetaSchema } f
 import { api } from "@/lib/api";
 
 /**
- * Real aggregates only. There is no /api/admin/dashboard or /api/admin/reports
- * endpoint (confirmed against the live route table on 2026-08-31), so every
- * number here is computed from `/api/admin/orders` and `/api/fx/health` — the
- * only admin-scope endpoints that exist. Anything that would need a payment
- * ledger, a margin/cost figure or an audit feed is left out on purpose; the
- * page renders an honest empty state for those instead of a guess.
+ * Real aggregates only. Operational metrics are computed from the complete
+ * admin order list, while the financial card uses the staff-only aggregate of
+ * immutable quote snapshots. Metrics that still lack an authoritative API
+ * source render an explicit empty state instead of a guess.
  */
 
 const ordersPageSchema = z.object({
@@ -18,6 +16,11 @@ const ordersPageSchema = z.object({
 });
 
 const fxHealthSchema = z.object({ providers: z.array(fxProviderHealthSchema) });
+const financialSummarySchema = z.object({
+  paidOrders: z.number().int().min(0),
+  revenueIrr: z.string().regex(/^\d+$/u),
+  marginIrr: z.string().regex(/^\d+$/u),
+});
 
 const MAX_PAGES = 25; // 100/page cap × 25 = 2,500 orders — well past today's 80-row seed.
 
@@ -52,6 +55,7 @@ export interface DashboardData {
   topItems: { title: string; count: number }[];
   fx: { providers: { provider: string; isHealthy: boolean; lastErrorCode: string | null }[] } | null;
   fxError: string | null;
+  financial: { paidOrders: number; revenueIrr: string; marginIrr: string } | null;
 }
 
 function dayKey(iso: string): string {
@@ -114,6 +118,10 @@ export async function loadDashboardData(): Promise<DashboardData> {
     fxError = "دریافت وضعیت Provider های FX ممکن نشد.";
   }
 
+  const financial = await api
+    .get("/api/admin/orders/metrics/financial", financialSummarySchema)
+    .catch(() => null);
+
   return {
     totalOrders: orders.length,
     ordersToday,
@@ -128,5 +136,6 @@ export async function loadDashboardData(): Promise<DashboardData> {
     topItems,
     fx,
     fxError,
+    financial,
   };
 }

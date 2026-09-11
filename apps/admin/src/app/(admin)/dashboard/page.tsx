@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatToman, toPersianDigits } from "@barat/ui";
 import { AlertTriangle, CheckCircle2, Clock3, ShoppingBag, Timer, Wallet, XCircle } from "lucide-react";
+import { formatIrrStringAsToman } from "@/lib/format-bps";
 import { loadDashboardData } from "./dashboard-data";
 
 export const metadata = { title: "داشبورد | پنل ادمین برات پی" };
@@ -86,7 +87,17 @@ export default async function DashboardPage() {
           />
         )}
         <EmptyKpiCard icon={<Wallet size={16} />} label="نرخ موفقیت پرداخت" reason="سرویس هنوز فهرست پرداخت‌های ادمین را ارائه نمی‌دهد" />
-        <EmptyKpiCard icon={<Wallet size={16} />} label="درآمد خالص / حاشیهٔ سود" reason="داده‌های هزینه/حاشیه هنوز در دسترس API نیست" />
+        {data.financial === null ? (
+          <EmptyKpiCard icon={<Wallet size={16} />} label="حاشیهٔ قیمت‌گذاری ثبت‌شده" reason="اطلاعات مالی برای نقش شما در دسترس نیست" />
+        ) : (
+          <KpiCard
+            icon={<Wallet size={16} />}
+            label="حاشیهٔ قیمت‌گذاری ثبت‌شده"
+            value={formatIrrStringAsToman(data.financial.marginIrr, { withSuffix: true })}
+            trend={`بر اساس پیش‌فاکتور ${toPersianDigits(String(data.financial.paidOrders))} سفارش پرداخت‌شده`}
+            trendKind="neutral"
+          />
+        )}
       </div>
 
       <div className="card panel" style={{ marginTop: 14 }}>

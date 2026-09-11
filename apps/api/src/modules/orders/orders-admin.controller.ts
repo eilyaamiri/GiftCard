@@ -26,6 +26,16 @@ export class OrdersAdminController {
     return this.orders.adminListOrders(query);
   }
 
+  @Roles('ADMIN', 'MANAGEMENT', 'FINANCE')
+  @Get('metrics/financial')
+  financialSummary(): Promise<{
+    readonly paidOrders: number;
+    readonly revenueIrr: string;
+    readonly marginIrr: string;
+  }> {
+    return this.orders.adminFinancialSummary();
+  }
+
   @Get(':id')
   getOrder(@Param(zodPipe(orderIdParamSchema)) params: { id: string }): Promise<GetOrderResponse> {
     return this.orders.adminGetOrder(params.id);

@@ -301,6 +301,38 @@ export class OrdersService implements OrderPaymentBridge {
     return this.paginate(where, query.page, query.pageSize);
   }
 
+  /** Staff-only contribution summary from paid order quote snapshots. */
+  async adminFinancialSummary(): Promise<{
+    readonly paidOrders: number;
+    readonly revenueIrr: string;
+    readonly marginIrr: string;
+  }> {
+    const rows = await this.db.order.findMany({
+      where: { paidAt: { not: null } },
+      select: {
+        totalAmountIrr: true,
+        quote: {
+          select: {
+            marginAmount: true,
+          },
+        },
+      },
+    });
+
+    let revenueIrr = 0n;
+    let marginIrr = 0n;
+    for (const row of rows) {
+      revenueIrr += row.totalAmountIrr;
+      marginIrr += row.quote.marginAmount;
+    }
+
+    return {
+      paidOrders: rows.length,
+      revenueIrr: revenueIrr.toString(),
+      marginIrr: marginIrr.toString(),
+    };
+  }
+
   /** Staff order detail by internal id. */
   async adminGetOrder(id: string): Promise<GetOrderResponse> {
     const order = await this.db.order.findUnique({ where: { id }, include: ORDER_INCLUDE });

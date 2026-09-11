@@ -440,3 +440,23 @@ describe('uniqueViolationTargets', () => {
     expect(uniqueViolationTargets(null)).toBeNull();
   });
 });
+
+describe('OrdersService / financial summary', () => {
+  it('sums paid order revenue and recorded quote margins without using JS numbers', async () => {
+    const rig = harness(null);
+    rig.db.order.findMany.mockResolvedValue([
+      { totalAmountIrr: 100_000n, quote: { marginAmount: 8_000n } },
+      { totalAmountIrr: 250_000n, quote: { marginAmount: 20_000n } },
+    ]);
+
+    await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
+      paidOrders: 2,
+      revenueIrr: '350000',
+      marginIrr: '28000',
+    });
+    expect(rig.db.order.findMany).toHaveBeenCalledWith({
+      where: { paidAt: { not: null } },
+      select: { totalAmountIrr: true, quote: { select: { marginAmount: true } } },
+    });
+  });
+});
