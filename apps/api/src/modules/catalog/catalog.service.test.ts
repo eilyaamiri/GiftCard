@@ -194,6 +194,20 @@ describe('CatalogService admin product list', () => {
     expect(where.OR).toHaveLength(3);
   });
 
+  it('filters inactive products when the explicit status is inactive', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      status: 'INACTIVE',
+    });
+
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({ isActive: false });
+    expect(product.count.mock.calls[0]?.[0]?.where).toEqual({ isActive: false });
+  });
+
   it('applies no search clause when the term is empty', async () => {
     const { service, product } = harness();
 

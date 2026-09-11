@@ -344,8 +344,10 @@ export class CatalogService {
    * return hundreds of rows each and would bury the product being looked for.
    */
   async adminListProducts(query: AdminProductListInput) {
+    const status = query.status ?? (query.includeInactive ? 'ALL' : 'ACTIVE');
     const where: Prisma.ProductWhereInput = {
-      ...(query.includeInactive ? {} : { isActive: true }),
+      ...(status === 'ACTIVE' ? { isActive: true } : {}),
+      ...(status === 'INACTIVE' ? { isActive: false } : {}),
       ...(query.search
         ? {
             OR: [

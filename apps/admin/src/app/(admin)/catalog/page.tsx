@@ -27,7 +27,7 @@ export default async function CatalogPage({
       `/api/admin/catalog/products${buildListSearch({
         page: query.page,
         pageSize: query.pageSize,
-        includeInactive: true,
+        status: query.status,
         ...(query.search ? { search: query.search } : {}),
       })}`,
       adminProductListSchema,
@@ -76,6 +76,14 @@ export default async function CatalogPage({
               aria-label="جست‌وجوی محصول"
             />
           </div>
+          <label className="filter" style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            وضعیت
+            <select name="status" defaultValue={query.status} aria-label="فیلتر وضعیت محصول">
+              <option value="ALL">همهٔ کارت‌ها</option>
+              <option value="ACTIVE">فقط فعال‌ها</option>
+              <option value="INACTIVE">فقط غیرفعال‌ها</option>
+            </select>
+          </label>
           <button type="submit" className="filter">
             جست‌وجو
           </button>
@@ -139,9 +147,11 @@ export default async function CatalogPage({
         </div>
         {items.length === 0 ? (
           <p className="empty-hint">
-            {query.search
-              ? `محصولی با «${query.search}» یافت نشد.`
-              : "هنوز محصولی ثبت نشده است."}
+            {query.status === "ACTIVE"
+              ? "کارت فعالی یافت نشد."
+              : query.status === "INACTIVE"
+                ? "کارت غیرفعالی یافت نشد."
+                : "هنوز محصولی ثبت نشده است."}
           </p>
         ) : null}
       </div>
