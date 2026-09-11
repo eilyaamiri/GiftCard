@@ -55,6 +55,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [notificationFeed, setNotificationFeed] = useState<StaffNotificationFeed | null>(null);
   const [notificationStatus, setNotificationStatus] = useState<'loading' | 'ready' | 'error'>(
     'loading',
@@ -119,6 +120,16 @@ export function AppShell({
     };
   }, [notificationStorageKey, refreshNotifications]);
 
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileNavOpen(false);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [mobileNavOpen]);
+
   const unreadNotificationCount = unreadCount(
     notificationFeed?.items ?? [],
     notificationReadThrough,
@@ -135,9 +146,24 @@ export function AppShell({
           .slice(0, 6);
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar" aria-label="منوی اصلی">
+    <div className={`app-shell${mobileNavOpen ? ' mobile-nav-open' : ''}`}>
+      <button
+        type="button"
+        className="mobile-nav-backdrop"
+        aria-label="بستن منوی اصلی"
+        tabIndex={mobileNavOpen ? 0 : -1}
+        onClick={() => setMobileNavOpen(false)}
+      />
+      <aside id="mobile-main-navigation" className="sidebar" aria-label="منوی اصلی">
         <div className="brand">
+          <button
+            type="button"
+            className="mobile-nav-close"
+            aria-label="بستن منوی اصلی"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            ×
+          </button>
           <div className="brand-mark">ب</div>
           <div>
             <span className="brand-name">برات پی</span>
@@ -156,6 +182,7 @@ export function AppShell({
                     key={item.href}
                     href={item.href}
                     className={`nav-link${active ? ' active' : ''}`}
+                    onClick={() => setMobileNavOpen(false)}
                   >
                     <span className="nav-icon">
                       <Icon name={item.icon} size={17} />
@@ -183,6 +210,16 @@ export function AppShell({
         <header className="topbar">
           <p className="topbar-title">{title}</p>
           <div className="topbar-actions">
+            <button
+              type="button"
+              className="mobile-nav-toggle"
+              aria-label="باز کردن منوی اصلی"
+              aria-expanded={mobileNavOpen}
+              aria-controls="mobile-main-navigation"
+              onClick={() => setMobileNavOpen(true)}
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
             <details
               className="staff-profile"
               ref={profileRef}
