@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { formatToman, toPersianDigits } from "@barat/ui";
 import { AlertTriangle, CheckCircle2, Clock3, ShoppingBag, Timer, Wallet, XCircle } from "lucide-react";
-import { formatIrrStringAsToman } from "@/lib/format-bps";
+import { formatIrrStringAsExactToman } from "@/lib/format-bps";
 import { loadDashboardData } from "./dashboard-data";
 
 export const metadata = { title: "داشبورد | پنل ادمین برات پی" };
@@ -46,7 +46,7 @@ export default async function DashboardPage() {
         <KpiCard
           icon={<Wallet size={16} />}
           label="GMV پرداخت‌شده"
-          value={formatToman(data.collectedGmvIrr)}
+          value={formatIrrStringAsExactToman(data.collectedGmvIrr.toString())}
           trend="مجموع سفارش‌های دارای پرداخت"
           trendKind="neutral"
         />
@@ -93,8 +93,19 @@ export default async function DashboardPage() {
           <KpiCard
             icon={<Wallet size={16} />}
             label="حاشیهٔ قیمت‌گذاری ثبت‌شده"
-            value={formatIrrStringAsToman(data.financial.marginIrr, { withSuffix: true })}
+            value={formatIrrStringAsExactToman(data.financial.marginIrr)}
             trend={`بر اساس پیش‌فاکتور ${toPersianDigits(String(data.financial.paidOrders))} سفارش پرداخت‌شده`}
+            trendKind="neutral"
+          />
+        )}
+        {data.financial === null ? (
+          <EmptyKpiCard icon={<Wallet size={16} />} label="مجموع کارمزدهای دریافت‌شده" reason="اطلاعات مالی برای نقش شما در دسترس نیست" />
+        ) : (
+          <KpiCard
+            icon={<Wallet size={16} />}
+            label="مجموع کارمزدهای دریافت‌شده"
+            value={formatIrrStringAsExactToman(data.financial.collectedFeesIrr)}
+            trend={`پرداخت، خدمات و عملیاتی از ${toPersianDigits(String(data.financial.paidOrders))} سفارش`}
             trendKind="neutral"
           />
         )}

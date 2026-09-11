@@ -95,6 +95,26 @@ export function formatIrrStringAsToman(irr: string, options?: { readonly withSuf
   return formatToman(value, options);
 }
 
+/**
+ * Formats every integer Rial amount in Toman without losing the sub-Toman
+ * remainder. Because one Rial is exactly one tenth of a Toman, at most one
+ * decimal digit is needed and no floating-point arithmetic is involved.
+ */
+export function formatIrrStringAsExactToman(
+  irr: string,
+  options?: { readonly withSuffix?: boolean },
+): string {
+  const value = BigInt(irr);
+  const negative = value < 0n;
+  const absolute = negative ? -value : value;
+  const whole = absolute / 10n;
+  const remainder = absolute % 10n;
+  const grouped = whole.toString().replace(/\B(?=(\d{3})+(?!\d))/gu, ",");
+  const decimal = remainder === 0n ? "" : `٫${remainder.toString()}`;
+  const formatted = toPersianDigits(`${negative ? "-" : ""}${grouped}${decimal}`);
+  return options?.withSuffix === false ? formatted : `${formatted} تومان`;
+}
+
 /** Formats an IRR wire string as rial, for fields whose stored unit is rial. */
 export function formatIrrString(irr: string, options?: { readonly withSuffix?: boolean }): string {
   return formatIrr(BigInt(irr), options);
