@@ -306,6 +306,7 @@ export class OrdersService implements OrderPaymentBridge {
     readonly paidOrders: number;
     readonly revenueIrr: string;
     readonly marginIrr: string;
+    readonly collectedFeesIrr: string;
   }> {
     const rows = await this.db.order.findMany({
       where: { paidAt: { not: null } },
@@ -314,6 +315,9 @@ export class OrdersService implements OrderPaymentBridge {
         quote: {
           select: {
             marginAmount: true,
+            paymentFee: true,
+            serviceFee: true,
+            operationalFee: true,
           },
         },
       },
@@ -321,15 +325,19 @@ export class OrdersService implements OrderPaymentBridge {
 
     let revenueIrr = 0n;
     let marginIrr = 0n;
+    let collectedFeesIrr = 0n;
     for (const row of rows) {
       revenueIrr += row.totalAmountIrr;
       marginIrr += row.quote.marginAmount;
+      collectedFeesIrr +=
+        row.quote.paymentFee + row.quote.serviceFee + row.quote.operationalFee;
     }
 
     return {
       paidOrders: rows.length,
       revenueIrr: revenueIrr.toString(),
       marginIrr: marginIrr.toString(),
+      collectedFeesIrr: collectedFeesIrr.toString(),
     };
   }
 

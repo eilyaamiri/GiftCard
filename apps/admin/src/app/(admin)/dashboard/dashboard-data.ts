@@ -20,6 +20,7 @@ const financialSummarySchema = z.object({
   paidOrders: z.number().int().min(0),
   revenueIrr: z.string().regex(/^\d+$/u),
   marginIrr: z.string().regex(/^\d+$/u),
+  collectedFeesIrr: z.string().regex(/^\d+$/u),
 });
 
 const MAX_PAGES = 25; // 100/page cap × 25 = 2,500 orders — well past today's 80-row seed.
@@ -55,7 +56,12 @@ export interface DashboardData {
   topItems: { title: string; count: number }[];
   fx: { providers: { provider: string; isHealthy: boolean; lastErrorCode: string | null }[] } | null;
   fxError: string | null;
-  financial: { paidOrders: number; revenueIrr: string; marginIrr: string } | null;
+  financial: {
+    paidOrders: number;
+    revenueIrr: string;
+    marginIrr: string;
+    collectedFeesIrr: string;
+  } | null;
 }
 
 function dayKey(iso: string): string {

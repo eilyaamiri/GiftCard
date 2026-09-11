@@ -442,21 +442,48 @@ describe('uniqueViolationTargets', () => {
 });
 
 describe('OrdersService / financial summary', () => {
-  it('sums paid order revenue and recorded quote margins without using JS numbers', async () => {
+  it('sums paid order revenue, recorded margins and fees without using JS numbers', async () => {
     const rig = harness(null);
     rig.db.order.findMany.mockResolvedValue([
-      { totalAmountIrr: 100_000n, quote: { marginAmount: 8_000n } },
-      { totalAmountIrr: 250_000n, quote: { marginAmount: 20_000n } },
+      {
+        totalAmountIrr: 100_000n,
+        quote: {
+          marginAmount: 8_000n,
+          paymentFee: 1_000n,
+          serviceFee: 2_000n,
+          operationalFee: 500n,
+        },
+      },
+      {
+        totalAmountIrr: 250_000n,
+        quote: {
+          marginAmount: 20_000n,
+          paymentFee: 2_500n,
+          serviceFee: 5_000n,
+          operationalFee: 500n,
+        },
+      },
     ]);
 
     await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
       paidOrders: 2,
       revenueIrr: '350000',
       marginIrr: '28000',
+      collectedFeesIrr: '11500',
     });
     expect(rig.db.order.findMany).toHaveBeenCalledWith({
       where: { paidAt: { not: null } },
-      select: { totalAmountIrr: true, quote: { select: { marginAmount: true } } },
+      select: {
+        totalAmountIrr: true,
+        quote: {
+          select: {
+            marginAmount: true,
+            paymentFee: true,
+            serviceFee: true,
+            operationalFee: true,
+          },
+        },
+      },
     });
   });
 });
