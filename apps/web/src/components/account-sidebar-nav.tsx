@@ -26,7 +26,7 @@ function isCurrent(pathname: string, href: string): boolean {
   return href === "/account" ? pathname === href : pathname.startsWith(`${href}/`) || pathname === href;
 }
 
-export function AccountSidebarNav() {
+export function AccountSidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
@@ -38,7 +38,13 @@ export function AccountSidebarNav() {
             const Icon = link.icon;
             const current = isCurrent(pathname, link.href);
             return (
-              <Link className="account-menu-link" href={link.href} key={link.href} aria-current={current ? "page" : undefined}>
+              <Link
+                className="account-menu-link"
+                href={link.href}
+                key={link.href}
+                aria-current={current ? "page" : undefined}
+                onClick={onNavigate}
+              >
                 <Icon size={18} /> {link.label}
               </Link>
             );

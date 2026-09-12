@@ -19,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AccountMobileDrawer } from '@/components/account-mobile-drawer';
 import { LogoutButton } from '@/app/account/logout-button';
 import { api, type AccountNotificationFeed } from '@/lib/api';
 import {
@@ -316,6 +317,8 @@ export function AccountTopbarActions({
           </div>
         ) : null}
       </div>
+
+      <AccountMobileDrawer name={name} initial={initial} />
     </div>
   );
 }

@@ -118,6 +118,7 @@ a { color:inherit; text-decoration:none; }
  * identity card sits at the top-left of the content area. */
 .account-shell { min-height:100vh; display:flex; flex-direction:row; direction:rtl; background:var(--soft); }
 .account-sidebar { position:sticky; top:0; height:100vh; width:252px; flex:0 0 252px; display:flex; flex-direction:column; padding:24px 16px 18px; color:#fff; background:var(--navy); }
+.account-mobile-drawer-trigger { display:none; }
 .account-brand { display:flex; align-items:center; gap:10px; padding:0 8px 28px; color:#fff; font-size:20px; }
 .account-brand > span:last-child { display:grid; gap:2px; }
 .account-brand strong { font-weight:900; }
@@ -277,14 +278,24 @@ a { color:inherit; text-decoration:none; }
 
 @media (max-width:760px) {
   .account-shell { display:block; }
-  .account-sidebar { position:relative; top:auto; height:auto; width:100%; min-height:0; padding:12px 14px 10px; }
-  .account-brand { padding:0 4px 12px; }
-  .account-menu { display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
-  .account-menu-group { display:flex; gap:6px; }
-  .account-menu::-webkit-scrollbar { display:none; }
-  .account-menu p { display:none; }
-  .account-menu-link { min-height:39px; flex:0 0 auto; padding:0 11px; font-size:11px; background:rgba(255,255,255,.07); }
-  .account-sidebar-footer { display:none; }
+  .account-sidebar { display:none; }
+  .account-mobile-drawer-trigger { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:var(--navy); background:#fff; border:1px solid var(--line); border-radius:11px; cursor:pointer; }
+  .account-mobile-drawer-trigger:hover,.account-mobile-drawer-trigger:focus-visible { color:var(--teal); border-color:#8adcd9; background:var(--soft); outline:2px solid rgba(33,180,176,.18); outline-offset:2px; }
+  .account-mobile-drawer { position:fixed; inset:0; width:min(84vw,304px); max-width:none; height:100dvh; max-height:none; margin:0 0 0 auto; padding:0; overflow:visible; color:#fff; background:transparent; border:0; direction:rtl; }
+  .account-mobile-drawer[open] { animation:account-drawer-in .22s ease-out; }
+  .account-mobile-drawer::backdrop { background:rgba(5,20,36,.58); backdrop-filter:blur(2px); }
+  .account-mobile-drawer-panel { height:100%; display:flex; flex-direction:column; padding:20px 16px 18px; overflow:hidden; background:linear-gradient(165deg,#071a2e 0%,var(--navy) 58%,#102f4e 100%); box-shadow:-18px 0 48px rgba(5,20,36,.28); }
+  .account-mobile-drawer-head { display:flex; align-items:center; gap:10px; padding-bottom:12px; border-bottom:1px solid rgba(255,255,255,.11); }
+  .account-mobile-drawer-head .account-brand { flex:1; padding:0; }
+  .account-mobile-drawer-close { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:#b8cad7; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.12); border-radius:11px; cursor:pointer; }
+  .account-mobile-drawer-close:hover,.account-mobile-drawer-close:focus-visible { color:#fff; background:rgba(255,255,255,.14); outline:2px solid var(--teal2); outline-offset:2px; }
+  .account-mobile-drawer .account-menu { min-height:0; display:grid; grid-template-columns:1fr; align-content:start; gap:5px; overflow-y:auto; padding:8px 0 16px; }
+  .account-mobile-drawer .account-menu-group { display:grid; gap:5px; }
+  .account-mobile-drawer .account-menu p { display:block; }
+  .account-mobile-drawer .account-menu-link { min-height:48px; justify-content:flex-start; gap:11px; padding:0 12px; overflow:visible; color:#c8d6e0; background:transparent; border:0; border-radius:10px; font-size:13px; text-align:right; white-space:normal; }
+  .account-mobile-drawer .account-menu-link svg { width:18px; height:18px; flex:0 0 auto; }
+  .account-mobile-drawer .account-menu-link[aria-current=page] { color:#fff; background:rgba(255,255,255,.12); box-shadow:inset -3px 0 var(--teal); }
+  .account-mobile-drawer .account-sidebar-footer { display:grid; margin-top:auto; }
   .account-topbar { min-height:76px; gap:12px; padding:14px; }
   .account-topbar h1 { font-size:16px; }
   .account-topbar-actions { gap:8px; }
@@ -296,6 +307,12 @@ a { color:inherit; text-decoration:none; }
   .account-mobile-nav { display:flex; margin:0 0 18px; gap:6px; overflow-x:auto; scrollbar-width:none; }
   .account-mobile-nav::-webkit-scrollbar { display:none; }
   .account-mobile-nav .chip { flex:0 0 auto; font-size:11px; }
+}
+
+@keyframes account-drawer-in { from { transform:translateX(100%); } to { transform:translateX(0); } }
+
+@media (prefers-reduced-motion:reduce) {
+  .account-mobile-drawer[open] { animation:none; }
 }
 
 @media (max-width:560px) {
