@@ -82,6 +82,7 @@ export function LoginForm({ nextPath }: { nextPath: string | null }) {
           value={email}
           onChange={(event) => setEmail(event.target.value)}
           style={{ ...inputStyle, textAlign: "left" }}
+          className="staff-login-input"
         />
       </div>
 
@@ -99,6 +100,7 @@ export function LoginForm({ nextPath }: { nextPath: string | null }) {
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           style={{ ...inputStyle, textAlign: "left" }}
+          className="staff-login-input"
         />
       </div>
 
