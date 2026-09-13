@@ -299,6 +299,9 @@ a { color:inherit; text-decoration:none; }
   .account-topbar { min-height:76px; gap:12px; padding:14px; }
   .account-topbar h1 { font-size:16px; }
   .account-topbar-actions { gap:8px; }
+  .account-notification-menu { position:fixed; top:84px; right:12px; left:12px; width:auto; max-height:calc(100dvh - 96px); }
+  .account-notification-list { max-height:calc(100dvh - 151px); overscroll-behavior:contain; }
+  .account-notification-copy > span { overflow:visible; text-overflow:clip; white-space:normal; overflow-wrap:anywhere; }
   .account-panel-search { width:clamp(105px,24vw,180px); }
   .account-profile-trigger { width:40px; min-height:40px; justify-content:center; padding:3px; }
   .account-profile-trigger .account-avatar { width:32px; height:32px; flex-basis:32px; }
