@@ -128,6 +128,30 @@ export function AccountTopbarActions({
     };
   }, [notificationStorageKey, refreshNotifications]);
 
+  useEffect(() => {
+    const closeNotifications = (event: PointerEvent) => {
+      const panel = notificationsRef.current;
+      if (panel?.open && event.target instanceof Node && !panel.contains(event.target)) {
+        panel.open = false;
+      }
+    };
+    const closeNotificationsOnEscape = (event: KeyboardEvent) => {
+      const panel = notificationsRef.current;
+      if (event.key === 'Escape' && panel?.open) {
+        event.preventDefault();
+        panel.open = false;
+        panel.querySelector<HTMLElement>('summary')?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', closeNotifications);
+    document.addEventListener('keydown', closeNotificationsOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeNotifications);
+      document.removeEventListener('keydown', closeNotificationsOnEscape);
+    };
+  }, []);
+
   const unreadNotificationCount = unreadCount(
     notificationFeed?.items ?? [],
     notificationReadThrough,
