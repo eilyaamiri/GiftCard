@@ -7,6 +7,7 @@ import type { InternationalServiceDto, CreateQuoteResponse } from "@barat/contra
 import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { ServiceArtwork } from "@/components/catalog-artwork";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -108,10 +109,18 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
   }
 
   return (
-    <main className="page container" style={{ maxWidth: 560 }}>
-      <div className="eyebrow">درخواست پرداخت</div>
-      <h1 className="h2">{service.nameFa}</h1>
-      <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
+    <main className="page container service-detail-page">
+      <ServiceArtwork
+        category={service.category}
+        label={service.nameFa}
+        size="detail"
+        slug={service.slug}
+      />
+      <div className="service-detail-copy">
+        <div className="eyebrow">درخواست پرداخت</div>
+        <h1 className="h2">{service.nameFa}</h1>
+        <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
+      </div>
       {service.requiresManualReview ? (
         <div className="alert" style={{ marginTop: 10 }}>
           <Info size={14} style={{ verticalAlign: "-2px" }} /> این سرویس نیازمند بررسی دستی است؛ قیمت نهایی ممکن است کمی بیشتر طول بکشد.

@@ -7,6 +7,7 @@ import type { ProductDetailDto, CreateQuoteResponse } from "@barat/contracts";
 import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { ProductArtwork } from "@/components/catalog-artwork";
 
 /**
  * Land on something the customer can actually buy.
@@ -72,11 +73,18 @@ export function ProductDetail({ product }: { readonly product: ProductDetailDto 
     <main className="page container">
       <div className="split">
         <div>
-          <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>
-          <h1 className="h2">{product.titleFa}</h1>
-          <p className="muted">
-            {product.descriptionFa ?? "این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است."}
-          </p>
+          <ProductArtwork
+            brand={product.brand}
+            label={product.titleFa}
+            size="detail"
+          />
+          <div className="product-detail-copy">
+            <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>
+            <h1 className="h2">{product.titleFa}</h1>
+            <p className="muted">
+              {product.descriptionFa ?? "این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است."}
+            </p>
+          </div>
           <div className="card pad" style={{ marginTop: 20 }}>
             {product.regions.length > 1 ? (
               <>
