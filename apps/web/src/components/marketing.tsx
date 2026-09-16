@@ -3,12 +3,12 @@ import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-rea
 import { Ltr } from "@barat/ui";
 import type { ProductDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
-import { brandTone } from "@/lib/catalog-view";
+import { ProductArtwork } from "@/components/catalog-artwork";
 
 export function ProductCard({ product }: { readonly product: ProductDto }) {
   return (
     <Link href={`/gift-cards/${product.slug}`} className="card product">
-      <div className={`product-art ${brandTone(product.brand)}`}>{product.brand}</div>
+      <ProductArtwork brand={product.brand} label={product.titleFa} />
       <div className="product-body">
         <h3>{product.titleFa}</h3>
         <div className="product-meta">

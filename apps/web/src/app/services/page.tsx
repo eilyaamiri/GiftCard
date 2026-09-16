@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
-import { EmptyState, ErrorState, Ltr } from "@barat/ui";
+import { EmptyState, ErrorState } from "@barat/ui";
 import { PackageSearch } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
+import { ServiceCard } from "@/components/service-card";
 
 export const dynamic = "force-dynamic";
 
@@ -37,14 +37,7 @@ export default async function ServicesPage() {
       ) : (
         <div className="grid catalog-grid" style={{ marginTop: 22 }}>
           {items.map((service) => (
-            <Link key={service.slug} href={`/services/${service.slug}`} className="card pad" style={{ display: "block" }}>
-              <span className="chip" style={{ pointerEvents: "none", marginBottom: 12, display: "inline-block" }}>{service.category}</span>
-              <h3 style={{ margin: "4px 0 6px" }}>{service.nameFa}</h3>
-              <p className="muted" style={{ fontSize: 13, margin: 0 }}>ارز پایه: <Ltr>{service.currency}</Ltr></p>
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 12, color: "var(--teal)", fontWeight: 700, fontSize: 13 }}>
-                درخواست پرداخت <ArrowLeft size={14} />
-              </span>
-            </Link>
+            <ServiceCard key={service.slug} service={service} />
           ))}
         </div>
       )}
