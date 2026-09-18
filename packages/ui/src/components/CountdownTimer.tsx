@@ -7,6 +7,7 @@ import { toPersianDigits } from "../lib/digits";
 
 export interface CountdownTimerProps {
   readonly expiresAt: Date | number | string;
+  readonly initialSeconds?: number;
   readonly onExpire?: () => void;
   readonly warnAtSeconds?: number;
   readonly className?: string;
@@ -22,8 +23,8 @@ function remainingSeconds(expiresAt: Date | number | string): number {
 }
 
 /** A live countdown used for quote-snapshot TTL. Rendered LTR with Persian digits. */
-export function CountdownTimer({ expiresAt, onExpire, warnAtSeconds = 30, className }: CountdownTimerProps) {
-  const [seconds, setSeconds] = useState(() => remainingSeconds(expiresAt));
+export function CountdownTimer({ expiresAt, initialSeconds, onExpire, warnAtSeconds = 30, className }: CountdownTimerProps) {
+  const [seconds, setSeconds] = useState(() => initialSeconds ?? remainingSeconds(expiresAt));
 
   useEffect(() => {
     setSeconds(remainingSeconds(expiresAt));

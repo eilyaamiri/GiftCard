@@ -18,10 +18,17 @@ export default defineConfig({
   },
   webServer:
     process.env['E2E_START_WEB'] === 'true'
-      ? {
-          command: 'pnpm --filter @barat/web dev',
-          url: 'http://localhost:3000',
-          reuseExistingServer: !process.env['CI'],
-        }
+      ? [
+          {
+            command: 'node mock-api.mjs',
+            url: 'http://127.0.0.1:4001/health',
+            reuseExistingServer: false,
+          },
+          {
+            command: 'API_INTERNAL_URL=http://127.0.0.1:4001 pnpm --filter @barat/web dev',
+            url: 'http://localhost:3000',
+            reuseExistingServer: false,
+          },
+        ]
       : undefined,
 });

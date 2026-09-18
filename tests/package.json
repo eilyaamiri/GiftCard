@@ -1,0 +1,13 @@
+{
+  "name": "@barat/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test:e2e": "E2E_START_WEB=true playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "E2E_START_WEB=true playwright test --config e2e/playwright.config.ts --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.51.1",
+    "tsx": "4.23.13"
+  }
+}
