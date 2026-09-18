@@ -39,10 +39,10 @@ export function SiteChrome({
           </Link>
 
           <nav className="nav" aria-label="منوی اصلی">
-            <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
-            <Link href="/services">پرداخت بین‌المللی</Link>
-            <Link href="/orders">پیگیری سفارش</Link>
-            <Link href="/help">راهنما</Link>
+            <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
+            <Link href="/services" aria-current={pathname.startsWith("/services") ? "page" : undefined}>پرداخت بین‌المللی</Link>
+            <Link href="/orders" aria-current={pathname.startsWith("/orders") ? "page" : undefined}>پیگیری سفارش</Link>
+            <Link href="/help" aria-current={pathname === "/help" ? "page" : undefined}>راهنما</Link>
           </nav>
 
           {customer ? (

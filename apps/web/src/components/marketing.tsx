@@ -39,7 +39,7 @@ export async function HomePage() {
       <main>
         <section className="hero">
           <div className="container hero-inner">
-            <div>
+            <div className="hero-content">
               <div className="eyebrow">برات · دسترسی به جهان</div>
               <h1 className="h1">چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات.</h1>
               <p className="hero-copy">گیفت‌کارت بخرید یا هزینه سرویس‌های بین‌المللی را با خیال راحت پرداخت کنید. قیمت شفاف، پرداخت امن و پشتیبانی واقعی.</p>
