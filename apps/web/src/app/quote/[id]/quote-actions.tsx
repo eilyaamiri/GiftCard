@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CountdownTimer } from "@barat/ui";
@@ -28,15 +28,6 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
   const alreadyOver = quote.status !== "ACTIVE" || quote.remainingSeconds === 0;
   const [phase, setPhase] = useState<Phase>(alreadyOver ? "expired" : "live");
   const [error, setError] = useState<string | null>(null);
-
-  /**
-   * The countdown is anchored to `remainingSeconds` measured at mount rather
-   * than to `expiresAt` read against the browser clock: a device whose clock is
-   * minutes fast would otherwise let the customer keep a lapsed price on screen.
-   * Anchoring at mount can only ever expire slightly early, which is the safe
-   * direction — the server refuses a late acceptance regardless.
-   */
-  const deadline = useMemo(() => new Date(Date.now() + quote.remainingSeconds * 1000).toISOString(), [quote.remainingSeconds]);
 
   const expire = useCallback(() => {
     setPhase((current) => (current === "live" ? "expired" : current));
@@ -75,7 +66,7 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
             مهلت قیمت تمام شد
           </span>
         ) : (
-          <CountdownTimer expiresAt={deadline} onExpire={expire} />
+          <CountdownTimer expiresAt={quote.expiresAt} initialSeconds={quote.remainingSeconds} onExpire={expire} />
         )}
       </div>
 
