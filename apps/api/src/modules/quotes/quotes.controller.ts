@@ -94,9 +94,11 @@ export class QuotesController {
    */
   private async actor(request: ActorRequest, token: string | undefined): Promise<QuoteActor> {
     /* The route is `@Public()`, so no guard has resolved the actor. Resolving it
-     * here upgrades a signed-in caller from anonymous to their customer id; a
-     * credential that is present but invalid still fails loudly. */
-    const sessionActor = await this.auth.resolve(request);
+     * here upgrades a signed-in caller from anonymous to their customer id. A
+     * credential that is present but invalid (expired, revoked, forged) must
+     * not break quoting for what is otherwise an anonymous visitor — the same
+     * `.catch(() => null)` fallback AuthController uses for optional identity. */
+    const sessionActor = await this.auth.resolve(request).catch(() => null);
     const customerId = sessionActor?.type === 'CUSTOMER' ? sessionActor.customerId : null;
     const metadata = actorMetadata(request);
     const commerceSessionId = await this.quotes.resolveCommerceSession(token, customerId, metadata);
