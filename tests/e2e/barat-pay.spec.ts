@@ -64,4 +64,11 @@ test.describe("mobile RTL storefront", () => {
     await expect(page.getByRole("heading", { name: "گیفت‌کارت‌های محبوب" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   });
+
+  test("a signed-out visitor can still reach login from the header", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByRole("banner").getByRole("link", { name: "ورود" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
 });
