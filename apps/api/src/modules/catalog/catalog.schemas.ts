@@ -68,6 +68,18 @@ export type AdminProductStatus = z.infer<typeof adminProductStatusSchema>;
 export const adminProductListSchema = adminCatalogListSchema.extend({
   search: z.string().max(120).optional(),
   status: adminProductStatusSchema.default('ALL'),
+  categoryId: idSchema.optional(),
+  brandId: idSchema.optional(),
+  /**
+   * The "what still needs an operator" view. There is no separate
+   * uncategorised list because no product is left without a category — the ones
+   * the rules could not place are in «سایر» with this flag set, which is the
+   * same queue by a more honest name.
+   */
+  needsReview: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
 });
 
 export const adminSkuListSchema = adminCatalogListSchema.extend({
@@ -91,24 +103,154 @@ export type AdminSkuListInput = z.infer<typeof adminSkuListSchema>;
 export type AdminSupplierOfferListInput = z.infer<typeof adminSupplierOfferListSchema>;
 export type AdminServiceFieldListInput = z.infer<typeof adminServiceFieldListSchema>;
 
-/* -------------------------------------------------------------- product */
+/* ------------------------------------------------------------- taxonomy */
 
-const productShape = {
-  slug: z.string().trim().min(1).max(120),
-  brand: z.string().trim().min(1).max(120),
-  title: z.string().trim().min(1).max(240),
-  titleFa: z.string().trim().min(1).max(240),
-  description: z.string().max(4_000).nullable().optional(),
-  descriptionFa: z.string().max(4_000).nullable().optional(),
-  category: z.string().trim().min(1).max(120),
-  imageUrl: z.url().max(2_000).nullable().optional(),
-  redemptionNotesFa: z.string().max(4_000).nullable().optional(),
+/**
+ * The icons a category may name.
+ *
+ * An allow-list rather than a free text field, and deliberately the same set
+ * the web app draws: the storefront's icons come from one family, and an
+ * operator pasting an icon name (or worse, a URL to some other icon set) would
+ * put a foreign style next to the project's own. Kept in sync with
+ * `CATEGORY_ICON_KEYS` in apps/web/src/lib/catalog.ts.
+ */
+export const CATEGORY_ICON_KEYS = [
+  'sparkles',
+  'gamepad-2',
+  'joystick',
+  'clapperboard',
+  'shopping-bag',
+  'smartphone',
+  'app-window',
+  'book-open',
+  'utensils',
+  'plane',
+  'dumbbell',
+  'cpu',
+  'sofa',
+  'flower-2',
+  'credit-card',
+  'wallet',
+  'ellipsis',
+  'gift',
+] as const;
+
+export const categoryIconKeySchema = z.enum(CATEGORY_ICON_KEYS);
+
+/** Lowercase, hyphen-separated. It ends up in a storefront URL. */
+const slugSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(90)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, 'نشانه باید با حروف کوچک انگلیسی و خط تیره باشد.');
+
+const categoryShape = {
+  slug: slugSchema,
+  name: z.string().trim().min(1).max(120),
+  nameFa: z.string().trim().min(1).max(120),
+  iconKey: categoryIconKeySchema.default('gift'),
+  descriptionFa: z.string().max(1_000).nullable().optional(),
+  parentId: idSchema.nullable().optional(),
   isActive: z.boolean().default(true),
   sortOrder: z.number().int().default(0),
 };
 
-export const createProductSchema = z.object(productShape);
-export const updateProductSchema = patchSchema(productShape);
+export const createCategorySchema = z.object(categoryShape);
+export const updateCategorySchema = patchSchema(categoryShape);
+
+const brandShape = {
+  slug: slugSchema,
+  name: z.string().trim().min(1).max(120),
+  nameFa: z.string().trim().min(1).max(120),
+  logoUrl: z.string().trim().max(2_000).nullable().optional(),
+  descriptionFa: z.string().max(1_000).nullable().optional(),
+  isActive: z.boolean().default(true),
+  /** Curated. Nothing here is computed from traffic, because there is none. */
+  isPopular: z.boolean().default(false),
+  sortOrder: z.number().int().default(0),
+};
+
+export const createBrandSchema = z.object(brandShape);
+export const updateBrandSchema = patchSchema(brandShape);
+
+/** Move a batch of products into one category in a single pass. */
+export const assignCategorySchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  categoryId: idSchema,
+});
+
+/**
+ * Fold one brand into another.
+ *
+ * The feeds ship the same brand under several spellings, and the import cannot
+ * always tell. Merging moves the products across and then removes the emptied
+ * brand — products are never deleted, which is the whole point of doing this
+ * rather than deactivating the duplicate and losing its catalog.
+ */
+export const mergeBrandsSchema = z
+  .object({ sourceBrandId: idSchema, targetBrandId: idSchema })
+  .refine((value) => value.sourceBrandId !== value.targetBrandId, {
+    path: ['sourceBrandId'],
+    message: 'یک برند را نمی‌توان با خودش ادغام کرد.',
+  });
+
+export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+export type CreateBrandInput = z.infer<typeof createBrandSchema>;
+export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
+export type AssignCategoryInput = z.infer<typeof assignCategorySchema>;
+export type MergeBrandsInput = z.infer<typeof mergeBrandsSchema>;
+
+/* -------------------------------------------------------------- product */
+
+const productShape = {
+  slug: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(240),
+  titleFa: z.string().trim().min(1).max(240),
+  description: z.string().max(4_000).nullable().optional(),
+  descriptionFa: z.string().max(4_000).nullable().optional(),
+  imageUrl: z.url().max(2_000).nullable().optional(),
+  redemptionNotesFa: z.string().max(4_000).nullable().optional(),
+  isActive: z.boolean().default(true),
+  /** Data is incomplete: still listed, but not orderable. */
+  needsReview: z.boolean().default(false),
+  isQuickPick: z.boolean().default(false),
+  sortOrder: z.number().int().default(0),
+};
+
+/**
+ * The supplier's free-text brand and category.
+ *
+ * Still writable, because a re-import matches on them, but no longer something
+ * an operator has to fill in: left out, the service copies the names of the
+ * brand and category that were actually chosen.
+ */
+const legacyTaxonomyShape = {
+  brand: z.string().trim().min(1).max(120).optional(),
+  category: z.string().trim().min(1).max(120).optional(),
+};
+
+/**
+ * `brandId` and `categoryId` are required here and optional in the patch. A
+ * product with neither cannot be found by anyone browsing the storefront, so
+ * creating one is a mistake worth refusing at the door; the thousands already
+ * imported are a different problem, and they have both.
+ */
+export const createProductSchema = z.object({
+  ...productShape,
+  ...legacyTaxonomyShape,
+  brandId: idSchema,
+  categoryId: idSchema,
+  extraCategoryIds: z.array(idSchema).max(5).default([]),
+});
+export const updateProductSchema = patchSchema({
+  ...productShape,
+  ...legacyTaxonomyShape,
+  brandId: idSchema,
+  categoryId: idSchema,
+  extraCategoryIds: z.array(idSchema).max(5),
+});
 
 /* ------------------------------------------------------------------ sku */
 

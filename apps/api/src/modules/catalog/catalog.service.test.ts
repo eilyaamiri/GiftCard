@@ -391,6 +391,36 @@ describe('CatalogService admin product list', () => {
     expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({});
   });
 
+  it('narrows to one category, one brand and the review queue at once', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      categoryId: 'cat_gaming',
+      brandId: 'brnd_steam',
+      needsReview: true,
+    });
+
+    // All three at once, because «برند X در دستهٔ Y که نیاز به بازبینی دارد» is
+    // exactly how the import's leftovers get worked through.
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      categoryId: 'cat_gaming',
+      brandId: 'brnd_steam',
+      needsReview: true,
+    });
+  });
+
+  it('lists everything when the review filter is left off', async () => {
+    const { service, product } = harness();
+
+    await service.adminListProducts({ page: 1, pageSize: 20, includeInactive: true });
+
+    // `needsReview: false` would hide the rest of the catalog; absent means all.
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual({});
+  });
+
   it('counts with the same filter it lists with', async () => {
     const { service, product } = harness();
 
@@ -429,5 +459,291 @@ describe('CatalogService admin service bounds', () => {
       code: 'VALIDATION_ERROR',
     });
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+/* ------------------------------------------------------- admin taxonomy */
+
+/* Spelled out rather than partial: `adminCreateProduct` takes the schema's
+ * parsed output, so this is the payload a route hands it once the defaults have
+ * been applied. `brandId` and `categoryId` have no default — a product with
+ * neither cannot be reached from the storefront, so creating one is refused. */
+const NEW_PRODUCT = {
+  slug: 'steam-us',
+  title: 'Steam Wallet US',
+  titleFa: 'استیم والت آمریکا',
+  brandId: 'brnd_steam',
+  categoryId: 'cat_gaming',
+  extraCategoryIds: [],
+  isActive: true,
+  needsReview: false,
+  isQuickPick: false,
+  sortOrder: 0,
+};
+
+const KNOWN_CATEGORIES = [
+  { id: 'cat_gaming', name: 'Gaming' },
+  { id: 'cat_popular', name: 'Popular' },
+];
+const KNOWN_BRANDS = [
+  { id: 'brnd_steam', name: 'Steam' },
+  { id: 'brnd_valve', name: 'Valve' },
+];
+
+/**
+ * Resolves an `id: { in: [...] }` lookup the way the database would. The row
+ * type is deliberately loose so a test can also hand back a `_count` shape that
+ * a different query on the same table selects.
+ */
+function lookupById(
+  rows: readonly { id: string }[],
+): (args: { where: { id: { in: string[] } } }) => Promise<Record<string, unknown>[]> {
+  return (args) => Promise.resolve(rows.filter((row) => args.where.id.in.includes(row.id)));
+}
+
+/** A db double for the taxonomy writes: every one of them is a mutation. */
+function adminHarness() {
+  const category = {
+    findMany: vi.fn(lookupById(KNOWN_CATEGORIES)),
+    findUnique: vi.fn(),
+    count: vi.fn().mockResolvedValue(1),
+    create: vi.fn(),
+    update: vi.fn(),
+  };
+  const brand = {
+    findMany: vi.fn(lookupById(KNOWN_BRANDS)),
+    findUnique: vi.fn().mockResolvedValue({ name: 'Steam' }),
+    count: vi.fn().mockResolvedValue(1),
+    create: vi.fn(),
+    update: vi.fn(),
+    delete: vi.fn(),
+  };
+  const product = {
+    create: vi.fn(),
+    update: vi.fn(),
+    updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+    findUnique: vi.fn().mockResolvedValue({ brandId: 'brnd_steam', categoryId: 'cat_gaming' }),
+  };
+  const productCategory = { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) };
+  const db = {
+    product,
+    productCategory,
+    category,
+    brand,
+    $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
+  } as unknown as CatalogDatabase;
+  return {
+    service: new CatalogService(db, TEST_CONFIG),
+    product,
+    productCategory,
+    category,
+    brand,
+  };
+}
+
+describe('CatalogService admin product taxonomy', () => {
+  it('fills the supplier columns from the chosen brand and category', async () => {
+    const { service, product } = adminHarness();
+
+    await service.adminCreateProduct(NEW_PRODUCT);
+
+    // Both columns are NOT NULL and a hand-made product has no supplier feed.
+    expect(product.create.mock.calls[0]?.[0]?.data).toMatchObject({
+      brandId: 'brnd_steam',
+      categoryId: 'cat_gaming',
+      brand: 'Steam',
+      category: 'Gaming',
+    });
+  });
+
+  it('keeps a supplier brand string the operator typed themselves', async () => {
+    const { service, product } = adminHarness();
+
+    await service.adminCreateProduct({ ...NEW_PRODUCT, brand: 'Steam (Valve Corp)' });
+
+    // A re-import matches on this column, so an operator correcting it to the
+    // feed's own spelling must not be overwritten by the relation's name.
+    expect(product.create.mock.calls[0]?.[0]?.data?.brand).toBe('Steam (Valve Corp)');
+  });
+
+  it('refuses a category that is both the primary and a related one', async () => {
+    const { service, product } = adminHarness();
+
+    await expect(
+      service.adminCreateProduct({ ...NEW_PRODUCT, extraCategoryIds: ['cat_gaming'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    // Otherwise the category tile would count this product twice.
+    expect(product.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses the same related category listed twice', async () => {
+    const { service, product } = adminHarness();
+
+    await expect(
+      service.adminCreateProduct({
+        ...NEW_PRODUCT,
+        extraCategoryIds: ['cat_popular', 'cat_popular'],
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(product.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a brand id that does not exist', async () => {
+    const { service, brand, product } = adminHarness();
+    brand.findUnique.mockResolvedValue(null);
+
+    await expect(service.adminCreateProduct(NEW_PRODUCT)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(product.create).not.toHaveBeenCalled();
+  });
+
+  it('checks a patch against the category already on the row', async () => {
+    const { service, product } = adminHarness();
+
+    // The patch only sends the related categories; the clash is with the
+    // primary category stored on the product, which the payload never mentions.
+    await expect(
+      service.adminUpdateProduct('product-1', { extraCategoryIds: ['cat_gaming'] }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(product.update).not.toHaveBeenCalled();
+  });
+
+  it('replaces the related categories wholesale when the form sends them', async () => {
+    const { service, product } = adminHarness();
+
+    await service.adminUpdateProduct('product-1', { extraCategoryIds: ['cat_popular'] });
+
+    // An unticked box has to remove its row, so the set is cleared first.
+    expect(product.update.mock.calls[0]?.[0]?.data?.extraCategories).toEqual({
+      deleteMany: {},
+      create: [{ categoryId: 'cat_popular' }],
+    });
+  });
+
+  it('leaves the related categories alone when the patch omits them', async () => {
+    const { service, product } = adminHarness();
+
+    await service.adminUpdateProduct('product-1', { isQuickPick: true });
+
+    const data = product.update.mock.calls[0]?.[0]?.data;
+    expect(data).toEqual({ isQuickPick: true });
+    expect(data.extraCategories).toBeUndefined();
+  });
+});
+
+describe('CatalogService admin category management', () => {
+  it('reports the total and the active count for every category, empty ones included', async () => {
+    const { service, category } = adminHarness();
+    category.findMany
+      .mockResolvedValueOnce([
+        { ...categoryRow(), _count: { products: 3, productTags: 2 } },
+        { ...categoryRow({ id: 'cat_empty', slug: 'empty' }), _count: { products: 0, productTags: 0 } },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'cat_gaming', _count: { products: 1, productTags: 1 } },
+        { id: 'cat_empty', _count: { products: 0, productTags: 0 } },
+      ]);
+
+    const { items } = await service.adminListCategories();
+
+    // An operator needs the empty one precisely because it is empty — the
+    // public list is the one that hides it.
+    expect(items.map((item) => [item.slug, item.productCount, item.activeProductCount])).toEqual([
+      ['gaming', 5, 2],
+      ['empty', 0, 0],
+    ]);
+  });
+
+  it('deactivates a category instead of deleting it', async () => {
+    const { service, category } = adminHarness();
+
+    await service.adminArchiveCategory('cat_gaming');
+
+    // A delete would null the categoryId of everything in it.
+    expect(category.update.mock.calls[0]?.[0]).toEqual({
+      where: { id: 'cat_gaming' },
+      data: { isActive: false },
+    });
+  });
+
+  it('refuses to make a category its own parent', async () => {
+    const { service, category } = adminHarness();
+
+    await expect(
+      service.adminUpdateCategory('cat_gaming', { parentId: 'cat_gaming' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(category.update).not.toHaveBeenCalled();
+  });
+
+  it('clears the related tag before making a category the primary one', async () => {
+    const { service, product, productCategory } = adminHarness();
+
+    const result = await service.adminAssignCategory({
+      productIds: ['product-1', 'product-2', 'product-1'],
+      categoryId: 'cat_popular',
+    });
+
+    // Duplicates in the selection must not inflate the reported total.
+    expect(result).toEqual({ requested: 2, updated: 2 });
+    expect(productCategory.deleteMany.mock.calls[0]?.[0]?.where).toEqual({
+      productId: { in: ['product-1', 'product-2'] },
+      categoryId: 'cat_popular',
+    });
+    expect(product.updateMany.mock.calls[0]?.[0]?.data).toEqual({ categoryId: 'cat_popular' });
+  });
+
+  it('refuses to assign products to a category that does not exist', async () => {
+    const { service, category, product } = adminHarness();
+    category.count.mockResolvedValue(0);
+
+    await expect(
+      service.adminAssignCategory({ productIds: ['product-1'], categoryId: 'cat_ghost' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(product.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CatalogService admin brand merge', () => {
+  it('moves the products across and then removes the emptied brand', async () => {
+    const { service, product, brand } = adminHarness();
+
+    const result = await service.adminMergeBrands({
+      sourceBrandId: 'brnd_valve',
+      targetBrandId: 'brnd_steam',
+    });
+
+    expect(result).toEqual({ movedProducts: 2, targetBrandId: 'brnd_steam' });
+    expect(product.updateMany.mock.calls[0]?.[0]).toEqual({
+      where: { brandId: 'brnd_valve' },
+      // The free-text column follows, or a re-import would undo the merge.
+      data: { brandId: 'brnd_steam', brand: 'Steam' },
+    });
+    expect(brand.delete.mock.calls[0]?.[0]).toEqual({ where: { id: 'brnd_valve' } });
+  });
+
+  it('refuses to merge a brand into itself', async () => {
+    const { service, product, brand } = adminHarness();
+
+    /* The route's pipe turns this into a VALIDATION_ERROR before the service is
+     * reached; the `.parse` here is the second line of defence, and what it has
+     * to guarantee is that nothing is written. */
+    await expect(
+      service.adminMergeBrands({ sourceBrandId: 'brnd_steam', targetBrandId: 'brnd_steam' }),
+    ).rejects.toThrow('یک برند را نمی‌توان با خودش ادغام کرد.');
+    expect(product.updateMany).not.toHaveBeenCalled();
+    expect(brand.delete).not.toHaveBeenCalled();
+  });
+
+  it('touches nothing when one of the two brands is missing', async () => {
+    const { service, product, brand } = adminHarness();
+
+    await expect(
+      service.adminMergeBrands({ sourceBrandId: 'brnd_gone', targetBrandId: 'brnd_steam' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    // Deleting first and failing to move is the loss the audit exists to stop.
+    expect(product.updateMany).not.toHaveBeenCalled();
+    expect(brand.delete).not.toHaveBeenCalled();
   });
 });

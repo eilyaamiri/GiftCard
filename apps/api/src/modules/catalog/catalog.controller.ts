@@ -82,6 +82,14 @@ export class CatalogController {
     return this.catalog.listBrands();
   }
 
+  /** Serves the uploaded logo. `Brand.logoUrl` points straight at this route. */
+  @Get('brands/:id/logo')
+  @Header('Cache-Control', 'public, max-age=0, must-revalidate')
+  async brandLogo(@Param('id') id: string): Promise<StreamableFile> {
+    const image = await this.catalog.brandLogo(id);
+    return new StreamableFile(image.buffer, { type: image.contentType });
+  }
+
   @Get('products/:id/image')
   @Header('Cache-Control', 'public, max-age=0, must-revalidate')
   async productImage(@Param('id') id: string): Promise<StreamableFile> {

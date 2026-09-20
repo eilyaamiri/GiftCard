@@ -17,6 +17,7 @@ export type CatalogDatabase = Pick<
   | 'product'
   | 'brand'
   | 'category'
+  | 'productCategory'
   | 'sku'
   | 'supplier'
   | 'supplierOffer'

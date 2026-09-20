@@ -21,6 +21,9 @@ import { CatalogService } from './catalog.service';
 import {
   adminCatalogListSchema,
   adminProductListSchema,
+  assignCategorySchema,
+  createBrandSchema,
+  createCategorySchema,
   adminServiceFieldListSchema,
   adminSkuListSchema,
   adminSupplierOfferListSchema,
@@ -30,6 +33,9 @@ import {
   createSkuSchema,
   createSupplierOfferSchema,
   createSupplierSchema,
+  mergeBrandsSchema,
+  updateBrandSchema,
+  updateCategorySchema,
   updateInternationalServiceSchema,
   updateProductSchema,
   updateServiceFieldSchema,
@@ -43,12 +49,18 @@ import type {
   AdminServiceFieldListInput,
   AdminSkuListInput,
   AdminSupplierOfferListInput,
+  AssignCategoryInput,
+  CreateBrandInput,
+  CreateCategoryInput,
   CreateInternationalServiceInput,
   CreateProductInput,
   CreateServiceFieldInput,
   CreateSkuInput,
   CreateSupplierInput,
   CreateSupplierOfferInput,
+  MergeBrandsInput,
+  UpdateBrandInput,
+  UpdateCategoryInput,
   UpdateInternationalServiceInput,
   UpdateProductInput,
   UpdateServiceFieldInput,
@@ -86,6 +98,96 @@ export class CatalogAdminController {
   @Delete('products/:id')
   archiveProduct(@Param(zodPipe(idParamSchema)) params: IdParam) {
     return this.catalog.adminArchiveProduct(params.id);
+  }
+
+  /* ---------------------------------------------------------- taxonomy */
+
+  /** Every category, empty ones included — an operator manages those too. */
+  @Get('categories')
+  listCategories() {
+    return this.catalog.adminListCategories();
+  }
+
+  @Get('categories/:id')
+  getCategory(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminGetCategory(params.id);
+  }
+
+  @Post('categories')
+  createCategory(@Body(zodPipe(createCategorySchema)) body: CreateCategoryInput) {
+    return this.catalog.adminCreateCategory(body);
+  }
+
+  @Put('categories/:id')
+  updateCategory(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(updateCategorySchema)) body: UpdateCategoryInput,
+  ) {
+    return this.catalog.adminUpdateCategory(params.id, body);
+  }
+
+  /** Deactivates. Deleting would strip every product in it of its category. */
+  @Delete('categories/:id')
+  archiveCategory(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminArchiveCategory(params.id);
+  }
+
+  @Post('categories/assign')
+  assignCategory(@Body(zodPipe(assignCategorySchema)) body: AssignCategoryInput) {
+    return this.catalog.adminAssignCategory(body);
+  }
+
+  @Get('brands')
+  listBrands(@Query(zodPipe(adminCatalogListSchema)) query: AdminCatalogListInput) {
+    return this.catalog.adminListBrands(query);
+  }
+
+  @Get('brands/:id')
+  getBrand(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminGetBrand(params.id);
+  }
+
+  @Post('brands')
+  createBrand(@Body(zodPipe(createBrandSchema)) body: CreateBrandInput) {
+    return this.catalog.adminCreateBrand(body);
+  }
+
+  @Put('brands/:id')
+  updateBrand(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(updateBrandSchema)) body: UpdateBrandInput,
+  ) {
+    return this.catalog.adminUpdateBrand(params.id, body);
+  }
+
+  @Delete('brands/:id')
+  archiveBrand(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminArchiveBrand(params.id);
+  }
+
+  /** Fold a duplicate brand into the real one, keeping its products. */
+  @Post('brands/merge')
+  mergeBrands(@Body(zodPipe(mergeBrandsSchema)) body: MergeBrandsInput) {
+    return this.catalog.adminMergeBrands(body);
+  }
+
+  @Post('brands/:id/logo')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_request, file, callback) => {
+        callback(null, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype));
+      },
+    }),
+  )
+  uploadBrandLogo(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @UploadedFile() file: { mimetype: string; buffer: Buffer } | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException('A valid image file is required');
+    }
+    return this.catalog.adminUploadBrandLogo(params.id, file);
   }
 
   @Get('skus')
