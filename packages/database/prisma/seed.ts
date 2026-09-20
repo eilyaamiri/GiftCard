@@ -50,6 +50,7 @@ import {
   WorkItemType,
 } from '../generated/client';
 import type { PrismaClient } from '../generated/client';
+import { CATEGORIES, brandKey, brandSlug, classify } from './taxonomy';
 
 // Delayed until after the production guard so `NODE_ENV=production` refuses
 // without even opening a database connection.
@@ -1023,6 +1024,35 @@ async function seedCatalog(): Promise<{ skuIds: string[]; skuDefs: (SkuDef & { i
     }
   }
 
+  /* The taxonomy the storefront navigates by. Seeding it here is what makes a
+   * freshly reset development database show the same category bar and brand
+   * list as production, rather than an empty catalog page. */
+  await prisma.category.createMany({
+    data: CATEGORIES.map((category, index) => ({
+      id: `cat_${category.slug}`,
+      slug: category.slug,
+      name: category.name,
+      nameFa: category.nameFa,
+      iconKey: category.iconKey,
+      sortOrder: (index + 1) * 10,
+    })),
+    skipDuplicates: true,
+  });
+
+  const brandIdByKey = new Map<string, string>();
+  for (const meta of productMeta.values()) {
+    const key = brandKey(meta.brand);
+    if (brandIdByKey.has(key)) continue;
+    const slug = brandSlug(meta.brand);
+    const id = `brnd_${slug}`;
+    await prisma.brand.upsert({
+      where: { slug },
+      create: { id, slug, name: meta.brand, nameFa: meta.brand, isPopular: true },
+      update: {},
+    });
+    brandIdByKey.set(key, id);
+  }
+
   let productIndex = 0;
   for (const [slug, meta] of productMeta) {
     productIndex += 1;
@@ -1036,6 +1066,9 @@ async function seedCatalog(): Promise<{ skuIds: string[]; skuDefs: (SkuDef & { i
         title: meta.title,
         titleFa: meta.titleFa,
         category: meta.category,
+        brandId: brandIdByKey.get(brandKey(meta.brand)),
+        categoryId: `cat_${classify(meta.brand, meta.title, meta.category)}`,
+        isQuickPick: true,
         sortOrder: productIndex,
       },
       update: {},
