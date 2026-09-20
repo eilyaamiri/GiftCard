@@ -44,6 +44,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 
 import { Prisma } from '../generated/client';
 import type { PrismaClient } from '../generated/client';
+import { CATEGORIES, brandKey, brandSlug, classify } from './taxonomy';
+import type { CategorySlug } from './taxonomy';
 
 const SUPPLIER_CODE = 'reloadly';
 
@@ -89,6 +91,8 @@ interface PlannedProduct {
   readonly titleFa: string;
   readonly description: string | null;
   readonly category: string;
+  /** The taxonomy the storefront navigates by, derived from the two above. */
+  readonly categorySlug: CategorySlug;
   readonly imageUrl: string | null;
 }
 
@@ -237,7 +241,9 @@ function denominationsOf(product: ReloadlyProduct): Prisma.Decimal[] {
 
 function planProduct(product: ReloadlyProduct): PlannedProduct {
   const name = product.productName.trim();
-  const brand = product.brand?.brandName?.trim();
+  const brandName = product.brand?.brandName?.trim();
+  const brand = brandName !== undefined && brandName !== '' ? brandName : name;
+  const supplierCategory = product.category?.name?.trim() ?? 'Gift Cards';
   const redeem =
     product.redeemInstruction?.verbose?.trim() ?? product.redeemInstruction?.concise?.trim();
   return {
@@ -245,7 +251,7 @@ function planProduct(product: ReloadlyProduct): PlannedProduct {
     // The provider id keeps the slug unique: Reloadly ships several distinct
     // products under the same name in the same country.
     slug: `${slugify(name)}-${String(product.productId)}`,
-    brand: brand !== undefined && brand !== '' ? brand : name,
+    brand,
     title: name,
     /*
      * The brand is not translated — someone looking for an Amazon card looks
@@ -256,7 +262,8 @@ function planProduct(product: ReloadlyProduct): PlannedProduct {
      */
     titleFa: `گیفت کارت ${name}`,
     description: redeem !== undefined && redeem !== '' ? redeem : null,
-    category: product.category?.name?.trim() ?? 'Gift Cards',
+    category: supplierCategory,
+    categorySlug: classify(brand, name, supplierCategory),
     imageUrl: product.logoUrls?.[0] ?? null,
   };
 }
@@ -479,6 +486,72 @@ async function storedIds(
   return found;
 }
 
+/**
+ * The category rows, creating any the migration did not seed.
+ *
+ * `CATEGORIES` is the list this import classifies against, so a category added
+ * to that list has to exist in the table before the products pointing at it are
+ * written. Existing rows are left alone: an operator may have renamed one or
+ * switched it off.
+ */
+async function resolveCategories(prisma: PrismaClient): Promise<Map<string, string>> {
+  await prisma.category.createMany({
+    data: CATEGORIES.map((category, index) => ({
+      id: `cat_${category.slug}`,
+      slug: category.slug,
+      name: category.name,
+      nameFa: category.nameFa,
+      iconKey: category.iconKey,
+      sortOrder: (index + 1) * 10,
+    })),
+    skipDuplicates: true,
+  });
+
+  const rows = await prisma.category.findMany({ select: { id: true, slug: true } });
+  return new Map(rows.map((row) => [row.slug, row.id]));
+}
+
+/**
+ * The brand rows, creating any the feed has introduced since the last run.
+ *
+ * This is what makes a brand new to the supplier appear on the site without a
+ * code change. Matching is on the lower-cased name, because "NetFlix" and
+ * "Netflix" are one brand; the slug is made unique against what is already in
+ * the table, since two different brands can slugify the same way.
+ */
+async function resolveBrands(
+  prisma: PrismaClient,
+  products: readonly PlannedProduct[],
+): Promise<Map<string, string>> {
+  const existing = await prisma.brand.findMany({ select: { id: true, name: true, slug: true } });
+  const byKey = new Map(existing.map((row) => [brandKey(row.name), row.id]));
+  const takenSlugs = new Set(existing.map((row) => row.slug));
+
+  const created: { id: string; slug: string; name: string; nameFa: string }[] = [];
+  for (const product of products) {
+    const key = brandKey(product.brand);
+    if (key === '' || byKey.has(key)) continue;
+
+    let slug = brandSlug(product.brand);
+    for (let attempt = 2; takenSlugs.has(slug); attempt += 1) {
+      slug = `${brandSlug(product.brand)}-${String(attempt)}`;
+    }
+    takenSlugs.add(slug);
+
+    const id = `brnd_${slug}`;
+    byKey.set(key, id);
+    /* A brand name is transliterated, not translated. Until an operator supplies
+     * a Persian spelling, the Latin one is the honest thing to show. */
+    created.push({ id, slug, name: product.brand, nameFa: product.brand });
+  }
+
+  await chunked(created, async (batch) => {
+    await prisma.brand.createMany({ data: batch, skipDuplicates: true });
+  });
+
+  return byKey;
+}
+
 async function writeCatalog(prisma: PrismaClient, plan: Plan): Promise<void> {
   const supplier = await prisma.supplier.findUnique({
     where: { code: SUPPLIER_CODE },
@@ -487,6 +560,9 @@ async function writeCatalog(prisma: PrismaClient, plan: Plan): Promise<void> {
   if (supplier === null) {
     throw new Error(`no supplier with code "${SUPPLIER_CODE}" — create it before importing`);
   }
+
+  const categories = await resolveCategories(prisma);
+  const brands = await resolveBrands(prisma, plan.products);
 
   await chunked(plan.products, async (batch) => {
     await prisma.product.createMany({
@@ -498,8 +574,14 @@ async function writeCatalog(prisma: PrismaClient, plan: Plan): Promise<void> {
         titleFa: product.titleFa,
         description: product.description,
         category: product.category,
+        brandId: brands.get(brandKey(product.brand)) ?? null,
+        categoryId: categories.get(product.categorySlug) ?? null,
         imageUrl: product.imageUrl,
         isActive: false,
+        /* The picture and the Persian description are what an operator has to
+         * supply before this can go on sale, and neither arrives complete from
+         * the feed. Landing in «سایر» means the rules could not place it. */
+        needsReview: product.imageUrl === null || product.categorySlug === 'other',
       })),
       skipDuplicates: true,
     });

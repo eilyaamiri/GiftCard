@@ -3,16 +3,42 @@ import { createServer } from "node:http";
 const now = "2026-09-18T12:00:00.000Z";
 const later = "2026-09-18T12:15:00.000Z";
 
+const categories = [
+  { id: "category-gaming", slug: "gaming", name: "Gaming", nameFa: "بازی و گیم", iconKey: "gamepad-2", descriptionFa: null, parentId: null, sortOrder: 1, productCount: 1 },
+  { id: "category-shopping", slug: "shopping", name: "Shopping", nameFa: "فروشگاهی و خرید", iconKey: "shopping-bag", descriptionFa: null, parentId: null, sortOrder: 2, productCount: 1 },
+  { id: "category-entertainment", slug: "entertainment", name: "Entertainment", nameFa: "سرگرمی و استریم", iconKey: "clapperboard", descriptionFa: null, parentId: null, sortOrder: 3, productCount: 1 },
+];
+
+const brands = [
+  { id: "brand-steam", slug: "steam", name: "Steam", nameFa: "استیم", logoUrl: null, descriptionFa: null, isPopular: true, sortOrder: 1, productCount: 1 },
+  { id: "brand-apple", slug: "apple", name: "Apple", nameFa: "اپل", logoUrl: null, descriptionFa: null, isPopular: true, sortOrder: 2, productCount: 1 },
+  { id: "brand-spotify", slug: "spotify", name: "Spotify", nameFa: "اسپاتیفای", logoUrl: null, descriptionFa: null, isPopular: false, sortOrder: 3, productCount: 1 },
+];
+
 const products = [
   {
     id: "product-steam", slug: "steam-wallet", brand: "Steam", title: "Steam Wallet", titleFa: "گیفت‌کارت استیم", description: null,
     descriptionFa: "اعتبار استیم برای خرید بازی و محتوای دیجیتال.", category: "Gaming", imageUrl: null, isActive: true,
     sortOrder: 1, regions: ["US", "UK"], createdAt: now,
+    brandSlug: "steam", brandNameFa: "استیم", categorySlug: "gaming", categoryNameFa: "بازی و گیم", categoryIconKey: "gamepad-2",
+    needsReview: false, isQuickPick: true,
   },
   {
     id: "product-apple", slug: "apple-us", brand: "Apple", title: "Apple Gift Card", titleFa: "گیفت‌کارت اپل", description: null,
     descriptionFa: "برای خرید از فروشگاه اپل آمریکا.", category: "Shopping", imageUrl: null, isActive: true,
     sortOrder: 2, regions: ["US"], createdAt: now,
+    brandSlug: "apple", brandNameFa: "اپل", categorySlug: "shopping", categoryNameFa: "فروشگاهی و خرید", categoryIconKey: "shopping-bag",
+    needsReview: false, isQuickPick: false,
+  },
+  /* Incomplete data: listed (§1 "هیچ محصول موجودی را بدون گزارش حذف نکن") but
+   * with no priced region, so the catalog and the detail page both refuse a
+   * buy button for it instead of hiding the product. */
+  {
+    id: "product-spotify", slug: "spotify-premium", brand: "Spotify", title: "Spotify Gift Card", titleFa: "گیفت‌کارت اسپاتیفای", description: null,
+    descriptionFa: null, category: "Entertainment", imageUrl: null, isActive: true,
+    sortOrder: 3, regions: [], createdAt: now,
+    brandSlug: "spotify", brandNameFa: "اسپاتیفای", categorySlug: "entertainment", categoryNameFa: "سرگرمی و استریم", categoryIconKey: "clapperboard",
+    needsReview: true, isQuickPick: false,
   },
 ];
 
@@ -135,9 +161,27 @@ createServer(async (request, response) => {
       return json(response, 200, { order });
     }
   }
-  if (request.method === "GET" && url.pathname === "/api/catalog/products") return json(response, 200, { items: products, meta: { page: 1, pageSize: 20, total: products.length, totalPages: 1 } });
+  if (request.method === "GET" && url.pathname === "/api/catalog/categories") return json(response, 200, { items: categories });
+  if (request.method === "GET" && url.pathname === "/api/catalog/brands") return json(response, 200, { items: brands });
+  if (request.method === "GET" && url.pathname === "/api/catalog/products") {
+    const categorySlug = url.searchParams.get("categorySlug");
+    const brandSlug = url.searchParams.get("brandSlug");
+    const region = url.searchParams.get("region");
+    const search = (url.searchParams.get("search") ?? "").trim().toLowerCase();
+    /* Mirrors the real API: the region facet is computed off everything except
+     * the region filter, so picking one region never hides the way back to
+     * another. */
+    const beforeRegion = products.filter((product) =>
+      (!categorySlug || product.categorySlug === categorySlug) &&
+      (!brandSlug || product.brandSlug === brandSlug) &&
+      (!search || [product.titleFa, product.title, product.brand].some((value) => value.toLowerCase().includes(search))));
+    const items = beforeRegion.filter((product) => !region || product.regions.includes(region));
+    const regions = [...new Set(beforeRegion.flatMap((product) => product.regions))].sort();
+    return json(response, 200, { items, regions, meta: { page: 1, pageSize: 20, total: items.length, totalPages: 1 } });
+  }
   if (request.method === "GET" && url.pathname === "/api/catalog/products/steam-wallet") return json(response, 200, { product: steam });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/apple-us") return json(response, 200, { product: { ...products[1], redemptionNotesFa: null, skus: [] } });
+  if (request.method === "GET" && url.pathname === "/api/catalog/products/spotify-premium") return json(response, 200, { product: { ...products[2], redemptionNotesFa: null, skus: [] } });
   if (request.method === "GET" && url.pathname === "/api/catalog/services") return json(response, 200, { items: services, meta: { page: 1, pageSize: 20, total: services.length, totalPages: 1 } });
   if (request.method === "GET" && url.pathname === "/api/quotes/quote-e2e-001") return json(response, 200, { quote: quoteFor().quote });
   if (request.method === "POST" && url.pathname === "/api/quotes") {

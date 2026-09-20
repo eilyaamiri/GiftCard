@@ -1,21 +1,33 @@
 import { Controller, Get, Inject, Param, Query, StreamableFile, Header } from '@nestjs/common';
 import { z } from 'zod';
 import { getProductRequestSchema, listProductsRequestSchema } from '@barat/contracts';
-import type {
-  GetProductResponse,
-  ListProductsRequest,
-  ListProductsResponse,
-  ListServicesResponse,
-} from '@barat/contracts';
+import type { ListProductsRequest, ListServicesResponse } from '@barat/contracts';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Public } from '../identity';
-import { CatalogService } from './catalog.service';
+import { CatalogService, type CatalogTaxonomyFilters } from './catalog.service';
+import type {
+  GetCatalogProductResponse,
+  ListBrandsResponse,
+  ListCatalogProductsResponse,
+  ListCategoriesResponse,
+} from './catalog-taxonomy.dto';
 
+const slugSchema = z.string().trim().min(1).max(90);
+
+/**
+ * `listProductsRequestSchema` is the frozen contract and has no field for a
+ * category or brand slug, and `.parse` would drop one silently. So the contract
+ * validates what it knows and the two taxonomy filters are carried alongside
+ * it — the request is still exactly the contract plus named extras, not a
+ * looser version of it.
+ */
 const listProductsQuerySchema = z
   .object({
     category: z.string().optional(),
     brand: z.string().optional(),
+    categorySlug: slugSchema.optional(),
+    brandSlug: slugSchema.optional(),
     region: z.string().optional(),
     search: z.string().max(120).optional(),
     onlyAvailable: z
@@ -25,7 +37,11 @@ const listProductsQuerySchema = z
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
   })
-  .transform((value) => listProductsRequestSchema.parse(value));
+  .transform((value) => ({
+    ...listProductsRequestSchema.parse(value),
+    categorySlug: value.categorySlug,
+    brandSlug: value.brandSlug,
+  }));
 
 const listServicesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -49,9 +65,29 @@ export class CatalogController {
 
   @Get('products')
   listProducts(
-    @Query(zodPipe(listProductsQuerySchema)) query: ListProductsRequest,
-  ): Promise<ListProductsResponse> {
+    @Query(zodPipe(listProductsQuerySchema)) query: ListProductsRequest & CatalogTaxonomyFilters,
+  ): Promise<ListCatalogProductsResponse> {
     return this.catalog.listProducts(query);
+  }
+
+  /** The category tiles on the catalog page. Empty categories are left out. */
+  @Get('categories')
+  listCategories(): Promise<ListCategoriesResponse> {
+    return this.catalog.listCategories();
+  }
+
+  /** Every brand with something on sale, popular ones flagged, not separated. */
+  @Get('brands')
+  listBrands(): Promise<ListBrandsResponse> {
+    return this.catalog.listBrands();
+  }
+
+  /** Serves the uploaded logo. `Brand.logoUrl` points straight at this route. */
+  @Get('brands/:id/logo')
+  @Header('Cache-Control', 'public, max-age=0, must-revalidate')
+  async brandLogo(@Param('id') id: string): Promise<StreamableFile> {
+    const image = await this.catalog.brandLogo(id);
+    return new StreamableFile(image.buffer, { type: image.contentType });
   }
 
   @Get('products/:id/image')
@@ -65,7 +101,7 @@ export class CatalogController {
   getProduct(
     @Param(zodPipe(getProductRequestSchema.pick({ slug: true }))) params: { slug: string },
     @Query(zodPipe(productQuerySchema)) query: { region?: string },
-  ): Promise<GetProductResponse> {
+  ): Promise<GetCatalogProductResponse> {
     return this.catalog.getProduct(params.slug, query.region);
   }
 

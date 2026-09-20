@@ -1,6 +1,16 @@
 import { z } from "zod";
-import type { CustomerDto, ListProductsResponse, GetProductResponse, ListServicesResponse, GetQuoteResponse, GetOrderResponse, LogoutResponse, MeResponse, RequestOtpRequest, RequestOtpResponse, VerifyOtpRequest, VerifyOtpResponse } from "@barat/contracts";
-import { listProductsResponseSchema, getProductResponseSchema, listServicesResponseSchema, getQuoteResponseSchema, getOrderResponseSchema, logoutResponseSchema, meResponseSchema, requestOtpResponseSchema, verifyOtpResponseSchema, customerDtoSchema, idSchema, isoDateTimeSchema, orderStatusSchema, paymentStatusSchema, positiveIrrStringSchema, currencyCodeSchema } from "@barat/contracts";
+import type { CustomerDto, ListServicesResponse, GetQuoteResponse, GetOrderResponse, LogoutResponse, MeResponse, RequestOtpRequest, RequestOtpResponse, VerifyOtpRequest, VerifyOtpResponse } from "@barat/contracts";
+import { listServicesResponseSchema, getQuoteResponseSchema, getOrderResponseSchema, logoutResponseSchema, meResponseSchema, requestOtpResponseSchema, verifyOtpResponseSchema, customerDtoSchema, idSchema, isoDateTimeSchema, orderStatusSchema, paymentStatusSchema, positiveIrrStringSchema, currencyCodeSchema } from "@barat/contracts";
+import {
+  getCatalogProductResponseSchema,
+  listBrandsResponseSchema,
+  listCatalogProductsResponseSchema,
+  listCategoriesResponseSchema,
+  type GetCatalogProductResponse,
+  type ListBrandsResponse,
+  type ListCatalogProductsResponse,
+  type ListCategoriesResponse,
+} from "./catalog";
 
 /**
  * Empty is the intended default: the browser calls `/api/...` on its own origin,
@@ -303,8 +313,10 @@ function pageQuery(params?: { readonly page?: number; readonly pageSize?: number
 }
 
 export const api = {
-  products: (query = "") => request<ListProductsResponse>(`/api/catalog/products${query ? `?${query}` : ""}`, undefined, listProductsResponseSchema),
-  product: (slug: string) => request<GetProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getProductResponseSchema),
+  products: (query = "") => request<ListCatalogProductsResponse>(`/api/catalog/products${query ? `?${query}` : ""}`, undefined, listCatalogProductsResponseSchema),
+  product: (slug: string) => request<GetCatalogProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getCatalogProductResponseSchema),
+  categories: () => request<ListCategoriesResponse>("/api/catalog/categories", undefined, listCategoriesResponseSchema),
+  brands: () => request<ListBrandsResponse>("/api/catalog/brands", undefined, listBrandsResponseSchema),
   services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),

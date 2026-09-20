@@ -2,11 +2,13 @@ import Link from "next/link";
 import { CATALOG_WRITE_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { ProductForm } from "../_components/product-form";
+import { fetchTaxonomyOptions } from "../_lib/taxonomy-options";
 
 export const metadata = { title: "افزودن محصول | پنل ادمین برات پی" };
 
 export default async function NewProductPage() {
   await requireRole(CATALOG_WRITE_ROLES);
+  const { brands, categories } = await fetchTaxonomyOptions();
 
   return (
     <div>
@@ -21,7 +23,7 @@ export default async function NewProductPage() {
           <h1>افزودن محصول</h1>
         </div>
       </div>
-      <ProductForm />
+      <ProductForm brands={brands} categories={categories} />
     </div>
   );
 }

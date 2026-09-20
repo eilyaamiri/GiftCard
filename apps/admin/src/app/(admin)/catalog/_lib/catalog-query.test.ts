@@ -42,6 +42,21 @@ describe("readCatalogQuery", () => {
     // `?search=` must list the catalog rather than filter it on an empty string.
     expect(readCatalogQuery({ search: "   " }).search).toBeUndefined();
   });
+
+  it("truncates a hand-typed id to the length the API accepts", () => {
+    const query = readCatalogQuery({ categoryId: "c".repeat(200), brandId: "b".repeat(200) });
+
+    expect(query.categoryId).toHaveLength(64);
+    expect(query.brandId).toHaveLength(64);
+  });
+
+  it("reads the review queue only when it was explicitly asked for", () => {
+    // `needsReview=false` would have to mean "the products that are fine",
+    // which is not a queue anyone wants; absent means the whole catalog.
+    expect(readCatalogQuery({ needsReview: "true" }).needsReview).toBe(true);
+    expect(readCatalogQuery({ needsReview: "false" }).needsReview).toBeUndefined();
+    expect(readCatalogQuery({}).needsReview).toBeUndefined();
+  });
 });
 
 describe("catalog list URLs", () => {
@@ -93,5 +108,28 @@ describe("catalog list URLs", () => {
     const query = readCatalogQuery({ search: "apple", page: "9" });
 
     expect(catalogHref("/catalog", query, { search: "" })).toBe("/catalog");
+  });
+
+  it("carries the category and brand filters across a page change", () => {
+    const query = readCatalogQuery({ categoryId: "cat_gaming", brandId: "brnd_steam", page: "2" });
+
+    expect(catalogHref("/catalog", query, { page: 3 })).toBe(
+      "/catalog?categoryId=cat_gaming&brandId=brnd_steam&page=3",
+    );
+  });
+
+  it("clears one filter without disturbing the others", () => {
+    const query = readCatalogQuery({ categoryId: "cat_gaming", brandId: "brnd_steam" });
+
+    expect(catalogHref("/catalog", query, { brandId: "" })).toBe("/catalog?categoryId=cat_gaming");
+  });
+
+  it("keeps the review queue on the link and drops it when asked", () => {
+    const query = readCatalogQuery({ needsReview: "true", status: "ACTIVE" });
+
+    expect(catalogHref("/catalog", query, { page: 2 })).toBe(
+      "/catalog?status=ACTIVE&needsReview=true&page=2",
+    );
+    expect(catalogHref("/catalog", query, { needsReview: false })).toBe("/catalog?status=ACTIVE");
   });
 });

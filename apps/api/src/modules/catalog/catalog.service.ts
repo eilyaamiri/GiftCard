@@ -8,12 +8,9 @@ import { Prisma } from '@barat/database';
 import { QUOTABLE_COST_CURRENCIES } from '@barat/contracts';
 import type {
   DecimalString,
-  GetProductResponse,
   InternationalServiceDto,
   ListProductsRequest,
-  ListProductsResponse,
   ListServicesResponse,
-  ProductDto,
   ServiceFieldDefinitionDto,
   SkuDto,
 } from '@barat/contracts';
@@ -22,29 +19,49 @@ import { DomainErrors } from '../../common/errors/domain.exception';
 import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
+import type {
+  CatalogProductDto,
+  GetCatalogProductResponse,
+  ListBrandsResponse,
+  ListCatalogProductsResponse,
+  ListCategoriesResponse,
+} from './catalog-taxonomy.dto';
 import {
+  assignCategorySchema,
+  createBrandSchema,
+  createCategorySchema,
   createInternationalServiceSchema,
   createProductSchema,
   createServiceFieldSchema,
   createSkuSchema,
   createSupplierOfferSchema,
   createSupplierSchema,
+  mergeBrandsSchema,
+  updateBrandSchema,
+  updateCategorySchema,
   updateInternationalServiceSchema,
   updateProductSchema,
   updateServiceFieldSchema,
   updateSkuSchema,
   updateSupplierOfferSchema,
   updateSupplierSchema,
+  type AdminBrandListInput,
   type AdminCatalogListInput,
   type AdminProductListInput,
   type AdminSkuListInput,
   type AdminSupplierOfferListInput,
+  type AssignCategoryInput,
+  type CreateBrandInput,
+  type CreateCategoryInput,
   type CreateInternationalServiceInput,
   type CreateProductInput,
   type CreateServiceFieldInput,
   type CreateSkuInput,
   type CreateSupplierInput,
   type CreateSupplierOfferInput,
+  type MergeBrandsInput,
+  type UpdateBrandInput,
+  type UpdateCategoryInput,
   type UpdateInternationalServiceInput,
   type UpdateProductInput,
   type UpdateServiceFieldInput,
@@ -79,6 +96,33 @@ const PURCHASABLE_OFFER: Prisma.SupplierOfferWhereInput = {
   costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
 };
 
+/**
+ * "A customer can see this product in the catalog."
+ *
+ * Not the same as "can buy it": a product with incomplete data is listed with
+ * its buy button disabled, and it still counts towards its category and brand,
+ * because it is still something the customer finds there.
+ */
+const VISIBLE_PRODUCT = { isActive: true } satisfies Prisma.ProductWhereInput;
+
+/**
+ * Products that belong to a category, primary or secondary.
+ *
+ * A Steam card lives under «بازی و گیم» and also turns up under «نرم‌افزار»;
+ * browsing the second must find it, or a secondary category is decoration.
+ */
+function categoryMembership(slug: string): Prisma.ProductWhereInput {
+  return {
+    OR: [{ categoryRef: { slug } }, { extraCategories: { some: { category: { slug } } } }],
+  };
+}
+
+/** Filters the frozen `ListProductsRequest` has no field for. */
+export interface CatalogTaxonomyFilters {
+  readonly categorySlug?: string | undefined;
+  readonly brandSlug?: string | undefined;
+}
+
 const PRODUCT_PUBLIC_SELECT = {
   id: true,
   slug: true,
@@ -90,8 +134,12 @@ const PRODUCT_PUBLIC_SELECT = {
   category: true,
   imageUrl: true,
   isActive: true,
+  needsReview: true,
+  isQuickPick: true,
   sortOrder: true,
   createdAt: true,
+  brandRef: { select: { slug: true, nameFa: true } },
+  categoryRef: { select: { slug: true, nameFa: true, iconKey: true } },
 } satisfies Prisma.ProductSelect;
 
 const SKU_PUBLIC_SELECT = {
@@ -158,8 +206,14 @@ const IMAGE_VARIANTS = [
   { extension: 'gif', contentType: 'image/gif' },
 ] as const;
 
-function imagePath(root: string, productId: string, extension: string): string {
-  return path.join(root, `${productId}.${extension}`);
+function imagePath(root: string, key: string, extension: string): string {
+  return path.join(root, `${key}.${extension}`);
+}
+
+/** Brand logos share the product image directory, so their keys must not
+ * collide with a product id. */
+function brandImageKey(brandId: string): string {
+  return `brand-${brandId}`;
 }
 
 function imageExtension(file: { mimetype: string; buffer: Buffer }): (typeof IMAGE_VARIANTS)[number]['extension'] | null {
@@ -184,31 +238,54 @@ export class CatalogService {
 
   /* ------------------------------------------------------------------ public */
 
-  async listProducts(input: ListProductsRequest): Promise<ListProductsResponse> {
+  async listProducts(
+    input: ListProductsRequest & CatalogTaxonomyFilters,
+  ): Promise<ListCatalogProductsResponse> {
     const { page, pageSize } = input;
-    const skuFilter: Prisma.SkuWhereInput = {
+    /* Split in two: the availability half is also what the region facet is
+     * counted over, and the facet must not be narrowed by the region the
+     * customer already picked. */
+    const sellableSku: Prisma.SkuWhereInput = {
       isActive: true,
-      ...(input.region ? { region: input.region } : {}),
       ...(input.onlyAvailable ? { supplierOffers: { some: PURCHASABLE_OFFER } } : {}),
     };
+    const skuFilter: Prisma.SkuWhereInput = {
+      ...sellableSku,
+      ...(input.region ? { region: input.region } : {}),
+    };
+
+    /* Composed as an AND list rather than one object literal: search and the
+     * category filter both need an OR of their own, and a second `OR:` key
+     * would silently overwrite the first. */
+    const conditions: Prisma.ProductWhereInput[] = [];
+    if (input.category) conditions.push({ category: input.category });
+    if (input.brand) conditions.push({ brand: input.brand });
+    if (input.categorySlug) conditions.push(categoryMembership(input.categorySlug));
+    if (input.brandSlug) conditions.push({ brandRef: { slug: input.brandSlug } });
+    if (input.search) {
+      conditions.push({
+        OR: [
+          { title: { contains: input.search, mode: 'insensitive' } },
+          { titleFa: { contains: input.search } },
+          { brand: { contains: input.search, mode: 'insensitive' } },
+          /* The brand's Persian name is not on the product row, so a search for
+           * «نتفلیکس» only works if the relation is searched too. */
+          { brandRef: { nameFa: { contains: input.search } } },
+        ],
+      });
+    }
+    /* Everything except the region, so the facet keeps offering the regions the
+     * customer could switch to. */
+    const facetConditions = [...conditions];
+    if (input.onlyAvailable) facetConditions.push({ skus: { some: sellableSku } });
+    if (input.region || input.onlyAvailable) conditions.push({ skus: { some: skuFilter } });
 
     const where: Prisma.ProductWhereInput = {
       isActive: true,
-      ...(input.category ? { category: input.category } : {}),
-      ...(input.brand ? { brand: input.brand } : {}),
-      ...(input.search
-        ? {
-            OR: [
-              { title: { contains: input.search, mode: 'insensitive' } },
-              { titleFa: { contains: input.search } },
-              { brand: { contains: input.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-      ...(input.region || input.onlyAvailable ? { skus: { some: skuFilter } } : {}),
+      ...(conditions.length > 0 ? { AND: conditions } : {}),
     };
 
-    const [rows, total] = await this.db.$transaction([
+    const [rows, total, regions] = await this.db.$transaction([
       this.db.product.findMany({
         where,
         select: {
@@ -220,15 +297,104 @@ export class CatalogService {
         take: pageSize,
       }),
       this.db.product.count({ where }),
+      this.db.sku.findMany({
+        where: {
+          ...sellableSku,
+          product: {
+            isActive: true,
+            ...(facetConditions.length > 0 ? { AND: facetConditions } : {}),
+          },
+        },
+        select: { region: true },
+        distinct: ['region'],
+        orderBy: { region: 'asc' },
+      }),
     ]);
 
     return {
       items: rows.map((row) => this.toProductDto(row, row.skus)),
+      regions: regions.map((sku) => sku.region),
       meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     };
   }
 
-  async getProduct(slug: string, region?: string): Promise<GetProductResponse> {
+  /**
+   * The categories worth showing, with a real count each.
+   *
+   * A category with nothing in it is left out entirely (§2): an empty tile on
+   * the catalog page is a dead end, and the counts come from the same
+   * membership rule the product filter uses, so a tile that says 48 opens on 48
+   * products.
+   */
+  async listCategories(): Promise<ListCategoriesResponse> {
+    const rows = await this.db.category.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        iconKey: true,
+        descriptionFa: true,
+        parentId: true,
+        sortOrder: true,
+        _count: {
+          select: {
+            products: { where: VISIBLE_PRODUCT },
+            productTags: { where: { product: VISIBLE_PRODUCT } },
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
+    });
+
+    return {
+      items: rows
+        .map(({ _count, ...category }) => ({
+          ...category,
+          /* Summed, not deduplicated: a product may not carry the same category
+           * as both its primary and a secondary one. The admin write path
+           * rejects that, which is what keeps this addition exact. */
+          productCount: _count.products + _count.productTags,
+        }))
+        .filter((category) => category.productCount > 0),
+    };
+  }
+
+  /**
+   * Every brand that has something to sell.
+   *
+   * Returned whole rather than paginated — the list is bounded by the catalog,
+   * and both the "popular" strip and the A–Z list on the brands page are views
+   * of the same data. `isPopular` is a flag an operator sets; there are no
+   * sales figures here to rank by, and inventing some would be worse than the
+   * curated order.
+   */
+  async listBrands(): Promise<ListBrandsResponse> {
+    const rows = await this.db.brand.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        logoUrl: true,
+        descriptionFa: true,
+        isPopular: true,
+        sortOrder: true,
+        _count: { select: { products: { where: VISIBLE_PRODUCT } } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    return {
+      items: rows
+        .map(({ _count, ...brand }) => ({ ...brand, productCount: _count.products }))
+        .filter((brand) => brand.productCount > 0),
+    };
+  }
+
+  async getProduct(slug: string, region?: string): Promise<GetCatalogProductResponse> {
     const product = await this.db.product.findFirst({
       where: { slug, isActive: true },
       select: {
@@ -249,7 +415,11 @@ export class CatalogService {
      * alternatives even when the caller filtered down to one of them. */
     const regions = product.skus.map((sku) => ({ region: sku.region }));
     const visibleSkus = region ? product.skus.filter((sku) => sku.region === region) : product.skus;
-    const availableSkuIds = await this.availableSkuIds(visibleSkus.map((sku) => sku.id));
+    /* Incomplete data: the page still opens — nothing is hidden for it — but no
+     * denomination is offered, matching what `getSkuQuoteTarget` will do. */
+    const availableSkuIds: ReadonlySet<string> = product.needsReview
+      ? new Set<string>()
+      : await this.availableSkuIds(visibleSkus.map((sku) => sku.id));
 
     return {
       product: {
@@ -289,8 +459,13 @@ export class CatalogService {
    * task — it is never projected into a customer-facing DTO.
    */
   async getSkuQuoteTarget(skuId: string, currency: string): Promise<SkuQuoteTarget> {
+    /* `needsReview` is not cosmetic. A product whose data is incomplete is
+     * listed with its buy button disabled, and this is the half of that which a
+     * customer cannot get around: a hand-made POST with the SKU id finds
+     * nothing here either. The storefront decides what to grey out; the price
+     * is refused server-side. */
     const sku = await this.db.sku.findFirst({
-      where: { id: skuId, isActive: true, product: { isActive: true } },
+      where: { id: skuId, isActive: true, product: { isActive: true, needsReview: false } },
       include: { supplierOffers: { include: { supplier: { select: { isActive: true } } } } },
     });
     if (!sku) {
@@ -348,6 +523,9 @@ export class CatalogService {
     const where: Prisma.ProductWhereInput = {
       ...(status === 'ACTIVE' ? { isActive: true } : {}),
       ...(status === 'INACTIVE' ? { isActive: false } : {}),
+      ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+      ...(query.brandId ? { brandId: query.brandId } : {}),
+      ...(query.needsReview === undefined ? {} : { needsReview: query.needsReview }),
       ...(query.search
         ? {
             OR: [
@@ -361,7 +539,11 @@ export class CatalogService {
     const [items, total] = await this.db.$transaction([
       this.db.product.findMany({
         where,
-        include: { _count: { select: { skus: true } } },
+        include: {
+          _count: { select: { skus: true } },
+          brandRef: { select: { id: true, slug: true, name: true, nameFa: true } },
+          categoryRef: { select: { id: true, slug: true, nameFa: true, iconKey: true } },
+        },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
@@ -375,6 +557,11 @@ export class CatalogService {
     const product = await this.db.product.findUnique({
       where: { id },
       include: {
+        brandRef: { select: { id: true, slug: true, name: true, nameFa: true } },
+        categoryRef: { select: { id: true, slug: true, nameFa: true, iconKey: true } },
+        extraCategories: {
+          select: { category: { select: { id: true, slug: true, nameFa: true } } },
+        },
         skus: {
           include: {
             supplierOffers: {
@@ -557,13 +744,327 @@ export class CatalogService {
   }
 
   async adminCreateProduct(input: CreateProductInput) {
-    return this.db.product.create({ data: createProductSchema.parse(input) });
+    const { extraCategoryIds, brand, category, ...data } = createProductSchema.parse(input);
+    const taxonomy = await this.resolveTaxonomy(data.brandId, data.categoryId, extraCategoryIds);
+
+    return this.db.product.create({
+      data: {
+        ...data,
+        /* The supplier columns are NOT NULL and a hand-made product has no
+         * supplier. Falling back to the chosen brand and category keeps them
+         * meaningful instead of filled with a placeholder. */
+        brand: brand ?? taxonomy.brandName,
+        category: category ?? taxonomy.categoryName,
+        ...(extraCategoryIds.length > 0
+          ? { extraCategories: { create: extraCategoryIds.map((categoryId) => ({ categoryId })) } }
+          : {}),
+      },
+    });
   }
 
   async adminUpdateProduct(id: string, input: UpdateProductInput) {
-    const data = updateProductSchema.parse(input);
-    await this.assertExists(this.db.product.count({ where: { id } }), 'product');
-    return this.db.product.update({ where: { id }, data });
+    const { extraCategoryIds, ...data } = updateProductSchema.parse(input);
+    const current = await this.db.product.findUnique({
+      where: { id },
+      select: { brandId: true, categoryId: true },
+    });
+    if (!current) throw DomainErrors.notFound('product');
+
+    /* Validated against what the product will be after this patch, not what was
+     * sent: a patch that only changes the primary category still has to agree
+     * with the secondary ones already on the row. */
+    await this.resolveTaxonomy(
+      data.brandId ?? current.brandId,
+      data.categoryId ?? current.categoryId,
+      extraCategoryIds,
+    );
+
+    return this.db.product.update({
+      where: { id },
+      data: {
+        ...data,
+        ...(extraCategoryIds === undefined
+          ? {}
+          : {
+              /* Replaced wholesale rather than merged: the form sends the set
+               * the operator sees, so an unticked box has to remove a row. */
+              extraCategories: {
+                deleteMany: {},
+                create: extraCategoryIds.map((categoryId) => ({ categoryId })),
+              },
+            }),
+      },
+    });
+  }
+
+  /* --------------------------------------------------- admin: taxonomy */
+
+  /**
+   * Checks a product's brand and categories before anything is written.
+   *
+   * The two things worth refusing: a category that is also listed as a
+   * secondary one — `listCategories` adds the primary and secondary counts, and
+   * that sum is only exact while no product holds the same category twice — and
+   * an id that does not exist, which the database would report as an opaque
+   * foreign-key violation.
+   */
+  private async resolveTaxonomy(
+    brandId: string | null | undefined,
+    categoryId: string | null | undefined,
+    extraCategoryIds: readonly string[] | undefined,
+  ): Promise<{ brandName: string; categoryName: string }> {
+    const extras = extraCategoryIds ?? [];
+    if (categoryId && extras.includes(categoryId)) {
+      throw DomainErrors.validation([
+        {
+          path: 'extraCategoryIds',
+          message: 'دستهٔ اصلی نمی‌تواند هم‌زمان به‌عنوان دستهٔ مرتبط انتخاب شود.',
+        },
+      ]);
+    }
+    if (new Set(extras).size !== extras.length) {
+      throw DomainErrors.validation([
+        { path: 'extraCategoryIds', message: 'یک دسته نمی‌تواند دو بار انتخاب شود.' },
+      ]);
+    }
+
+    const wanted = [...new Set(categoryId ? [categoryId, ...extras] : extras)];
+    const [brand, categories] = await Promise.all([
+      brandId ? this.db.brand.findUnique({ where: { id: brandId }, select: { name: true } }) : null,
+      wanted.length > 0
+        ? this.db.category.findMany({ where: { id: { in: wanted } }, select: { id: true, name: true } })
+        : [],
+    ]);
+
+    if (brandId && !brand) throw DomainErrors.notFound('brand');
+    if (categories.length !== wanted.length) throw DomainErrors.notFound('category');
+
+    return {
+      brandName: brand?.name ?? 'Unknown',
+      categoryName: categories.find((row) => row.id === categoryId)?.name ?? 'Other',
+    };
+  }
+
+  /**
+   * Every category, empty ones included — the opposite of the public list.
+   *
+   * An operator needs to see a category precisely when nothing is in it yet,
+   * and the two counts tell them whether it is missing products or missing an
+   * activation.
+   */
+  async adminListCategories() {
+    /* Two passes over the same table: Prisma counts one relation once per
+     * query, so the unfiltered total and the active-only count cannot share a
+     * `_count` select. Both run in one transaction, so a product activated
+     * mid-read cannot make the active count exceed the total. */
+    const [rows, activeRows] = await this.db.$transaction([
+      this.db.category.findMany({
+        include: {
+          parent: { select: { id: true, nameFa: true } },
+          _count: { select: { products: true, productTags: true } },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
+      }),
+      this.db.category.findMany({
+        select: {
+          id: true,
+          _count: {
+            select: {
+              products: { where: VISIBLE_PRODUCT },
+              productTags: { where: { product: VISIBLE_PRODUCT } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const activeCount = new Map(
+      activeRows.map((row) => [row.id, row._count.products + row._count.productTags]),
+    );
+
+    return {
+      items: rows.map(({ _count, ...category }) => ({
+        ...category,
+        productCount: _count.products + _count.productTags,
+        activeProductCount: activeCount.get(category.id) ?? 0,
+      })),
+    };
+  }
+
+  async adminGetCategory(id: string) {
+    const category = await this.db.category.findUnique({
+      where: { id },
+      include: {
+        parent: { select: { id: true, nameFa: true } },
+        _count: { select: { products: true, productTags: true } },
+      },
+    });
+    if (!category) throw DomainErrors.notFound('category');
+    return category;
+  }
+
+  async adminCreateCategory(input: CreateCategoryInput) {
+    const data = createCategorySchema.parse(input);
+    if (data.parentId) {
+      await this.assertExists(this.db.category.count({ where: { id: data.parentId } }), 'category');
+    }
+    return this.db.category.create({ data });
+  }
+
+  async adminUpdateCategory(id: string, input: UpdateCategoryInput) {
+    const data = updateCategorySchema.parse(input);
+    await this.assertExists(this.db.category.count({ where: { id } }), 'category');
+    if (data.parentId) {
+      if (data.parentId === id) {
+        throw DomainErrors.validation([
+          { path: 'parentId', message: 'یک دسته نمی‌تواند والد خودش باشد.' },
+        ]);
+      }
+      await this.assertExists(this.db.category.count({ where: { id: data.parentId } }), 'category');
+    }
+    return this.db.category.update({ where: { id }, data });
+  }
+
+  /**
+   * Deactivates rather than deletes.
+   *
+   * Deleting would null the `categoryId` of everything in it and quietly strip
+   * a few hundred products of their place in the catalog. Switched off, the
+   * category disappears from the storefront and its products keep their row.
+   */
+  async adminArchiveCategory(id: string) {
+    await this.assertExists(this.db.category.count({ where: { id } }), 'category');
+    return this.db.category.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /** Move a batch of products into one category. */
+  async adminAssignCategory(input: AssignCategoryInput) {
+    const { productIds, categoryId } = assignCategorySchema.parse(input);
+    await this.assertExists(this.db.category.count({ where: { id: categoryId } }), 'category');
+
+    const ids = [...new Set(productIds)];
+    const [, moved] = await this.db.$transaction([
+      /* A product cannot hold the same category as primary and secondary, so
+       * the tag has to go when the category becomes the primary one. */
+      this.db.productCategory.deleteMany({ where: { productId: { in: ids }, categoryId } }),
+      this.db.product.updateMany({ where: { id: { in: ids } }, data: { categoryId } }),
+    ]);
+
+    return { requested: ids.length, updated: moved.count };
+  }
+
+  async adminListBrands(query: AdminBrandListInput) {
+    const where: Prisma.BrandWhereInput = {
+      ...(query.includeInactive ? {} : { isActive: true }),
+      /* Three columns, because an operator hunting a duplicate has whichever of
+       * them the feed happened to use. */
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: 'insensitive' as const } },
+              { nameFa: { contains: query.search } },
+              { slug: { contains: query.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
+    const [items, total] = await this.db.$transaction([
+      this.db.brand.findMany({
+        where,
+        include: { _count: { select: { products: true } } },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.db.brand.count({ where }),
+    ]);
+    return { items, meta: pageMeta(query.page, query.pageSize, total) };
+  }
+
+  /**
+   * Every brand, four columns wide, for a picker.
+   *
+   * The paged list caps at 100 rows and there are ~330 brands, so a product
+   * form that has to offer all of them cannot use it. This is the same data
+   * without the counts or the timestamps — a few kilobytes rather than a page
+   * of four requests.
+   */
+  async adminBrandOptions() {
+    const items = await this.db.brand.findMany({
+      select: { id: true, slug: true, name: true, nameFa: true, isActive: true },
+      orderBy: [{ name: 'asc' }],
+    });
+    return { items };
+  }
+
+  async adminGetBrand(id: string) {
+    const brand = await this.db.brand.findUnique({
+      where: { id },
+      include: { _count: { select: { products: true } } },
+    });
+    if (!brand) throw DomainErrors.notFound('brand');
+    return brand;
+  }
+
+  async adminCreateBrand(input: CreateBrandInput) {
+    return this.db.brand.create({ data: createBrandSchema.parse(input) });
+  }
+
+  async adminUpdateBrand(id: string, input: UpdateBrandInput) {
+    const data = updateBrandSchema.parse(input);
+    await this.assertExists(this.db.brand.count({ where: { id } }), 'brand');
+    return this.db.brand.update({ where: { id }, data });
+  }
+
+  async adminArchiveBrand(id: string) {
+    await this.assertExists(this.db.brand.count({ where: { id } }), 'brand');
+    return this.db.brand.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /**
+   * Fold one brand into another and remove the emptied one.
+   *
+   * Both halves run in one transaction. Moving the products and then failing to
+   * delete the source would leave a brand with no products — harmless. Deleting
+   * first and failing to move would take the products' brand with it, which is
+   * the kind of loss the audit was written to prevent.
+   */
+  async adminMergeBrands(input: MergeBrandsInput) {
+    const { sourceBrandId, targetBrandId } = mergeBrandsSchema.parse(input);
+    const brands = await this.db.brand.findMany({
+      where: { id: { in: [sourceBrandId, targetBrandId] } },
+      select: { id: true, name: true },
+    });
+    const target = brands.find((brand) => brand.id === targetBrandId);
+    if (brands.length !== 2 || !target) throw DomainErrors.notFound('brand');
+
+    const [moved] = await this.db.$transaction([
+      this.db.product.updateMany({
+        where: { brandId: sourceBrandId },
+        /* The free-text column follows the relation. Left alone it would still
+         * read the old spelling, and a re-import would match on it and undo
+         * the merge. */
+        data: { brandId: targetBrandId, brand: target.name },
+      }),
+      this.db.brand.delete({ where: { id: sourceBrandId } }),
+    ]);
+
+    return { movedProducts: moved.count, targetBrandId };
+  }
+
+  /** Same storage and the same refusal to accept SVG as a product image. */
+  async adminUploadBrandLogo(id: string, file: { mimetype: string; buffer: Buffer }) {
+    await this.assertExists(this.db.brand.count({ where: { id } }), 'brand');
+    await this.storeImage(brandImageKey(id), file);
+    return this.db.brand.update({
+      where: { id },
+      data: { logoUrl: `/api/catalog/brands/${id}/logo` },
+    });
+  }
+
+  async brandLogo(id: string): Promise<{ buffer: Buffer; contentType: string }> {
+    await this.assertExists(this.db.brand.count({ where: { id } }), 'brand');
+    return this.readImage(brandImageKey(id), 'brand logo');
   }
 
   /** Store a validated raster image outside the database and expose only its
@@ -575,6 +1076,22 @@ export class CatalogService {
     file: { mimetype: string; buffer: Buffer },
   ) {
     await this.assertExists(this.db.product.count({ where: { id } }), 'product');
+    await this.storeImage(id, file);
+
+    return this.db.product.update({
+      where: { id },
+      data: { imageUrl: `/api/catalog/products/${id}/image` },
+    });
+  }
+
+  async productImage(id: string): Promise<{ buffer: Buffer; contentType: string }> {
+    await this.assertExists(this.db.product.count({ where: { id } }), 'product');
+    return this.readImage(id, 'product image');
+  }
+
+  /** Writes one variant and removes the others, so a re-upload cannot leave the
+   * previous format behind for `readImage` to find first. */
+  private async storeImage(key: string, file: { mimetype: string; buffer: Buffer }): Promise<void> {
     const extension = imageExtension(file);
     if (!extension) {
       throw DomainErrors.validation([
@@ -586,30 +1103,27 @@ export class CatalogService {
     await fs.mkdir(root, { recursive: true });
     await Promise.all(
       IMAGE_VARIANTS.filter((variant) => variant.extension !== extension).map((variant) =>
-        fs.rm(imagePath(root, id, variant.extension), { force: true }),
+        fs.rm(imagePath(root, key, variant.extension), { force: true }),
       ),
     );
-    await fs.writeFile(imagePath(root, id, extension), file.buffer, { mode: 0o640 });
-
-    return this.db.product.update({
-      where: { id },
-      data: { imageUrl: `/api/catalog/products/${id}/image` },
-    });
+    await fs.writeFile(imagePath(root, key, extension), file.buffer, { mode: 0o640 });
   }
 
-  async productImage(id: string): Promise<{ buffer: Buffer; contentType: string }> {
-    await this.assertExists(this.db.product.count({ where: { id } }), 'product');
+  private async readImage(
+    key: string,
+    what: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
     for (const variant of IMAGE_VARIANTS) {
       try {
         return {
-          buffer: await fs.readFile(imagePath(this.config.productImageDir, id, variant.extension)),
+          buffer: await fs.readFile(imagePath(this.config.productImageDir, key, variant.extension)),
           contentType: variant.contentType,
         };
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       }
     }
-    throw DomainErrors.notFound('product image');
+    throw DomainErrors.notFound(what);
   }
 
   async adminCreateSku(input: CreateSkuInput) {
@@ -758,11 +1272,15 @@ export class CatalogService {
       category: string;
       imageUrl: string | null;
       isActive: boolean;
+      needsReview: boolean;
+      isQuickPick: boolean;
       sortOrder: number;
       createdAt: Date;
+      brandRef: { slug: string; nameFa: string } | null;
+      categoryRef: { slug: string; nameFa: string; iconKey: string } | null;
     },
     skuRegions: ReadonlyArray<{ region: string }>,
-  ): ProductDto {
+  ): CatalogProductDto {
     return {
       id: row.id,
       slug: row.slug,
@@ -777,6 +1295,13 @@ export class CatalogService {
       sortOrder: row.sortOrder,
       regions: [...new Set(skuRegions.map((sku) => sku.region))].sort(),
       createdAt: row.createdAt.toISOString(),
+      brandSlug: row.brandRef?.slug ?? null,
+      brandNameFa: row.brandRef?.nameFa ?? null,
+      categorySlug: row.categoryRef?.slug ?? null,
+      categoryNameFa: row.categoryRef?.nameFa ?? null,
+      categoryIconKey: row.categoryRef?.iconKey ?? null,
+      needsReview: row.needsReview,
+      isQuickPick: row.isQuickPick,
     };
   }
 

@@ -644,27 +644,115 @@ model QueueMembership {
 // GROUP 3 — CATALOG & SUPPLY
 // ===========================================================================
 
-model Product {
+/// A brand, as customers know it. One row per real brand, not per import
+/// spelling: "NetFlix" and "Netflix" arrive from different supplier feeds and
+/// must end up as one brand here or the brand list shows the same logo twice.
+model Brand {
+  id          String  @id @default(cuid())
+  slug        String  @unique
+  /// Latin name, shown as-is — brands are not translated, they are transliterated.
+  name        String
+  nameFa      String
+  logoUrl     String?
+  descriptionFa String?
+  isActive    Boolean @default(true)
+  /// Curated, never computed. There are no sales or traffic figures to rank by,
+  /// so an operator decides what appears under "برندهای محبوب".
+  isPopular   Boolean @default(false)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([isActive, sortOrder])
+  @@index([isPopular, isActive, sortOrder])
+}
+
+/// A storefront category. The tree is one level deep in practice; `parentId`
+/// exists so a crowded category can be split without another migration.
+model Category {
   id            String  @id @default(cuid())
   slug          String  @unique
-  brand         String
-  title         String
-  titleFa       String
-  description   String?
+  name          String
+  nameFa        String
+  /// Names an icon in the storefront's existing icon set, resolved through an
+  /// allow-list in the web app. Never a URL: an arbitrary image here would put
+  /// a foreign icon style next to the project's own.
+  iconKey       String  @default("gift")
   descriptionFa String?
-  category      String
-  imageUrl      String?
-  redemptionNotesFa String?
+  parentId      String?
   isActive      Boolean @default(true)
   sortOrder     Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  skus Sku[]
+  parent      Category?         @relation("CategoryTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[]        @relation("CategoryTree")
+  products    Product[]         @relation("ProductPrimaryCategory")
+  productTags ProductCategory[]
+
+  @@index([isActive, sortOrder])
+  @@index([parentId])
+}
+
+/// Secondary categories. A Steam card is a game card and also a software
+/// subscription; the primary category decides where it lives, these decide
+/// where else it turns up.
+model ProductCategory {
+  productId  String
+  categoryId String
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+}
+
+model Product {
+  id            String  @id @default(cuid())
+  slug          String  @unique
+  /// Legacy import strings, kept as the raw supplier values. `brandId` and
+  /// `categoryId` are the taxonomy the storefront reads; these two survive so
+  /// a re-import can still be matched against what the supplier last sent.
+  brand         String
+  title         String
+  titleFa       String
+  description   String?
+  descriptionFa String?
+  category      String
+  brandId       String?
+  /// Nullable on purpose. A product whose brand or category could not be
+  /// resolved is not deleted and not hidden — it stays in the catalog with
+  /// `needsReview` set and no way to buy it, which is what the audit asks for.
+  categoryId    String?
+  imageUrl      String?
+  redemptionNotesFa String?
+  isActive      Boolean @default(true)
+  /// Incomplete data. Visible in the catalog, but the buy CTA is disabled and
+  /// the admin list flags it as «نیازمند تکمیل اطلاعات».
+  needsReview   Boolean @default(false)
+  /// Offered in the quick-pick flow on the home page.
+  isQuickPick   Boolean @default(false)
+  sortOrder     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  skus          Sku[]
+  brandRef      Brand?            @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  categoryRef   Category?         @relation("ProductPrimaryCategory", fields: [categoryId], references: [id], onDelete: SetNull)
+  extraCategories ProductCategory[]
 
   @@index([category, isActive, sortOrder])
   @@index([brand, isActive])
+  @@index([categoryId, isActive, sortOrder])
+  @@index([brandId, isActive, sortOrder])
+  @@index([isActive, needsReview])
+  @@index([isQuickPick, isActive, sortOrder])
 }
 
 model Sku {

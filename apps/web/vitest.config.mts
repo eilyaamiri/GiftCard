@@ -6,7 +6,10 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "html", "lcov"],
       reportsDirectory: "coverage",
-      include: ["src/lib/{commerce-session,notification-feed,status,support-channels}.ts"],
+      include: [
+        "src/lib/{brand-mark,catalog,commerce-session,notification-feed,status,support-channels}.ts",
+        "src/app/gift-cards/_lib/catalog-url.ts",
+      ],
       thresholds: {
         lines: 75,
         functions: 75,
