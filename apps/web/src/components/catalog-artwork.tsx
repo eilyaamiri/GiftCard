@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import type { ComponentType, CSSProperties } from "react";
 import {
   Apple,
   Bot,
@@ -9,7 +9,6 @@ import {
   Cloud,
   CreditCard,
   Gamepad2,
-  Gift,
   Globe2,
   GraduationCap,
   PackageOpen,
@@ -17,6 +16,7 @@ import {
   Play,
   type LucideProps,
 } from "lucide-react";
+import { brandAccent, brandInitials } from "@/lib/brand-mark";
 
 type ArtworkIcon = ComponentType<LucideProps>;
 
@@ -55,17 +55,26 @@ export function ProductArtwork({
   size?: "card" | "detail";
 }>) {
   const normalizedBrand = brand.trim().toLowerCase();
-  const ArtworkIcon = BRAND_ICONS[normalizedBrand] ?? Gift;
+  const ArtworkIcon = BRAND_ICONS[normalizedBrand];
+  /* Most brands have no curated icon and no uploaded logo, so they get a
+   * designed mark instead: initials on an accent drawn from the same palette
+   * as the rest of the site, picked deterministically from the brand name. */
+  const accent = ArtworkIcon ? null : brandAccent(normalizedBrand);
 
   return (
     <div
       className={`catalog-art catalog-art-size-${size} product-art ${normalizedBrand.replaceAll(" ", "-")}`}
+      style={accent ? ({ "--art-base": accent.base, "--art-accent": accent.accent } as CSSProperties) : undefined}
       aria-label={imageAlt(label)}
       role="img"
     >
       <span className="catalog-art-orbit" aria-hidden="true" />
       <span className="catalog-art-plate" aria-hidden="true">
-        <ArtworkIcon size={size === "detail" ? 46 : 36} strokeWidth={1.7} />
+        {ArtworkIcon ? (
+          <ArtworkIcon size={size === "detail" ? 46 : 36} strokeWidth={1.7} />
+        ) : (
+          <span className="catalog-art-monogram">{brandInitials(brand)}</span>
+        )}
         <strong dir="ltr">{brand}</strong>
       </span>
     </div>

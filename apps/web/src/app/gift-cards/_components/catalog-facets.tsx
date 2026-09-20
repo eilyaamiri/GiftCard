@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { toPersianDigits } from "@barat/ui";
 import { CategoryIcon } from "@/components/category-icon";
+import { brandAccent, brandInitials } from "@/lib/brand-mark";
 import type { Brand, Category } from "@/lib/catalog";
 import { catalogHref, type CatalogFilters } from "../_lib/catalog-url";
 
@@ -82,17 +83,24 @@ export function BrandFacets({
 }
 
 /**
- * A brand's logo, or its initial where there is no logo yet.
+ * A brand's logo, or a designed mark where there is no logo yet.
  *
- * Roughly a third of the brands arrived from the supplier catalog without
- * artwork. An initial keeps the row the same height as its neighbours, which a
- * missing image would not.
+ * Almost every brand arrived from the supplier catalog without artwork, and
+ * there is no way for either this app or its server to fetch one from the
+ * internet. Two initials on a palette-derived background keep the row the
+ * same height as its neighbours and give each brand a mark of its own,
+ * rather than a placeholder that looks the same for all of them.
  */
 export function BrandMark({ brand, size = 30 }: Readonly<{ brand: Brand; size?: number }>) {
   if (brand.logoUrl === null) {
+    const { base, accent } = brandAccent(brand.slug);
     return (
-      <span className="facet-logo facet-logo-empty" aria-hidden="true" style={{ width: size, height: size }}>
-        {brand.name.slice(0, 1).toUpperCase()}
+      <span
+        className="facet-logo facet-logo-empty"
+        aria-hidden="true"
+        style={{ width: size, height: size, background: base, color: accent, fontSize: Math.round(size * 0.4) }}
+      >
+        {brandInitials(brand.name)}
       </span>
     );
   }

@@ -66,6 +66,17 @@ test.describe("catalog taxonomy", () => {
     await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
   });
 
+  test("a brand with no uploaded logo gets a designed initials mark instead", async ({ page }) => {
+    await page.goto("/brands");
+
+    const tile = page.getByRole("link", { name: /اسپاتیفای/u }).first();
+    await expect(tile.locator(".facet-logo-empty")).toHaveText("SP");
+
+    await page.goto("/gift-cards");
+    const artwork = page.getByRole("img", { name: "تصویر گیفت‌کارت اسپاتیفای" });
+    await expect(artwork.locator(".catalog-art-monogram")).toHaveText("SP");
+  });
+
   test("a region picked in the catalog is carried into the product page", async ({ page }) => {
     await page.goto("/gift-cards?region=UK");
 
