@@ -4,6 +4,7 @@ import { ApiClientError, CATALOG_WRITE_ROLES, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { adminProductDetailSchema } from "../_lib/catalog-contracts";
 import { ProductForm } from "../_components/product-form";
+import { fetchTaxonomyOptions } from "../_lib/taxonomy-options";
 import { SkuPanel } from "../_components/sku-panel";
 
 export const metadata = { title: "ویرایش محصول | پنل ادمین برات پی" };
@@ -19,6 +20,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;
   }
+  const { brands, categories } = await fetchTaxonomyOptions();
 
   return (
     <div>
@@ -34,7 +36,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
         </div>
       </div>
 
-      <ProductForm product={product} />
+      <ProductForm product={product} brands={brands} categories={categories} />
       <SkuPanel productId={product.id} skus={product.skus} />
     </div>
   );

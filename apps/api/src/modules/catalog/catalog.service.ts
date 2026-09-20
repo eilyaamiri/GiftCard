@@ -45,6 +45,7 @@ import {
   updateSkuSchema,
   updateSupplierOfferSchema,
   updateSupplierSchema,
+  type AdminBrandListInput,
   type AdminCatalogListInput,
   type AdminProductListInput,
   type AdminSkuListInput,
@@ -920,8 +921,21 @@ export class CatalogService {
     return { requested: ids.length, updated: moved.count };
   }
 
-  async adminListBrands(query: AdminCatalogListInput) {
-    const where: Prisma.BrandWhereInput = query.includeInactive ? {} : { isActive: true };
+  async adminListBrands(query: AdminBrandListInput) {
+    const where: Prisma.BrandWhereInput = {
+      ...(query.includeInactive ? {} : { isActive: true }),
+      /* Three columns, because an operator hunting a duplicate has whichever of
+       * them the feed happened to use. */
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: 'insensitive' as const } },
+              { nameFa: { contains: query.search } },
+              { slug: { contains: query.search, mode: 'insensitive' as const } },
+            ],
+          }
+        : {}),
+    };
     const [items, total] = await this.db.$transaction([
       this.db.brand.findMany({
         where,
@@ -933,6 +947,22 @@ export class CatalogService {
       this.db.brand.count({ where }),
     ]);
     return { items, meta: pageMeta(query.page, query.pageSize, total) };
+  }
+
+  /**
+   * Every brand, four columns wide, for a picker.
+   *
+   * The paged list caps at 100 rows and there are ~330 brands, so a product
+   * form that has to offer all of them cannot use it. This is the same data
+   * without the counts or the timestamps — a few kilobytes rather than a page
+   * of four requests.
+   */
+  async adminBrandOptions() {
+    const items = await this.db.brand.findMany({
+      select: { id: true, slug: true, name: true, nameFa: true, isActive: true },
+      orderBy: [{ name: 'asc' }],
+    });
+    return { items };
   }
 
   async adminGetBrand(id: string) {

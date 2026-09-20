@@ -747,3 +747,72 @@ describe('CatalogService admin brand merge', () => {
     expect(brand.delete).not.toHaveBeenCalled();
   });
 });
+
+describe('CatalogService admin brand list', () => {
+  /** A db double for the two read paths; neither writes anything. */
+  function brandHarness() {
+    const brand = {
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+    };
+    const db = {
+      brand,
+      $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
+    } as unknown as CatalogDatabase;
+    return { service: new CatalogService(db, TEST_CONFIG), brand };
+  }
+
+  it('searches all three name columns, because the feed used whichever it liked', async () => {
+    const { service, brand } = brandHarness();
+
+    await service.adminListBrands({ page: 1, pageSize: 40, includeInactive: true, search: 'steam' });
+
+    expect(brand.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      OR: [
+        { name: { contains: 'steam', mode: 'insensitive' } },
+        { nameFa: { contains: 'steam' } },
+        { slug: { contains: 'steam', mode: 'insensitive' } },
+      ],
+    });
+  });
+
+  it('keeps the active filter alongside a search term', async () => {
+    const { service, brand } = brandHarness();
+
+    await service.adminListBrands({ page: 1, pageSize: 40, includeInactive: false, search: 'ps' });
+
+    // Both clauses: a search must not start surfacing archived brands on a
+    // screen that excludes them.
+    const where = brand.findMany.mock.calls[0]?.[0]?.where;
+    expect(where.isActive).toBe(true);
+    expect(where.OR).toHaveLength(3);
+    expect(brand.count.mock.calls[0]?.[0]?.where).toEqual(where);
+  });
+
+  it('applies no search clause when no term was given', async () => {
+    const { service, brand } = brandHarness();
+
+    await service.adminListBrands({ page: 2, pageSize: 40, includeInactive: true });
+
+    expect(brand.findMany.mock.calls[0]?.[0]).toMatchObject({ where: {}, skip: 40, take: 40 });
+  });
+
+  it('hands the picker every brand, unpaged and without the counts', async () => {
+    const { service, brand } = brandHarness();
+
+    await service.adminBrandOptions();
+
+    /* Unpaged on purpose: there are ~330 brands and the paged list caps at
+     * 100, so a product form could not offer all of them from it. */
+    const args = brand.findMany.mock.calls[0]?.[0];
+    expect(args.take).toBeUndefined();
+    expect(args.skip).toBeUndefined();
+    expect(args.select).toEqual({
+      id: true,
+      slug: true,
+      name: true,
+      nameFa: true,
+      isActive: true,
+    });
+  });
+});

@@ -153,6 +153,14 @@ export const api = {
       body: form,
     });
   },
+  uploadBrandLogo: (brandId: string, file: File) => {
+    const form = new FormData();
+    form.append("image", file);
+    return request<unknown>(`/api/admin/catalog/brands/${brandId}/logo`, {
+      method: "POST",
+      body: form,
+    });
+  },
   del: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, { method: "DELETE" }, schema),
 };
 

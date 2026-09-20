@@ -401,4 +401,14 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(22px, 2.5vw, 30px); letter-s
 .settings-row .switch input:focus-visible + .slider, .settings-member input:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
 @media (max-width: 900px) { .settings-row-editor, .settings-queue-editor { grid-template-columns: 1fr; align-items: stretch; } .settings-row-main { flex-wrap: wrap; } .settings-row-main .settings-row-actions { width: 100%; justify-content: flex-start; } .settings-ledger-head { align-items: flex-start; flex-direction: column; } }
 
+/* Catalog taxonomy: category and brand screens */
+.tab-strip a.tab-btn { display: inline-flex; align-items: center; text-decoration: none; }
+.taxonomy-name { display: inline-flex; align-items: center; gap: 8px; }
+.taxonomy-icon { color: var(--teal); flex: 0 0 auto; }
+.taxonomy-logo { width: 26px; height: 26px; flex: 0 0 auto; object-fit: contain; background: var(--soft); border: 1px solid var(--line); border-radius: 7px; }
+.taxonomy-logo-empty { display: inline-block; border-style: dashed; }
+.taxonomy-cta { display: inline-flex; align-items: center; text-decoration: none; }
+.taxonomy-icon-preview { display: inline-flex; align-items: center; gap: 8px; margin-top: 7px; padding: 7px 11px; color: var(--ink); background: var(--soft); border: 1px solid var(--line); border-radius: 9px; font-size: 11px; font-weight: 700; }
+.taxonomy-multi { min-height: 128px; }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

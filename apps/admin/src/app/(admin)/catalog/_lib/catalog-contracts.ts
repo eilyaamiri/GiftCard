@@ -16,8 +16,199 @@ const currencySchema = z.string().regex(/^[A-Z]{3}$/u);
 const decimalStringSchema = z.string().regex(/^\d+(?:\.\d{1,6})?$/u);
 
 /* ============================================================================
+ * Taxonomy: category and brand
+ *
+ * These are what the storefront actually navigates by. The `brand` / `category`
+ * strings on a product are the supplier feed's own words, kept because a
+ * re-import matches on them; `brandId` / `categoryId` are the real structure.
+ * ==========================================================================*/
+
+/**
+ * The icons a category may name. An allow-list, and deliberately the same set
+ * the storefront ships — mirrors `CATEGORY_ICON_KEYS` in the API's
+ * catalog.schemas.ts and in apps/web/src/lib/catalog.ts. Typing a name from
+ * some other icon set would put a foreign style on the catalog page.
+ */
+export const CATEGORY_ICON_KEYS = [
+  "sparkles",
+  "gamepad-2",
+  "joystick",
+  "clapperboard",
+  "shopping-bag",
+  "smartphone",
+  "app-window",
+  "book-open",
+  "utensils",
+  "plane",
+  "dumbbell",
+  "cpu",
+  "sofa",
+  "flower-2",
+  "credit-card",
+  "wallet",
+  "ellipsis",
+  "gift",
+] as const;
+export const categoryIconKeySchema = z.enum(CATEGORY_ICON_KEYS);
+export type CategoryIconKey = z.infer<typeof categoryIconKeySchema>;
+
+/** Persian names for the picker; the stored value is always the English key. */
+export const CATEGORY_ICON_LABELS: Record<CategoryIconKey, string> = {
+  sparkles: "درخشش (عمومی)",
+  "gamepad-2": "دستهٔ بازی",
+  joystick: "جوی‌استیک (کنسول)",
+  clapperboard: "کلاکت (سرگرمی)",
+  "shopping-bag": "کیف خرید",
+  smartphone: "گوشی موبایل",
+  "app-window": "پنجرهٔ نرم‌افزار",
+  "book-open": "کتاب باز",
+  utensils: "قاشق و چنگال",
+  plane: "هواپیما",
+  dumbbell: "دمبل",
+  cpu: "تراشه (الکترونیک)",
+  sofa: "مبل (خانه)",
+  "flower-2": "گل (زیبایی)",
+  "credit-card": "کارت اعتباری",
+  wallet: "کیف پول",
+  ellipsis: "سه‌نقطه (سایر)",
+  gift: "کادو",
+};
+
+/** Lowercase, hyphen-separated — it ends up in a storefront URL. */
+const slugFieldSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(90)
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, "نشانه باید با حروف کوچک انگلیسی، عدد و خط تیره باشد.");
+
+export const adminCategorySchema = z.object({
+  id: idSchema,
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  nameFa: z.string().min(1),
+  iconKey: z.string().min(1),
+  descriptionFa: z.string().nullable(),
+  parentId: idSchema.nullable(),
+  isActive: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  parent: z.object({ id: idSchema, nameFa: z.string() }).nullable().optional(),
+  /** Every product in the category. */
+  productCount: z.number().int().min(0).optional(),
+  /** The subset a customer can actually see. */
+  activeProductCount: z.number().int().min(0).optional(),
+  _count: z.object({ products: z.number().int(), productTags: z.number().int() }).optional(),
+});
+export type AdminCategory = z.infer<typeof adminCategorySchema>;
+
+/** Not paginated: there are seventeen of these, and an operator wants them all. */
+export const adminCategoryListSchema = z.object({ items: z.array(adminCategorySchema) });
+
+const categoryMutableFields = {
+  slug: slugFieldSchema,
+  name: z.string().trim().min(1).max(120),
+  nameFa: z.string().trim().min(1).max(120),
+  iconKey: categoryIconKeySchema.default("gift"),
+  descriptionFa: z.string().max(1_000).nullable().optional(),
+  parentId: idSchema.nullable().optional(),
+  isActive: z.boolean().default(true),
+  sortOrder: z.coerce.number().int().default(0),
+};
+export const createCategoryRequestSchema = z.object(categoryMutableFields);
+export type CreateCategoryRequest = z.infer<typeof createCategoryRequestSchema>;
+export const updateCategoryRequestSchema = z.object(categoryMutableFields).partial();
+export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
+
+export const adminBrandSchema = z.object({
+  id: idSchema,
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  nameFa: z.string().min(1),
+  logoUrl: z.string().nullable(),
+  descriptionFa: z.string().nullable(),
+  isActive: z.boolean(),
+  isPopular: z.boolean(),
+  sortOrder: z.number().int(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  _count: z.object({ products: z.number().int() }).optional(),
+});
+export type AdminBrand = z.infer<typeof adminBrandSchema>;
+
+export const adminBrandListSchema = paginatedSchema(adminBrandSchema);
+
+/**
+ * The picker list: every brand, four columns wide, unpaginated. The paged list
+ * caps at 100 rows and there are ~330 brands, so a product form cannot build
+ * its `<select>` from it.
+ */
+export const adminBrandOptionSchema = z.object({
+  id: idSchema,
+  slug: z.string(),
+  name: z.string(),
+  nameFa: z.string(),
+  isActive: z.boolean(),
+});
+export type AdminBrandOption = z.infer<typeof adminBrandOptionSchema>;
+export const adminBrandOptionListSchema = z.object({ items: z.array(adminBrandOptionSchema) });
+
+const brandMutableFields = {
+  slug: slugFieldSchema,
+  name: z.string().trim().min(1).max(120),
+  nameFa: z.string().trim().min(1).max(120),
+  logoUrl: z.string().trim().max(2_000).nullable().optional(),
+  descriptionFa: z.string().max(1_000).nullable().optional(),
+  isActive: z.boolean().default(true),
+  isPopular: z.boolean().default(false),
+  sortOrder: z.coerce.number().int().default(0),
+};
+export const createBrandRequestSchema = z.object(brandMutableFields);
+export type CreateBrandRequest = z.infer<typeof createBrandRequestSchema>;
+export const updateBrandRequestSchema = z.object(brandMutableFields).partial();
+export type UpdateBrandRequest = z.infer<typeof updateBrandRequestSchema>;
+
+/** The API caps a batch at 500 ids and refuses an empty one. */
+export const assignCategoryRequestSchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  categoryId: idSchema,
+});
+export type AssignCategoryRequest = z.infer<typeof assignCategoryRequestSchema>;
+export const assignCategoryResultSchema = z.object({
+  requested: z.number().int().min(0),
+  updated: z.number().int().min(0),
+});
+
+export const mergeBrandsRequestSchema = z
+  .object({ sourceBrandId: idSchema, targetBrandId: idSchema })
+  .refine((value) => value.sourceBrandId !== value.targetBrandId, {
+    path: ["sourceBrandId"],
+    message: "یک برند را نمی‌توان با خودش ادغام کرد.",
+  });
+export type MergeBrandsRequest = z.infer<typeof mergeBrandsRequestSchema>;
+export const mergeBrandsResultSchema = z.object({
+  movedProducts: z.number().int().min(0),
+  targetBrandId: idSchema,
+});
+
+/* ============================================================================
  * Product
  * ==========================================================================*/
+
+/** The slice of a brand/category a product row carries for display. */
+const productBrandRefSchema = z.object({
+  id: idSchema,
+  slug: z.string(),
+  name: z.string(),
+  nameFa: z.string(),
+});
+const productCategoryRefSchema = z.object({
+  id: idSchema,
+  slug: z.string(),
+  nameFa: z.string(),
+  iconKey: z.string(),
+});
 
 export const adminProductSchema = z.object({
   id: idSchema,
@@ -31,9 +222,19 @@ export const adminProductSchema = z.object({
   imageUrl: z.string().nullable(),
   redemptionNotesFa: z.string().nullable().optional(),
   isActive: z.boolean(),
+  /** Data is incomplete: still listed on the storefront, but not orderable. */
+  needsReview: z.boolean().default(false),
+  isQuickPick: z.boolean().default(false),
+  brandId: idSchema.nullable().default(null),
+  categoryId: idSchema.nullable().default(null),
   sortOrder: z.number().int(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
+  brandRef: productBrandRefSchema.nullable().optional(),
+  categoryRef: productCategoryRefSchema.nullable().optional(),
+  extraCategories: z
+    .array(z.object({ category: z.object({ id: idSchema, slug: z.string(), nameFa: z.string() }) }))
+    .optional(),
   _count: z.object({ skus: z.number().int() }).optional(),
 });
 export type AdminProduct = z.infer<typeof adminProductSchema>;
@@ -47,20 +248,38 @@ export type AdminProductDetail = z.infer<typeof adminProductDetailSchema>;
 
 const productMutableFields = {
   slug: z.string().trim().min(1).max(120),
-  brand: z.string().trim().min(1).max(120),
   title: z.string().trim().min(1).max(240),
   titleFa: z.string().trim().min(1).max(240),
   description: z.string().max(4_000).nullable().optional(),
   descriptionFa: z.string().max(4_000).nullable().optional(),
-  category: z.string().trim().min(1).max(120),
   imageUrl: z.url().max(2_000).nullable().optional(),
   redemptionNotesFa: z.string().max(4_000).nullable().optional(),
   isActive: z.boolean().default(true),
+  needsReview: z.boolean().default(false),
+  isQuickPick: z.boolean().default(false),
   sortOrder: z.coerce.number().int().default(0),
 };
-export const createProductRequestSchema = z.object(productMutableFields);
+
+/**
+ * `brandId` and `categoryId` are required on create and optional in the patch,
+ * matching the API. A product with neither cannot be reached by anyone browsing
+ * the storefront, so a new one is refused rather than quietly orphaned.
+ */
+export const createProductRequestSchema = z.object({
+  ...productMutableFields,
+  brandId: idSchema,
+  categoryId: idSchema,
+  extraCategoryIds: z.array(idSchema).max(5).default([]),
+});
 export type CreateProductRequest = z.infer<typeof createProductRequestSchema>;
-export const updateProductRequestSchema = z.object(productMutableFields).partial();
+export const updateProductRequestSchema = z
+  .object({
+    ...productMutableFields,
+    brandId: idSchema,
+    categoryId: idSchema,
+    extraCategoryIds: z.array(idSchema).max(5),
+  })
+  .partial();
 export type UpdateProductRequest = z.infer<typeof updateProductRequestSchema>;
 
 /* ============================================================================
@@ -392,7 +611,25 @@ export interface CatalogQuery {
   readonly pageSize: number;
   readonly search?: string;
   readonly status: "ALL" | "ACTIVE" | "INACTIVE";
+  readonly categoryId?: string;
+  readonly brandId?: string;
+  /**
+   * Set only when the operator asked for the review queue. Absent means "every
+   * product", never "the ones that are fine" — `needsReview=false` would hide
+   * the rest of the catalog.
+   */
+  readonly needsReview?: true;
 }
+
+type CatalogOverrides = {
+  page?: number;
+  search?: string;
+  status?: "ALL" | "ACTIVE" | "INACTIVE";
+  /** An empty string clears the filter; `undefined` keeps what the query has. */
+  categoryId?: string;
+  brandId?: string;
+  needsReview?: boolean;
+};
 
 /** Coerces untrusted `searchParams` into a query the API will actually accept. */
 export function readCatalogQuery(
@@ -409,6 +646,10 @@ export function readCatalogQuery(
   const search = first("search");
   const rawStatus = first("status");
   const status = rawStatus === "ACTIVE" || rawStatus === "INACTIVE" ? rawStatus : "ALL";
+  // The API caps an id at 64 characters; a longer one is a hand-typed URL.
+  const id = (key: string): string | undefined => first(key)?.slice(0, 64);
+  const categoryId = id("categoryId");
+  const brandId = id("brandId");
 
   return {
     page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
@@ -416,6 +657,9 @@ export function readCatalogQuery(
     status,
     // The API caps `search` at 120 characters and would 400 on anything longer.
     ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
+    ...(categoryId !== undefined ? { categoryId } : {}),
+    ...(brandId !== undefined ? { brandId } : {}),
+    ...(first("needsReview") === "true" ? { needsReview: true as const } : {}),
   };
 }
 
@@ -424,17 +668,20 @@ export function readCatalogQuery(
  * what the current query has; `page` resets to 1 unless given, because a new
  * search term has no page 3 to land on.
  */
-export function catalogHref(
-  basePath: string,
-  query: CatalogQuery,
-  overrides: { page?: number; search?: string; status?: "ALL" | "ACTIVE" | "INACTIVE" } = {},
-): string {
+export function catalogHref(basePath: string, query: CatalogQuery, overrides: CatalogOverrides = {}): string {
   const params = new URLSearchParams();
-  const search = overrides.search === undefined ? query.search : overrides.search;
+  const pick = (key: "search" | "categoryId" | "brandId"): string | undefined =>
+    overrides[key] === undefined ? query[key] : overrides[key];
   const status = overrides.status === undefined ? query.status : overrides.status;
+  const needsReview = overrides.needsReview === undefined ? query.needsReview === true : overrides.needsReview;
   const page = overrides.page ?? 1;
-  if (search) params.set("search", search);
+
+  for (const key of ["search", "categoryId", "brandId"] as const) {
+    const value = pick(key);
+    if (value) params.set(key, value);
+  }
   if (status !== "ALL") params.set("status", status);
+  if (needsReview) params.set("needsReview", "true");
   if (page > 1) params.set("page", String(page));
   const suffix = params.toString();
   return suffix ? `${basePath}?${suffix}` : basePath;

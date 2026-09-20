@@ -82,6 +82,11 @@ export const adminProductListSchema = adminCatalogListSchema.extend({
     .optional(),
 });
 
+/** ~330 brands, and finding a duplicate means searching for it by name. */
+export const adminBrandListSchema = adminCatalogListSchema.extend({
+  search: z.string().max(120).optional(),
+});
+
 export const adminSkuListSchema = adminCatalogListSchema.extend({
   productId: idSchema.optional(),
 });
@@ -96,6 +101,7 @@ export const adminServiceFieldListSchema = z.object({
 });
 
 export type AdminCatalogListInput = z.infer<typeof adminCatalogListSchema>;
+export type AdminBrandListInput = z.infer<typeof adminBrandListSchema>;
 export type AdminProductListInput = Omit<z.infer<typeof adminProductListSchema>, 'status'> & {
   status?: AdminProductStatus;
 };

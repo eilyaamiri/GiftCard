@@ -2,13 +2,18 @@ import Link from "next/link";
 import { ApiClientError, CATALOG_WRITE_ROLES, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import {
+  adminBrandOptionListSchema,
+  adminCategoryListSchema,
   adminProductListSchema,
   buildListSearch,
   catalogHref,
   readCatalogQuery,
+  type AdminBrandOption,
+  type AdminCategory,
 } from "./_lib/catalog-contracts";
 import { formatCount } from "./_lib/format";
-import { ToggleActiveButton } from "./_components/toggle-active-button";
+import { CatalogTabs } from "./_components/catalog-tabs";
+import { ProductTable } from "./_components/product-table";
 
 export const metadata = { title: "کاتالوگ | پنل ادمین برات پی" };
 
@@ -22,21 +27,36 @@ export default async function CatalogPage({
   const query = readCatalogQuery(await searchParams);
 
   let list;
+  let categories: AdminCategory[];
+  let brands: AdminBrandOption[];
   try {
-    list = await api.get(
-      `/api/admin/catalog/products${buildListSearch({
-        page: query.page,
-        pageSize: query.pageSize,
-        status: query.status,
-        ...(query.search ? { search: query.search } : {}),
-      })}`,
-      adminProductListSchema,
-    );
+    /* Three independent reads. The filters are useless without the taxonomy
+     * lists, so they go out together rather than one after the other. */
+    const [products, categoryList, brandList] = await Promise.all([
+      api.get(
+        `/api/admin/catalog/products${buildListSearch({
+          page: query.page,
+          pageSize: query.pageSize,
+          status: query.status,
+          ...(query.search ? { search: query.search } : {}),
+          ...(query.categoryId ? { categoryId: query.categoryId } : {}),
+          ...(query.brandId ? { brandId: query.brandId } : {}),
+          ...(query.needsReview ? { needsReview: true } : {}),
+        })}`,
+        adminProductListSchema,
+      ),
+      api.get("/api/admin/catalog/categories", adminCategoryListSchema),
+      api.get("/api/admin/catalog/brands/options", adminBrandOptionListSchema),
+    ]);
+    list = products;
+    categories = categoryList.items;
+    brands = brandList.items;
   } catch (error) {
     if (!(error instanceof ApiClientError)) throw error;
     return (
       <div>
         <PageHeading />
+        <CatalogTabs active="products" />
         <div className="card panel">
           <p className="empty-hint">{error.message}</p>
         </div>
@@ -51,6 +71,12 @@ export default async function CatalogPage({
   const currentPage = Math.min(meta.page, Math.max(meta.totalPages, 1));
   const firstRow = items.length === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
   const lastRow = firstRow + items.length - 1;
+  const hasFilter =
+    Boolean(query.search) ||
+    Boolean(query.categoryId) ||
+    Boolean(query.brandId) ||
+    query.needsReview === true ||
+    query.status !== "ALL";
 
   return (
     <div>
@@ -61,10 +87,11 @@ export default async function CatalogPage({
             : `نمایش ${formatCount(firstRow)}–${formatCount(lastRow)} از ${formatCount(meta.total)} محصول`
         }
       />
+      <CatalogTabs active="products" />
 
       <div className="toolbar">
-        {/* A plain GET form: the search stays in the URL, so it survives a
-            reload, is shareable, and needs no client-side JavaScript. */}
+        {/* A plain GET form: the filters stay in the URL, so they survive a
+            reload, are shareable, and need no client-side JavaScript. */}
         <form action="/catalog" method="get" className="filter-bar" style={{ marginBlockEnd: 0 }}>
           <div className="search">
             <input
@@ -76,7 +103,29 @@ export default async function CatalogPage({
               aria-label="جست‌وجوی محصول"
             />
           </div>
-          <label className="filter" style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <label className="filter" style={INLINE_FILTER}>
+            دسته‌بندی
+            <select name="categoryId" defaultValue={query.categoryId ?? ""} aria-label="فیلتر دسته‌بندی">
+              <option value="">همهٔ دسته‌ها</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.nameFa}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter" style={INLINE_FILTER}>
+            برند
+            <select name="brandId" defaultValue={query.brandId ?? ""} aria-label="فیلتر برند">
+              <option value="">همهٔ برندها</option>
+              {brands.map((brand) => (
+                <option key={brand.id} value={brand.id}>
+                  {brand.nameFa}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter" style={INLINE_FILTER}>
             وضعیت
             <select name="status" defaultValue={query.status} aria-label="فیلتر وضعیت محصول">
               <option value="ALL">همهٔ کارت‌ها</option>
@@ -84,77 +133,40 @@ export default async function CatalogPage({
               <option value="INACTIVE">فقط غیرفعال‌ها</option>
             </select>
           </label>
+          <label className="filter" style={INLINE_FILTER}>
+            <input
+              type="checkbox"
+              name="needsReview"
+              value="true"
+              defaultChecked={query.needsReview === true}
+            />
+            نیازمند بازبینی
+          </label>
           <button type="submit" className="filter">
             جست‌وجو
           </button>
-          {query.search ? (
-            <Link href={catalogHref("/catalog", query, { search: "" })} className="filter" style={FILTER_LINK}>
-              پاک کردن
+          {hasFilter ? (
+            <Link href="/catalog" className="filter" style={FILTER_LINK}>
+              پاک کردن فیلترها
             </Link>
           ) : null}
         </form>
-        <Link href="/catalog/new" className="primary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+        <Link href="/catalog/new" className="primary-btn taxonomy-cta">
           + افزودن محصول
         </Link>
       </div>
 
-      <div className="card list-card">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>محصول</th>
-                <th>برند</th>
-                <th>دسته‌بندی</th>
-                <th>تعداد SKU</th>
-                <th>وضعیت</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((product) => (
-                <tr key={product.id}>
-                  <td>
-                    <Link href={`/catalog/${product.id}`} className="order-id">
-                      {product.titleFa}
-                    </Link>
-                  </td>
-                  <td>{product.brand}</td>
-                  <td>{product.category}</td>
-                  <td>{formatCount(product._count?.skus ?? 0)}</td>
-                  <td>
-                    <span className={`badge ${product.isActive ? "badge-success" : "badge-danger"}`}>
-                      {product.isActive ? "فعال" : "غیرفعال"}
-                    </span>
-                  </td>
-                  <td>
-                    <span style={{ display: "inline-flex", gap: 8 }}>
-                      <Link href={`/catalog/${product.id}`} className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
-                        مدیریت
-                      </Link>
-                      {product.isActive ? (
-                        <ToggleActiveButton
-                          path={`/api/admin/catalog/products/${product.id}`}
-                          confirmMessage={`محصول «${product.titleFa}» غیرفعال شود؟`}
-                        />
-                      ) : null}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {items.length === 0 ? (
-          <p className="empty-hint">
-            {query.status === "ACTIVE"
-              ? "کارت فعالی یافت نشد."
-              : query.status === "INACTIVE"
-                ? "کارت غیرفعالی یافت نشد."
-                : "هنوز محصولی ثبت نشده است."}
-          </p>
-        ) : null}
-      </div>
+      <ProductTable
+        items={items}
+        categories={categories}
+        emptyHint={
+          query.needsReview
+            ? "محصولی در صف بازبینی نیست."
+            : hasFilter
+              ? "با این فیلترها محصولی یافت نشد."
+              : "هنوز محصولی ثبت نشده است."
+        }
+      />
 
       {meta.totalPages > 1 ? (
         <div className="filter-bar" style={{ justifyContent: "center", marginBlockStart: 18 }}>
@@ -193,6 +205,8 @@ function PageHeading({ caption }: { caption?: string }) {
     </div>
   );
 }
+
+const INLINE_FILTER = { display: "inline-flex", alignItems: "center", gap: 7 } as const;
 
 /** `.filter` is styled for buttons; an anchor needs the box model spelled out. */
 const FILTER_LINK = {

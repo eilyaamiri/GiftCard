@@ -19,6 +19,7 @@ import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Roles } from '../identity';
 import { CatalogService } from './catalog.service';
 import {
+  adminBrandListSchema,
   adminCatalogListSchema,
   adminProductListSchema,
   assignCategorySchema,
@@ -44,6 +45,7 @@ import {
   updateSupplierSchema,
 } from './catalog.schemas';
 import type {
+  AdminBrandListInput,
   AdminCatalogListInput,
   AdminProductListInput,
   AdminServiceFieldListInput,
@@ -138,8 +140,14 @@ export class CatalogAdminController {
   }
 
   @Get('brands')
-  listBrands(@Query(zodPipe(adminCatalogListSchema)) query: AdminCatalogListInput) {
+  listBrands(@Query(zodPipe(adminBrandListSchema)) query: AdminBrandListInput) {
     return this.catalog.adminListBrands(query);
+  }
+
+  /** Declared before `brands/:id`, which would otherwise match "options". */
+  @Get('brands/options')
+  brandOptions() {
+    return this.catalog.adminBrandOptions();
   }
 
   @Get('brands/:id')
