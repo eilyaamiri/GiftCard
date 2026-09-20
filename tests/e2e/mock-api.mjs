@@ -25,7 +25,9 @@ const products = [
   },
   {
     id: "product-apple", slug: "apple-us", brand: "Apple", title: "Apple Gift Card", titleFa: "گیفت‌کارت اپل", description: null,
-    descriptionFa: "برای خرید از فروشگاه اپل آمریکا.", category: "Shopping", imageUrl: null, isActive: true,
+    /* A supplier-fed photo is present here on purpose: the catalog card must
+     * ignore it and always render the generated artwork instead. */
+    descriptionFa: "برای خرید از فروشگاه اپل آمریکا.", category: "Shopping", imageUrl: "https://cdn.reloadly.com/products/apple.jpg", isActive: true,
     sortOrder: 2, regions: ["US"], createdAt: now,
     brandSlug: "apple", brandNameFa: "اپل", categorySlug: "shopping", categoryNameFa: "فروشگاهی و خرید", categoryIconKey: "shopping-bag",
     needsReview: false, isQuickPick: false,

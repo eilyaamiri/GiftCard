@@ -66,6 +66,14 @@ test.describe("catalog taxonomy", () => {
     await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
   });
 
+  test("a card always shows the generated artwork, even when the supplier sent a photo", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    const appleCard = page.getByRole("link", { name: /گیفت‌کارت اپل/i });
+    await expect(appleCard.getByRole("img", { name: "تصویر گیفت‌کارت اپل" })).toBeVisible();
+    await expect(appleCard.locator("img")).toHaveCount(0);
+  });
+
   test("a region picked in the catalog is carried into the product page", async ({ page }) => {
     await page.goto("/gift-cards?region=UK");
 
