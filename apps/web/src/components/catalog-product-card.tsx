@@ -31,20 +31,12 @@ export function CatalogProductCard({
 
   const body = (
     <>
-      {product.imageUrl === null ? (
-        <ProductArtwork brand={product.brand} label={product.titleFa} />
-      ) : (
-        /* The API streams this from its own host, so there is no remote loader
-         * for next/image to configure — and no image optimiser worth running on
-         * a card that is already a small flat logo. */
-        <img
-          className="catalog-card-image"
-          src={product.imageUrl}
-          alt={`تصویر ${product.titleFa}`}
-          loading="lazy"
-          decoding="async"
-        />
-      )}
+      {/* Supplier photos vary wildly in style and quality across a catalog
+       * fed by hundreds of brands, so the card never renders `imageUrl`
+       * directly — the same generated icon-on-plate mark used on the detail
+       * page keeps the grid visually consistent regardless of what any one
+       * supplier sent. */}
+      <ProductArtwork brand={product.brand} label={product.titleFa} />
       <div className="product-body">
         <p className="catalog-card-brand">{brand}</p>
         <h3>{product.titleFa}</h3>
