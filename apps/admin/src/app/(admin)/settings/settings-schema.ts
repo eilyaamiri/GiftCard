@@ -73,4 +73,31 @@ export type SettingsQueue = z.infer<typeof settingsQueueSchema>;
 export const settingsQueueListSchema = z.object({ items: z.array(settingsQueueSchema) });
 export const settingsQueueMutationSchema = z.object({ queue: settingsQueueSchema });
 
+export const SUPPORT_CHANNEL_KINDS = ["PHONE", "TELEGRAM", "WHATSAPP", "TICKET"] as const;
+
+/**
+ * A contact route as the API stores it.
+ *
+ * `value` is the raw destination — a phone number, a normalised `t.me` URL, an
+ * internal route. The panel edits it in that form and the API normalises and
+ * validates it per kind, so what comes back may differ from what was typed.
+ */
+export const settingsSupportChannelSchema = z.object({
+  kind: z.enum(SUPPORT_CHANNEL_KINDS),
+  isEnabled: z.boolean(),
+  title: z.string(),
+  description: z.string(),
+  value: z.string(),
+  sortOrder: z.number().int().min(0),
+  updatedAt: isoDateTimeSchema,
+});
+export type SettingsSupportChannel = z.infer<typeof settingsSupportChannelSchema>;
+
+export const settingsSupportChannelListSchema = z.object({
+  items: z.array(settingsSupportChannelSchema),
+});
+export const settingsSupportChannelMutationSchema = z.object({
+  channel: settingsSupportChannelSchema,
+});
+
 export const SETTINGS_REASON_MIN_LENGTH = 8;

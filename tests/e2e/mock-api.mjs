@@ -90,6 +90,23 @@ const orders = new Map(
   ["BP-2026-000001", "BP-2026-000002"].map((orderNumber) => [orderNumber, orderFixture(orderNumber)]),
 );
 
+/**
+ * The published contact channels, already carrying the `href` the API builds.
+ *
+ * `TICKET` is here twice over: it is the only internal one, and the only one
+ * that needs a session, so the sheet's two link behaviours are both covered.
+ */
+const supportChannels = [
+  { kind: "PHONE", title: "تماس تلفنی", description: "شنبه تا چهارشنبه، ۹ تا ۱۷", href: "tel:02191001234", isExternal: false, requiresAuth: false },
+  { kind: "TELEGRAM", title: "تلگرام", description: "پاسخ‌گویی تا ۲۴ ساعت", href: "https://t.me/baratpay", isExternal: true, requiresAuth: false },
+  { kind: "WHATSAPP", title: "واتساپ", description: "گفت‌وگوی متنی و صوتی", href: "https://wa.me/989121234567", isExternal: true, requiresAuth: false },
+  { kind: "TICKET", title: "ثبت تیکت", description: "پیگیری کتبی با شمارهٔ رهگیری", href: "/account/support", isExternal: false, requiresAuth: true },
+];
+
+/* Overridable so a second checkout can run the suite without colliding with a
+ * fixture already listening on the default port. */
+const PORT = Number(process.env["MOCK_API_PORT"] ?? 4001);
+
 function json(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
@@ -103,6 +120,7 @@ createServer(async (request, response) => {
       ? json(response, 200, { customer, isAuthenticated: true })
       : json(response, 200, { customer: null, isAuthenticated: false });
   }
+  if (request.method === "GET" && url.pathname === "/api/support/channels") return json(response, 200, { items: supportChannels });
   const orderRoute = /^\/api\/orders\/([^/]+)(\/cancel)?$/u.exec(url.pathname);
   if (orderRoute) {
     const order = orders.get(decodeURIComponent(orderRoute[1]));
@@ -128,4 +146,4 @@ createServer(async (request, response) => {
     return json(response, 201, quoteFor(JSON.parse(text || "{}")));
   }
   return json(response, 404, { code: "NOT_FOUND", message: "Not found" });
-}).listen(4001, "127.0.0.1", () => console.log("Mock E2E API listening on http://127.0.0.1:4001"));
+}).listen(PORT, "127.0.0.1", () => console.log(`Mock E2E API listening on http://127.0.0.1:${PORT}`));

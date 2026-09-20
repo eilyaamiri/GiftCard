@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleUserRound, Headphones, ShoppingBag } from "lucide-react";
 import type { CustomerDto } from "@barat/contracts";
+import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import type { SupportChannel } from "@/lib/support-channels";
 
 function profileLabel(customer: CustomerDto): string {
   const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
@@ -18,16 +20,23 @@ function profileLabel(customer: CustomerDto): string {
  * server-resolved customer decides what is shown: a signed-in customer sees
  * their profile, never the login CTA. This is presentation only; every account
  * page and API request still performs its own server-side authorization.
+ *
+ * The phone-sized bottom bar is the one piece that survives into `/account`:
+ * it is how a customer gets back out of the panel on a phone, so it renders
+ * alongside the panel's own shell rather than being replaced by it.
  */
 export function SiteChrome({
   customer,
+  supportChannels,
   children,
 }: Readonly<{
   customer: CustomerDto | null;
+  supportChannels: readonly SupportChannel[];
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
-  if (pathname.startsWith("/account")) return children;
+  const bottomNav = <MobileBottomNav isSignedIn={customer !== null} channels={supportChannels} />;
+  if (pathname.startsWith("/account")) return <>{children}{bottomNav}</>;
 
   return (
     <>
@@ -77,6 +86,8 @@ export function SiteChrome({
           <div>© ۱۴۰۵ برات</div>
         </div>
       </footer>
+
+      {bottomNav}
     </>
   );
 }

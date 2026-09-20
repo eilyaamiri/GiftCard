@@ -4,9 +4,15 @@ import { useState } from "react";
 import { FeatureFlagsPanel } from "./feature-flags-panel";
 import { QueuesPanel } from "./queues-panel";
 import { StaffPanel } from "./staff-panel";
-import type { SettingsFeatureFlag, SettingsQueue, SettingsStaff } from "./settings-schema";
+import { SupportChannelsPanel } from "./support-channels-panel";
+import type {
+  SettingsFeatureFlag,
+  SettingsQueue,
+  SettingsStaff,
+  SettingsSupportChannel,
+} from "./settings-schema";
 
-type Tab = "flags" | "staff" | "queues";
+type Tab = "flags" | "staff" | "queues" | "support";
 
 /**
  * Each tab writes through `/api/admin/settings/*`, which re-checks the ADMIN
@@ -17,12 +23,14 @@ export function SettingsTabs({
   flags,
   staff,
   queues,
+  supportChannels,
   currentStaffId,
   loadError,
 }: {
   flags: readonly SettingsFeatureFlag[];
   staff: readonly SettingsStaff[];
   queues: readonly SettingsQueue[];
+  supportChannels: readonly SettingsSupportChannel[];
   currentStaffId: string;
   loadError: string | null;
 }) {
@@ -66,12 +74,22 @@ export function SettingsTabs({
         >
           صف‌ها
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "support"}
+          className={`tab-btn${tab === "support" ? " active" : ""}`}
+          onClick={() => setTab("support")}
+        >
+          تنظیمات پشتیبانی
+        </button>
       </div>
 
       <div className="card panel">
         {tab === "flags" ? <FeatureFlagsPanel initialFlags={flags} /> : null}
         {tab === "staff" ? <StaffPanel initialStaff={staff} currentStaffId={currentStaffId} /> : null}
         {tab === "queues" ? <QueuesPanel initialQueues={queues} staff={staff} /> : null}
+        {tab === "support" ? <SupportChannelsPanel initialChannels={supportChannels} /> : null}
       </div>
     </div>
   );
