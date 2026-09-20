@@ -7,8 +7,16 @@ import { ProductDetail } from "./product-detail";
 
 export const dynamic = "force-dynamic";
 
-export default async function ProductDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ProductDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const { slug } = await params;
+  const requestedRegion = (await searchParams).region;
+  const initialRegion = typeof requestedRegion === "string" ? requestedRegion : undefined;
 
   let product: ProductDetailDto;
   try {
@@ -26,5 +34,5 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     );
   }
 
-  return <ProductDetail product={product} />;
+  return <ProductDetail product={product} initialRegion={initialRegion} />;
 }

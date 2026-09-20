@@ -78,6 +78,15 @@ export interface GetCatalogProductResponse {
 
 export interface ListCatalogProductsResponse {
   readonly items: readonly CatalogProductDto[];
+  /**
+   * The regions the storefront's region filter should offer.
+   *
+   * Computed from the same result set the page is showing, minus an active
+   * region filter — otherwise picking «US» would leave «US» as the only option
+   * and there would be no way back to the rest. The catalog spans 158 regions,
+   * so this cannot be a fixed list in the frontend.
+   */
+  readonly regions: readonly string[];
   readonly meta: {
     readonly page: number;
     readonly pageSize: number;

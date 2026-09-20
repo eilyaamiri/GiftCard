@@ -1,29 +1,25 @@
 import Link from "next/link";
 import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-react";
-import { Ltr } from "@barat/ui";
-import type { ProductDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
-import { ProductArtwork } from "@/components/catalog-artwork";
+import type { CatalogProduct } from "@/lib/catalog";
+import { CatalogProductCard } from "@/components/catalog-product-card";
 
-export function ProductCard({ product }: { readonly product: ProductDto }) {
-  return (
-    <Link href={`/gift-cards/${product.slug}`} className="card product">
-      <ProductArtwork brand={product.brand} label={product.titleFa} />
-      <div className="product-body">
-        <h3>{product.titleFa}</h3>
-        <div className="product-meta">
-          <span>منطقه <Ltr>{product.regions.join("، ")}</Ltr></span>
-          <span style={{ color: "var(--teal)", fontWeight: 700 }}>دریافت قیمت</span>
-        </div>
-      </div>
-    </Link>
-  );
-}
+const FEATURED_COUNT = 4;
 
-async function featuredProducts(): Promise<readonly ProductDto[]> {
+/**
+ * The cards on the landing page.
+ *
+ * «نمایش در انتخاب سریع» is a flag an operator sets per product, so the strip
+ * is curated from the panel rather than being whatever the catalog happens to
+ * return first. With nothing flagged — or fewer than four — the rest of the
+ * page fills in behind them, so the section is never half empty.
+ */
+async function featuredProducts(): Promise<readonly CatalogProduct[]> {
   try {
     const { items } = await api.products();
-    return items.slice(0, 4);
+    const quickPicks = items.filter((product) => product.isQuickPick);
+    const rest = items.filter((product) => !product.isQuickPick);
+    return [...quickPicks, ...rest].slice(0, FEATURED_COUNT);
   } catch (error) {
     // Marketing homepage degrades gracefully — a catalog hiccup should never
     // take the whole landing page down with it.
@@ -93,7 +89,7 @@ export async function HomePage() {
               <Link href="/gift-cards" className="btn btn-ghost">دیدن همه <ArrowLeft size={16} /></Link>
             </div>
             <div className="grid product-grid">
-              {products.map((product) => <ProductCard key={product.id} product={product} />)}
+              {products.map((product) => <CatalogProductCard key={product.id} product={product} />)}
             </div>
           </section>
         ) : null}

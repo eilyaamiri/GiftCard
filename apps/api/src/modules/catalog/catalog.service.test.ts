@@ -79,14 +79,27 @@ function harness() {
   };
   const category = { findMany: vi.fn().mockResolvedValue([]) };
   const brand = { findMany: vi.fn().mockResolvedValue([]) };
+  /* The region facet on the product list, and the quote-facing SKU lookup. */
+  const sku = {
+    findMany: vi.fn().mockResolvedValue([{ region: 'GB' }, { region: 'US' }]),
+    findFirst: vi.fn().mockResolvedValue(null),
+  };
   const db = {
     product,
     supplierOffer,
     category,
     brand,
+    sku,
     $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
   } as unknown as CatalogDatabase;
-  return { service: new CatalogService(db, TEST_CONFIG), product, supplierOffer, category, brand };
+  return {
+    service: new CatalogService(db, TEST_CONFIG),
+    product,
+    supplierOffer,
+    category,
+    brand,
+    sku,
+  };
 }
 
 function categoryRow(overrides: Record<string, unknown> = {}) {
@@ -242,6 +255,39 @@ describe('CatalogService taxonomy', () => {
     expect(search.OR).toContainEqual({ brandRef: { nameFa: { contains: 'نتفلیکس' } } });
   });
 
+  it('offers the regions of the filtered set, not of the whole catalog', async () => {
+    const { service, sku } = harness();
+
+    const response = await service.listProducts({
+      page: 1,
+      pageSize: 20,
+      onlyAvailable: true,
+      categorySlug: 'gaming',
+    });
+
+    expect(response.regions).toEqual(['GB', 'US']);
+    const call = sku.findMany.mock.calls[0]?.[0];
+    expect(call.distinct).toEqual(['region']);
+    expect(call.where.product.AND).toContainEqual({
+      OR: [
+        { categoryRef: { slug: 'gaming' } },
+        { extraCategories: { some: { category: { slug: 'gaming' } } } },
+      ],
+    });
+  });
+
+  it('keeps the other regions on offer while one of them is selected', async () => {
+    const { service, sku } = harness();
+
+    await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: true, region: 'US' });
+
+    /* Narrowing the facet by the region already chosen would leave that region
+     * as the only option in the picker, and no way back to the rest. */
+    const call = sku.findMany.mock.calls[0]?.[0];
+    expect(call.where.region).toBeUndefined();
+    expect(JSON.stringify(call.where)).not.toContain('"US"');
+  });
+
   it('hides a category with nothing in it', async () => {
     const { service, category } = harness();
     category.findMany.mockResolvedValue([
@@ -303,6 +349,42 @@ describe('CatalogService taxonomy', () => {
         productCount: 4,
       },
     ]);
+  });
+});
+
+/**
+ * «نیازمند تکمیل اطلاعات» — a product whose data is incomplete.
+ *
+ * The brief is explicit that nothing is removed from the catalog for it: the
+ * product stays listed and its page still opens. What it loses is the ability
+ * to be bought, and that has to hold on the server, not only in the markup.
+ */
+describe('CatalogService incomplete products', () => {
+  it('opens the page but offers no denomination', async () => {
+    const { service, product, supplierOffer } = harness();
+    product.findFirst.mockResolvedValue({ ...productRow(), needsReview: true });
+
+    const response = await service.getProduct('apple-us');
+
+    expect(response.product.needsReview).toBe(true);
+    expect(response.product.skus).toHaveLength(1);
+    expect(response.product.skus[0]?.isAvailable).toBe(false);
+    // Nothing on this product is sellable, so the supplier table is not asked.
+    expect(supplierOffer.findMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses to price a SKU whose product needs review', async () => {
+    const { service, sku } = harness();
+
+    /* A hand-made POST carrying the SKU id must not get a price either — the
+     * greyed-out button is the courtesy, this is the control. */
+    await expect(service.getSkuQuoteTarget('sku-1', 'USD')).rejects.toThrow();
+
+    expect(sku.findFirst.mock.calls[0]?.[0].where).toEqual({
+      id: 'sku-1',
+      isActive: true,
+      product: { isActive: true, needsReview: false },
+    });
   });
 });
 

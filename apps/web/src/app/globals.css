@@ -522,3 +522,153 @@ a { color:inherit; text-decoration:none; }
 @media (prefers-reduced-motion:reduce) {
   .contact-sheet[open] { animation:none; }
 }
+
+/* ============================================================================
+ * Catalog
+ *
+ * Browsing by category and by brand, on both screen sizes. The panel on the
+ * right of a wide screen and the drawer on a phone render the same facet
+ * markup, so there is one set of list styles and two containers for it.
+ * ==========================================================================*/
+.breadcrumb { display:flex; align-items:center; gap:7px; margin-bottom:14px; color:var(--slate); font-size:12px; font-weight:600; }
+.breadcrumb a:hover,.breadcrumb a:focus-visible { color:var(--teal); }
+.breadcrumb svg { flex:0 0 auto; opacity:.6; }
+.breadcrumb [aria-current=page] { color:var(--ink); font-weight:800; }
+.catalog-lead { max-width:62ch; margin:0 0 20px; font-size:14px; }
+
+/* The one field the page is built around: full width, and tall enough to be the
+ * obvious way in for someone who already knows the brand they want. */
+.catalog-search { display:flex; align-items:center; gap:10px; padding:7px 15px; background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 24px rgba(11,29,51,.06); transition:border-color .18s ease,box-shadow .18s ease; }
+.catalog-search:focus-within { border-color:var(--teal); box-shadow:0 10px 26px rgba(33,180,176,.14); }
+.catalog-search > svg { flex:0 0 auto; color:var(--slate); }
+.catalog-search input { flex:1; min-width:0; min-height:48px; padding:0; color:var(--ink); background:transparent; border:0; }
+.catalog-search input:focus-visible { outline:none; }
+.catalog-search .btn { flex:0 0 auto; }
+
+.catalog-layout { display:grid; grid-template-columns:268px minmax(0,1fr); align-items:start; gap:24px; margin-top:22px; }
+.catalog-aside { display:grid; gap:14px; position:sticky; top:96px; }
+.catalog-results { min-width:0; }
+.catalog-facet-card { padding:16px 15px; }
+.catalog-facet-head { display:flex; align-items:baseline; justify-content:space-between; gap:10px; }
+.catalog-facet-title { margin:0 0 10px; color:var(--navy); font-size:15px; font-weight:900; }
+.catalog-facet-head .catalog-facet-title { margin-bottom:10px; }
+.catalog-facet-more { color:var(--teal); font-size:12px; font-weight:800; }
+.catalog-facet-more:hover,.catalog-facet-more:focus-visible { text-decoration:underline; }
+.catalog-facet-empty { margin:6px 2px; color:var(--slate); font-size:13px; line-height:1.9; }
+
+.facet-list { display:grid; gap:2px; margin:0; padding:0; list-style:none; }
+/* `width:100%` and `text-align:start` so a <button> in this list (the drawer's
+ * two top-level entries) sits exactly like the links around it. */
+.facet-item { width:100%; min-height:44px; display:flex; align-items:center; gap:10px; padding:7px 10px; color:var(--ink); background:none; border:0; border-radius:11px; cursor:pointer; font:inherit; font-size:13px; font-weight:700; text-align:start; transition:color .16s ease,background .16s ease; }
+.facet-item:hover,.facet-item:focus-visible { color:var(--navy); background:var(--soft); outline:none; }
+.facet-item:focus-visible { outline:2px solid var(--teal); outline-offset:-2px; }
+.facet-item.is-active { color:var(--navy); background:var(--mint); }
+.facet-icon { flex:0 0 auto; display:grid; place-items:center; color:var(--teal); }
+.facet-label { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.facet-count { flex:0 0 auto; color:var(--slate); font-size:11px; font-weight:700; font-variant-numeric:tabular-nums; }
+.facet-logo { flex:0 0 auto; width:30px; height:30px; object-fit:contain; background:#fff; border:1px solid var(--line); border-radius:9px; }
+.facet-logo-empty { display:grid; place-items:center; color:var(--slate); background:var(--soft); font-size:13px; font-weight:900; }
+
+.catalog-region-form { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.catalog-region-form select { flex:1 1 140px; min-width:0; min-height:44px; padding:8px 11px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:10px; }
+.catalog-region-submit { min-height:44px; padding:8px 15px; font-size:13px; }
+
+.catalog-results-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.catalog-count { margin:0; color:var(--navy); font-size:14px; font-weight:800; }
+.catalog-clear { color:var(--teal); font-size:13px; font-weight:800; }
+.catalog-clear:hover,.catalog-clear:focus-visible { text-decoration:underline; }
+.catalog-active-filters { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:16px; }
+/* Each applied filter carries its own undo, so removing one does not mean
+ * finding it again in the panel. */
+.catalog-filter-chip { display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:6px 12px; color:var(--navy); background:var(--mint); border:1px solid #9fe0dd; border-radius:999px; font-size:12px; font-weight:800; transition:border-color .16s ease,background .16s ease; }
+.catalog-filter-chip:hover,.catalog-filter-chip:focus-visible { background:#cdf1ef; border-color:var(--teal); }
+.catalog-filter-chip span[aria-hidden] { color:var(--slate); font-size:15px; line-height:1; }
+/* Read out, not drawn: "×" alone tells a screen-reader user nothing. */
+.catalog-chip-hint { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+.catalog-card { display:flex; flex-direction:column; }
+.catalog-card-image { width:100%; aspect-ratio:16/9; object-fit:cover; background:var(--soft); }
+.catalog-card .product-body { display:flex; flex-direction:column; flex:1; gap:2px; }
+.catalog-card-brand { margin:0; color:var(--teal); font-size:11px; font-weight:800; }
+.catalog-card h3 { margin:0 0 8px; }
+.catalog-card .product-meta { margin-top:auto; }
+.catalog-card-cta { color:var(--teal); font-weight:800; }
+.catalog-card-cta.is-off { color:var(--amber); }
+/* Still listed, still readable — just not a link, because there is nothing to
+ * price at the other end yet. */
+.catalog-card-off { cursor:default; }
+.catalog-card-off:hover { transform:none; box-shadow:0 8px 24px rgba(11,29,51,.06); }
+.catalog-card-off .catalog-art,.catalog-card-off .catalog-card-image { filter:saturate(.45); opacity:.85; }
+
+.catalog-pager { display:flex; align-items:center; justify-content:center; gap:14px; margin-top:26px; }
+
+.brand-section { margin-top:26px; }
+.brand-grid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+.brand-tile { display:flex; align-items:center; gap:12px; padding:13px 14px; transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease,border-color .2s ease; }
+.brand-tile:hover,.brand-tile:focus-visible { transform:translateY(-3px); border-color:color-mix(in srgb,var(--teal) 55%,var(--line)); box-shadow:0 14px 28px rgba(11,29,51,.1); }
+.brand-tile-copy { min-width:0; display:grid; gap:3px; }
+.brand-tile-copy strong { overflow:hidden; color:var(--ink); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.brand-tile-copy small { color:var(--slate); font-size:11px; }
+
+/* The two paths, on a phone. Hidden on a pointer screen, where the panel beside
+ * the results already shows both without a tap. */
+.catalog-paths { display:none; }
+.catalog-path { flex:1 1 0; min-width:0; min-height:62px; display:flex; align-items:center; gap:11px; padding:10px 13px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:14px; cursor:pointer; font:inherit; text-align:start; box-shadow:0 8px 24px rgba(11,29,51,.06); }
+.catalog-path:hover,.catalog-path:focus-visible { border-color:var(--teal); outline:none; }
+.catalog-path:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+.catalog-path:active { transform:scale(.99); }
+.catalog-path-icon { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; color:var(--teal); background:var(--mint); border-radius:12px; }
+.catalog-path-copy { min-width:0; display:grid; gap:2px; }
+.catalog-path-copy strong { font-size:13px; font-weight:800; }
+.catalog-path-copy small { color:var(--slate); font-size:11px; }
+
+.catalog-drawer { width:100%; max-width:min(520px,100%); max-height:92dvh; height:92dvh; margin:auto auto 0; padding:0; overflow:visible; background:transparent; border:0; }
+.catalog-drawer::backdrop { background:rgba(5,20,36,.55); backdrop-filter:blur(2px); }
+.catalog-drawer[open] { animation:catalog-drawer-in .24s cubic-bezier(.2,.8,.2,1); }
+.catalog-drawer-panel { height:100%; display:flex; flex-direction:column; overflow:hidden; padding:14px 15px calc(12px + env(safe-area-inset-bottom)); background:var(--paper); border-radius:20px 20px 0 0; box-shadow:0 -18px 48px rgba(5,20,36,.24); direction:rtl; }
+.catalog-drawer-head { display:flex; align-items:center; gap:10px; padding-bottom:11px; border-bottom:1px solid var(--line); }
+.catalog-drawer-head h2 { flex:1; min-width:0; margin:0; overflow:hidden; color:var(--ink); font-size:16px; text-overflow:ellipsis; white-space:nowrap; }
+.catalog-drawer-back,.catalog-drawer-close { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:var(--slate); background:var(--soft); border:1px solid var(--line); border-radius:12px; cursor:pointer; }
+.catalog-drawer-back:hover,.catalog-drawer-back:focus-visible,.catalog-drawer-close:hover,.catalog-drawer-close:focus-visible { color:var(--teal); border-color:#8adcd9; outline:2px solid rgba(33,180,176,.18); outline-offset:2px; }
+.catalog-drawer-search { display:flex; align-items:center; gap:9px; margin-top:11px; padding:0 12px; color:var(--slate); background:var(--soft); border:1px solid transparent; border-radius:12px; }
+.catalog-drawer-search:focus-within { background:#fff; border-color:#8adcd9; }
+.catalog-drawer-search input { flex:1; min-width:0; min-height:46px; padding:0; color:var(--ink); background:transparent; border:0; }
+.catalog-drawer-search input:focus-visible { outline:none; }
+/* `overscroll-behavior:contain` keeps a flick at the end of the list from
+ * scrolling the catalog behind the drawer. */
+.catalog-drawer-body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding-top:9px; }
+.catalog-drawer-body .facet-item { min-height:48px; font-size:14px; }
+
+@keyframes catalog-drawer-in { from { transform:translateY(100%); } to { transform:translateY(0); } }
+
+/* Loading placeholders. `@barat/ui`'s Skeleton is styled with Tailwind
+ * utilities this app's build does not scan, so the catalog dresses its own. */
+.skeleton { display:block; background:linear-gradient(90deg,#eef2f5 25%,#e3e9ee 37%,#eef2f5 63%); background-size:400% 100%; border-radius:12px; animation:skeleton-sheen 1.4s ease-in-out infinite; }
+.skeleton-line { height:16px; margin-bottom:12px; border-radius:999px; }
+.skeleton-block { width:100%; border-radius:18px; }
+.skeleton-card { height:232px; border-radius:18px; }
+.skeleton-label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+
+@keyframes skeleton-sheen { from { background-position:100% 50%; } to { background-position:0 50%; } }
+
+@media (max-width:900px) {
+  .catalog-layout { grid-template-columns:minmax(0,1fr); }
+  .catalog-aside { display:none; }
+  .catalog-paths { display:flex; gap:10px; margin-top:14px; }
+  .catalog-lead { font-size:13px; }
+}
+
+@media (max-width:560px) {
+  .catalog-search { gap:7px; padding:6px 11px; border-radius:13px; }
+  .catalog-search input { min-height:44px; font-size:14px; }
+  .catalog-search .btn { min-height:38px; padding:6px 13px; font-size:13px; }
+  .brand-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .catalog-results-head { align-items:flex-start; }
+  .catalog-drawer { max-width:100%; }
+  .skeleton-card { height:186px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .catalog-drawer[open] { animation:none; }
+  .skeleton { animation:none; }
+}

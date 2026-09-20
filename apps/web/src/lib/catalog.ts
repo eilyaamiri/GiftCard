@@ -91,6 +91,12 @@ export const listCategoriesResponseSchema = z.object({ items: z.array(categorySc
 export const listBrandsResponseSchema = z.object({ items: z.array(brandSchema) });
 export const listCatalogProductsResponseSchema = z.object({
   items: z.array(catalogProductSchema),
+  /**
+   * The regions worth offering for the filters currently applied, computed by
+   * the API. The catalog spans 158 of them, so the picker cannot be a list the
+   * frontend keeps.
+   */
+  regions: z.array(z.string()),
   meta: z.object({
     page: z.number().int(),
     pageSize: z.number().int(),

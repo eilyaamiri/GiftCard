@@ -22,10 +22,19 @@ function firstPurchasable<T extends { readonly id: string; readonly isAvailable:
   return skus.find((sku) => sku.isAvailable) ?? skus[0] ?? null;
 }
 
-export function ProductDetail({ product }: { readonly product: ProductDetailDto }) {
+export function ProductDetail({
+  product,
+  initialRegion,
+}: {
+  readonly product: ProductDetailDto;
+  /** Carried over from the catalog's region filter, when the product still offers it. */
+  readonly initialRegion?: string | undefined;
+}) {
   const router = useRouter();
   const activeSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
-  const [region, setRegion] = useState(product.regions[0] ?? "");
+  const [region, setRegion] = useState(
+    initialRegion && product.regions.includes(initialRegion) ? initialRegion : (product.regions[0] ?? ""),
+  );
   const skusForRegion = useMemo(() => activeSkus.filter((sku) => sku.region === region), [activeSkus, region]);
   const [skuId, setSkuId] = useState(() => firstPurchasable(skusForRegion)?.id ?? "");
   const selected = useMemo(

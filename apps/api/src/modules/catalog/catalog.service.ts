@@ -242,10 +242,16 @@ export class CatalogService {
     input: ListProductsRequest & CatalogTaxonomyFilters,
   ): Promise<ListCatalogProductsResponse> {
     const { page, pageSize } = input;
-    const skuFilter: Prisma.SkuWhereInput = {
+    /* Split in two: the availability half is also what the region facet is
+     * counted over, and the facet must not be narrowed by the region the
+     * customer already picked. */
+    const sellableSku: Prisma.SkuWhereInput = {
       isActive: true,
-      ...(input.region ? { region: input.region } : {}),
       ...(input.onlyAvailable ? { supplierOffers: { some: PURCHASABLE_OFFER } } : {}),
+    };
+    const skuFilter: Prisma.SkuWhereInput = {
+      ...sellableSku,
+      ...(input.region ? { region: input.region } : {}),
     };
 
     /* Composed as an AND list rather than one object literal: search and the
@@ -268,6 +274,10 @@ export class CatalogService {
         ],
       });
     }
+    /* Everything except the region, so the facet keeps offering the regions the
+     * customer could switch to. */
+    const facetConditions = [...conditions];
+    if (input.onlyAvailable) facetConditions.push({ skus: { some: sellableSku } });
     if (input.region || input.onlyAvailable) conditions.push({ skus: { some: skuFilter } });
 
     const where: Prisma.ProductWhereInput = {
@@ -275,7 +285,7 @@ export class CatalogService {
       ...(conditions.length > 0 ? { AND: conditions } : {}),
     };
 
-    const [rows, total] = await this.db.$transaction([
+    const [rows, total, regions] = await this.db.$transaction([
       this.db.product.findMany({
         where,
         select: {
@@ -287,10 +297,23 @@ export class CatalogService {
         take: pageSize,
       }),
       this.db.product.count({ where }),
+      this.db.sku.findMany({
+        where: {
+          ...sellableSku,
+          product: {
+            isActive: true,
+            ...(facetConditions.length > 0 ? { AND: facetConditions } : {}),
+          },
+        },
+        select: { region: true },
+        distinct: ['region'],
+        orderBy: { region: 'asc' },
+      }),
     ]);
 
     return {
       items: rows.map((row) => this.toProductDto(row, row.skus)),
+      regions: regions.map((sku) => sku.region),
       meta: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
     };
   }
@@ -392,7 +415,11 @@ export class CatalogService {
      * alternatives even when the caller filtered down to one of them. */
     const regions = product.skus.map((sku) => ({ region: sku.region }));
     const visibleSkus = region ? product.skus.filter((sku) => sku.region === region) : product.skus;
-    const availableSkuIds = await this.availableSkuIds(visibleSkus.map((sku) => sku.id));
+    /* Incomplete data: the page still opens — nothing is hidden for it — but no
+     * denomination is offered, matching what `getSkuQuoteTarget` will do. */
+    const availableSkuIds: ReadonlySet<string> = product.needsReview
+      ? new Set<string>()
+      : await this.availableSkuIds(visibleSkus.map((sku) => sku.id));
 
     return {
       product: {
@@ -432,8 +459,13 @@ export class CatalogService {
    * task — it is never projected into a customer-facing DTO.
    */
   async getSkuQuoteTarget(skuId: string, currency: string): Promise<SkuQuoteTarget> {
+    /* `needsReview` is not cosmetic. A product whose data is incomplete is
+     * listed with its buy button disabled, and this is the half of that which a
+     * customer cannot get around: a hand-made POST with the SKU id finds
+     * nothing here either. The storefront decides what to grey out; the price
+     * is refused server-side. */
     const sku = await this.db.sku.findFirst({
-      where: { id: skuId, isActive: true, product: { isActive: true } },
+      where: { id: skuId, isActive: true, product: { isActive: true, needsReview: false } },
       include: { supplierOffers: { include: { supplier: { select: { isActive: true } } } } },
     });
     if (!sku) {
