@@ -97,8 +97,6 @@ a { color:inherit; text-decoration:none; }
 .catalog-art { --art-base:#102A46; --art-accent:#21B4B0; position:relative; isolation:isolate; overflow:hidden; color:#fff; background:var(--art-base); }
 .catalog-art-plate { position:absolute; z-index:2; top:50%; left:50%; width:min(62%,210px); aspect-ratio:1.58; display:flex; flex-direction:column; justify-content:space-between; padding:14px; border:1px solid rgba(255,255,255,.34); border-radius:16px; background:color-mix(in srgb,var(--art-accent) 24%,rgba(255,255,255,.1)); box-shadow:0 18px 35px rgba(5,16,29,.24); transform:translate(-50%,-50%) rotate(-4deg); transition:transform .42s cubic-bezier(.2,.8,.2,1),box-shadow .3s ease; backdrop-filter:blur(9px); }
 .catalog-art-plate svg { filter:drop-shadow(0 5px 12px rgba(5,16,29,.2)); }
-.catalog-art-monogram { font-size:30px; font-weight:800; letter-spacing:.02em; line-height:1; filter:drop-shadow(0 5px 12px rgba(5,16,29,.2)); }
-.catalog-art-size-detail .catalog-art-monogram { font-size:38px; }
 .catalog-art-plate strong { align-self:flex-end; max-width:100%; overflow:hidden; font-size:14px; font-weight:800; letter-spacing:.01em; text-overflow:ellipsis; white-space:nowrap; }
 .catalog-art-orbit { position:absolute; z-index:-1; width:72%; aspect-ratio:1; left:-19%; top:-55%; border:1px solid rgba(255,255,255,.32); border:1px solid color-mix(in srgb,var(--art-accent) 72%,white); border-radius:50%; box-shadow:0 0 0 24px rgba(255,255,255,.05),0 0 0 52px rgba(255,255,255,.03); box-shadow:0 0 0 24px color-mix(in srgb,var(--art-accent) 11%,transparent),0 0 0 52px color-mix(in srgb,var(--art-accent) 7%,transparent); opacity:.65; transform-origin:center; transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .3s ease; }
 .product-art,.service-art { height:auto; aspect-ratio:16/9; }
@@ -209,7 +207,6 @@ a { color:inherit; text-decoration:none; }
   .product-art,.service-art { aspect-ratio:4/3; }
   .catalog-art-plate { width:70%; padding:10px; border-radius:12px; }
   .catalog-art-plate svg { width:25px; height:25px; }
-  .catalog-art-monogram { font-size:22px; }
   .catalog-art-plate strong { font-size:11px; }
   .service-art-symbol { width:52px; height:52px; border-radius:16px; }
   .service-art-symbol svg { width:28px; height:28px; }
