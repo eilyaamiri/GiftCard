@@ -30,6 +30,28 @@ const supportChannelListSchema = z.object({ items: z.array(supportChannelSchema)
  * but they are not what someone came for. An empty list simply means the
  * contact tab has nothing to show, and the bottom bar hides it.
  */
+/** The phone channel as the footer needs it: a link, and a number to print. */
+export interface SupportPhone {
+  readonly href: string;
+  readonly number: string;
+  readonly description: string;
+}
+
+/**
+ * The published phone number, for the places that show it rather than link it.
+ *
+ * The API hands over a finished `tel:` link and nothing here builds one. What
+ * the footer additionally needs is the number itself, which is that same string
+ * without its scheme — a display concern, not a second source of truth.
+ */
+export function supportPhone(channels: readonly SupportChannel[]): SupportPhone | null {
+  const phone = channels.find((channel) => channel.kind === "PHONE");
+  if (phone === undefined) return null;
+  const number = phone.href.replace(/^tel:/u, "");
+  if (number === "") return null;
+  return { href: phone.href, number, description: phone.description };
+}
+
 export async function getSupportChannels(): Promise<readonly SupportChannel[]> {
   try {
     const response = await api.get("/api/support/channels", supportChannelListSchema);

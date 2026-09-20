@@ -2,9 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
 import { CircleUserRound, Headphones, Home, ReceiptText } from "lucide-react";
-import { ContactSheet } from "@/components/contact-sheet";
 import type { SupportChannel } from "@/lib/support-channels";
 
 interface NavItem {
@@ -49,70 +47,62 @@ const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
  *
  * Contact is a button rather than a link: it opens a sheet in place instead of
  * navigating, which keeps whatever the customer was reading on screen behind it.
+ * The sheet itself belongs to the chrome, because the header opens the same one
+ * on wider screens and two dialogs holding two ideas of "open" is one too many.
  */
 export function MobileBottomNav({
   isSignedIn,
   channels,
+  contactOpen,
+  onOpenContact,
 }: Readonly<{
   isSignedIn: boolean;
   channels: readonly SupportChannel[];
+  contactOpen: boolean;
+  onOpenContact: () => void;
 }>) {
   const pathname = usePathname();
-  const [contactOpen, setContactOpen] = useState(false);
-
-  /* A ticket link inside the sheet navigates away; without this the sheet would
-   * still be open on the page it landed on. */
-  useEffect(() => setContactOpen(false), [pathname]);
 
   return (
-    <>
-      <nav className="bottom-nav" aria-label="منوی موبایل">
-        <ul>
-          {ITEMS.map((item) => {
-            if (item === CONTACT) {
-              /* No configured channel means no tab: the brief is explicit that a
-               * dead contact option must never be on screen. */
-              if (channels.length === 0) return null;
-              return (
-                <li key={CONTACT}>
-                  <button
-                    type="button"
-                    className="bottom-nav-item"
-                    aria-haspopup="dialog"
-                    aria-expanded={contactOpen}
-                    onClick={() => setContactOpen(true)}
-                  >
-                    <Headphones size={21} aria-hidden="true" />
-                    <span>تماس با ما</span>
-                  </button>
-                </li>
-              );
-            }
-
-            const Icon = item.icon;
-            const active = item.isActive(pathname);
-            const href =
-              item.requiresAuth && !isSignedIn
-                ? `/login?next=${encodeURIComponent(item.href)}`
-                : item.href;
+    <nav className="bottom-nav" aria-label="منوی موبایل">
+      <ul>
+        {ITEMS.map((item) => {
+          if (item === CONTACT) {
+            /* No configured channel means no tab: the brief is explicit that a
+             * dead contact option must never be on screen. */
+            if (channels.length === 0) return null;
             return (
-              <li key={item.href}>
-                <Link href={href} className="bottom-nav-item" aria-current={active ? "page" : undefined}>
-                  <Icon size={21} aria-hidden="true" />
-                  <span>{item.label}</span>
-                </Link>
+              <li key={CONTACT}>
+                <button
+                  type="button"
+                  className="bottom-nav-item"
+                  aria-haspopup="dialog"
+                  aria-expanded={contactOpen}
+                  onClick={onOpenContact}
+                >
+                  <Headphones size={21} aria-hidden="true" />
+                  <span>تماس با ما</span>
+                </button>
               </li>
             );
-          })}
-        </ul>
-      </nav>
+          }
 
-      <ContactSheet
-        open={contactOpen}
-        channels={channels}
-        isSignedIn={isSignedIn}
-        onClose={() => setContactOpen(false)}
-      />
-    </>
+          const Icon = item.icon;
+          const active = item.isActive(pathname);
+          const href =
+            item.requiresAuth && !isSignedIn
+              ? `/login?next=${encodeURIComponent(item.href)}`
+              : item.href;
+          return (
+            <li key={item.href}>
+              <Link href={href} className="bottom-nav-item" aria-current={active ? "page" : undefined}>
+                <Icon size={21} aria-hidden="true" />
+                <span>{item.label}</span>
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
   );
 }
