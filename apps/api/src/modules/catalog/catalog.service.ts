@@ -8,12 +8,9 @@ import { Prisma } from '@barat/database';
 import { QUOTABLE_COST_CURRENCIES } from '@barat/contracts';
 import type {
   DecimalString,
-  GetProductResponse,
   InternationalServiceDto,
   ListProductsRequest,
-  ListProductsResponse,
   ListServicesResponse,
-  ProductDto,
   ServiceFieldDefinitionDto,
   SkuDto,
 } from '@barat/contracts';
@@ -22,6 +19,13 @@ import { DomainErrors } from '../../common/errors/domain.exception';
 import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
+import type {
+  CatalogProductDto,
+  GetCatalogProductResponse,
+  ListBrandsResponse,
+  ListCatalogProductsResponse,
+  ListCategoriesResponse,
+} from './catalog-taxonomy.dto';
 import {
   createInternationalServiceSchema,
   createProductSchema,
@@ -79,6 +83,33 @@ const PURCHASABLE_OFFER: Prisma.SupplierOfferWhereInput = {
   costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
 };
 
+/**
+ * "A customer can see this product in the catalog."
+ *
+ * Not the same as "can buy it": a product with incomplete data is listed with
+ * its buy button disabled, and it still counts towards its category and brand,
+ * because it is still something the customer finds there.
+ */
+const VISIBLE_PRODUCT = { isActive: true } satisfies Prisma.ProductWhereInput;
+
+/**
+ * Products that belong to a category, primary or secondary.
+ *
+ * A Steam card lives under «بازی و گیم» and also turns up under «نرم‌افزار»;
+ * browsing the second must find it, or a secondary category is decoration.
+ */
+function categoryMembership(slug: string): Prisma.ProductWhereInput {
+  return {
+    OR: [{ categoryRef: { slug } }, { extraCategories: { some: { category: { slug } } } }],
+  };
+}
+
+/** Filters the frozen `ListProductsRequest` has no field for. */
+export interface CatalogTaxonomyFilters {
+  readonly categorySlug?: string | undefined;
+  readonly brandSlug?: string | undefined;
+}
+
 const PRODUCT_PUBLIC_SELECT = {
   id: true,
   slug: true,
@@ -90,8 +121,12 @@ const PRODUCT_PUBLIC_SELECT = {
   category: true,
   imageUrl: true,
   isActive: true,
+  needsReview: true,
+  isQuickPick: true,
   sortOrder: true,
   createdAt: true,
+  brandRef: { select: { slug: true, nameFa: true } },
+  categoryRef: { select: { slug: true, nameFa: true, iconKey: true } },
 } satisfies Prisma.ProductSelect;
 
 const SKU_PUBLIC_SELECT = {
@@ -184,7 +219,9 @@ export class CatalogService {
 
   /* ------------------------------------------------------------------ public */
 
-  async listProducts(input: ListProductsRequest): Promise<ListProductsResponse> {
+  async listProducts(
+    input: ListProductsRequest & CatalogTaxonomyFilters,
+  ): Promise<ListCatalogProductsResponse> {
     const { page, pageSize } = input;
     const skuFilter: Prisma.SkuWhereInput = {
       isActive: true,
@@ -192,20 +229,31 @@ export class CatalogService {
       ...(input.onlyAvailable ? { supplierOffers: { some: PURCHASABLE_OFFER } } : {}),
     };
 
+    /* Composed as an AND list rather than one object literal: search and the
+     * category filter both need an OR of their own, and a second `OR:` key
+     * would silently overwrite the first. */
+    const conditions: Prisma.ProductWhereInput[] = [];
+    if (input.category) conditions.push({ category: input.category });
+    if (input.brand) conditions.push({ brand: input.brand });
+    if (input.categorySlug) conditions.push(categoryMembership(input.categorySlug));
+    if (input.brandSlug) conditions.push({ brandRef: { slug: input.brandSlug } });
+    if (input.search) {
+      conditions.push({
+        OR: [
+          { title: { contains: input.search, mode: 'insensitive' } },
+          { titleFa: { contains: input.search } },
+          { brand: { contains: input.search, mode: 'insensitive' } },
+          /* The brand's Persian name is not on the product row, so a search for
+           * «نتفلیکس» only works if the relation is searched too. */
+          { brandRef: { nameFa: { contains: input.search } } },
+        ],
+      });
+    }
+    if (input.region || input.onlyAvailable) conditions.push({ skus: { some: skuFilter } });
+
     const where: Prisma.ProductWhereInput = {
       isActive: true,
-      ...(input.category ? { category: input.category } : {}),
-      ...(input.brand ? { brand: input.brand } : {}),
-      ...(input.search
-        ? {
-            OR: [
-              { title: { contains: input.search, mode: 'insensitive' } },
-              { titleFa: { contains: input.search } },
-              { brand: { contains: input.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-      ...(input.region || input.onlyAvailable ? { skus: { some: skuFilter } } : {}),
+      ...(conditions.length > 0 ? { AND: conditions } : {}),
     };
 
     const [rows, total] = await this.db.$transaction([
@@ -228,7 +276,83 @@ export class CatalogService {
     };
   }
 
-  async getProduct(slug: string, region?: string): Promise<GetProductResponse> {
+  /**
+   * The categories worth showing, with a real count each.
+   *
+   * A category with nothing in it is left out entirely (§2): an empty tile on
+   * the catalog page is a dead end, and the counts come from the same
+   * membership rule the product filter uses, so a tile that says 48 opens on 48
+   * products.
+   */
+  async listCategories(): Promise<ListCategoriesResponse> {
+    const rows = await this.db.category.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        iconKey: true,
+        descriptionFa: true,
+        parentId: true,
+        sortOrder: true,
+        _count: {
+          select: {
+            products: { where: VISIBLE_PRODUCT },
+            productTags: { where: { product: VISIBLE_PRODUCT } },
+          },
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
+    });
+
+    return {
+      items: rows
+        .map(({ _count, ...category }) => ({
+          ...category,
+          /* Summed, not deduplicated: a product may not carry the same category
+           * as both its primary and a secondary one. The admin write path
+           * rejects that, which is what keeps this addition exact. */
+          productCount: _count.products + _count.productTags,
+        }))
+        .filter((category) => category.productCount > 0),
+    };
+  }
+
+  /**
+   * Every brand that has something to sell.
+   *
+   * Returned whole rather than paginated — the list is bounded by the catalog,
+   * and both the "popular" strip and the A–Z list on the brands page are views
+   * of the same data. `isPopular` is a flag an operator sets; there are no
+   * sales figures here to rank by, and inventing some would be worse than the
+   * curated order.
+   */
+  async listBrands(): Promise<ListBrandsResponse> {
+    const rows = await this.db.brand.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        logoUrl: true,
+        descriptionFa: true,
+        isPopular: true,
+        sortOrder: true,
+        _count: { select: { products: { where: VISIBLE_PRODUCT } } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    return {
+      items: rows
+        .map(({ _count, ...brand }) => ({ ...brand, productCount: _count.products }))
+        .filter((brand) => brand.productCount > 0),
+    };
+  }
+
+  async getProduct(slug: string, region?: string): Promise<GetCatalogProductResponse> {
     const product = await this.db.product.findFirst({
       where: { slug, isActive: true },
       select: {
@@ -758,11 +882,15 @@ export class CatalogService {
       category: string;
       imageUrl: string | null;
       isActive: boolean;
+      needsReview: boolean;
+      isQuickPick: boolean;
       sortOrder: number;
       createdAt: Date;
+      brandRef: { slug: string; nameFa: string } | null;
+      categoryRef: { slug: string; nameFa: string; iconKey: string } | null;
     },
     skuRegions: ReadonlyArray<{ region: string }>,
-  ): ProductDto {
+  ): CatalogProductDto {
     return {
       id: row.id,
       slug: row.slug,
@@ -777,6 +905,13 @@ export class CatalogService {
       sortOrder: row.sortOrder,
       regions: [...new Set(skuRegions.map((sku) => sku.region))].sort(),
       createdAt: row.createdAt.toISOString(),
+      brandSlug: row.brandRef?.slug ?? null,
+      brandNameFa: row.brandRef?.nameFa ?? null,
+      categorySlug: row.categoryRef?.slug ?? null,
+      categoryNameFa: row.categoryRef?.nameFa ?? null,
+      categoryIconKey: row.categoryRef?.iconKey ?? null,
+      needsReview: row.needsReview,
+      isQuickPick: row.isQuickPick,
     };
   }
 

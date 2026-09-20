@@ -34,8 +34,12 @@ function productRow() {
     imageUrl: null,
     redemptionNotesFa: 'فقط برای حساب آمریکا',
     isActive: true,
+    needsReview: false,
+    isQuickPick: true,
     sortOrder: 1,
     createdAt: CREATED_AT,
+    brandRef: { slug: 'apple', nameFa: 'اپل' },
+    categoryRef: { slug: 'popular', nameFa: 'عمومی و پرکاربرد', iconKey: 'sparkles' },
     skus: [
       {
         id: 'sku-1',
@@ -73,12 +77,46 @@ function harness() {
   const supplierOffer = {
     findMany: vi.fn().mockResolvedValue([{ skuId: 'sku-1' }]),
   };
+  const category = { findMany: vi.fn().mockResolvedValue([]) };
+  const brand = { findMany: vi.fn().mockResolvedValue([]) };
   const db = {
     product,
     supplierOffer,
+    category,
+    brand,
     $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
   } as unknown as CatalogDatabase;
-  return { service: new CatalogService(db, TEST_CONFIG), product, supplierOffer };
+  return { service: new CatalogService(db, TEST_CONFIG), product, supplierOffer, category, brand };
+}
+
+function categoryRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'cat_gaming',
+    slug: 'gaming',
+    name: 'Gaming',
+    nameFa: 'بازی و گیم',
+    iconKey: 'gamepad-2',
+    descriptionFa: null,
+    parentId: null,
+    sortOrder: 20,
+    _count: { products: 3, productTags: 0 },
+    ...overrides,
+  };
+}
+
+function brandRow(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'brnd_apple',
+    slug: 'apple',
+    name: 'Apple',
+    nameFa: 'اپل',
+    logoUrl: null,
+    descriptionFa: null,
+    isPopular: true,
+    sortOrder: 0,
+    _count: { products: 4 },
+    ...overrides,
+  };
 }
 
 describe('CatalogService public projections', () => {
@@ -124,7 +162,8 @@ describe('CatalogService public projections', () => {
 
     expect(() => listProductsResponseSchema.parse(response)).not.toThrow();
     const call = product.findMany.mock.calls[0]?.[0];
-    expect(call.where.skus.some.supplierOffers.some).toEqual({
+    const skuClause = call.where.AND.find((clause: { skus?: unknown }) => clause.skus);
+    expect(skuClause.skus.some.supplierOffers.some).toEqual({
       isActive: true,
       availability: 'AVAILABLE',
       supplier: { isActive: true },
@@ -134,6 +173,136 @@ describe('CatalogService public projections', () => {
     });
     expect(call.select.skus.select).toEqual({ region: true });
     expect(JSON.stringify(response)).not.toContain(SUPPLIER_ID);
+  });
+});
+
+describe('CatalogService taxonomy', () => {
+  it('carries the brand and category keys the storefront navigates by', async () => {
+    const { service } = harness();
+
+    const response = await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: true });
+
+    expect(response.items[0]).toMatchObject({
+      brandSlug: 'apple',
+      brandNameFa: 'اپل',
+      categorySlug: 'popular',
+      categoryIconKey: 'sparkles',
+      needsReview: false,
+    });
+    /* The contract's own shape still has to hold: the taxonomy keys are extra
+     * fields on a valid `ProductDto`, not a different response. */
+    expect(() => listProductsResponseSchema.parse(response)).not.toThrow();
+  });
+
+  it('finds a product through a secondary category, not only its primary one', async () => {
+    const { service, product } = harness();
+
+    await service.listProducts({
+      page: 1,
+      pageSize: 20,
+      onlyAvailable: false,
+      categorySlug: 'software',
+    });
+
+    const clause = product.findMany.mock.calls[0]?.[0].where.AND.find(
+      (candidate: { OR?: unknown }) => candidate.OR,
+    );
+    expect(clause.OR).toEqual([
+      { categoryRef: { slug: 'software' } },
+      { extraCategories: { some: { category: { slug: 'software' } } } },
+    ]);
+  });
+
+  it('keeps the search clause and the category clause apart', async () => {
+    const { service, product } = harness();
+
+    await service.listProducts({
+      page: 1,
+      pageSize: 20,
+      onlyAvailable: false,
+      categorySlug: 'gaming',
+      search: 'استیم',
+    });
+
+    /* Both filters need an `OR` of their own. Written as one object literal the
+     * second key would overwrite the first and the category would be ignored —
+     * silently, with a plausible-looking page of results. */
+    const ors = product.findMany.mock.calls[0]?.[0].where.AND.filter(
+      (candidate: { OR?: unknown }) => candidate.OR,
+    );
+    expect(ors).toHaveLength(2);
+  });
+
+  it('searches the brand in Persian as well as in English', async () => {
+    const { service, product } = harness();
+
+    await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: false, search: 'نتفلیکس' });
+
+    const search = product.findMany.mock.calls[0]?.[0].where.AND[0];
+    expect(search.OR).toContainEqual({ brandRef: { nameFa: { contains: 'نتفلیکس' } } });
+  });
+
+  it('hides a category with nothing in it', async () => {
+    const { service, category } = harness();
+    category.findMany.mockResolvedValue([
+      categoryRow(),
+      categoryRow({ id: 'cat_other', slug: 'other', _count: { products: 0, productTags: 0 } }),
+    ]);
+
+    const response = await service.listCategories();
+
+    expect(response.items.map((item) => item.slug)).toEqual(['gaming']);
+    expect(response.items[0]?.productCount).toBe(3);
+  });
+
+  it('counts a category by what browsing it will actually show', async () => {
+    const { service, category } = harness();
+    category.findMany.mockResolvedValue([categoryRow({ _count: { products: 3, productTags: 2 } })]);
+
+    /* Two of the five are only tagged with this category, not filed under it.
+     * The filter finds them, so the tile has to count them. */
+    expect((await service.listCategories()).items[0]?.productCount).toBe(5);
+  });
+
+  it('counts only active products, whatever the category holds', async () => {
+    const { service, category } = harness();
+    await service.listCategories();
+
+    expect(category.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { isActive: true },
+      select: {
+        _count: {
+          select: {
+            products: { where: { isActive: true } },
+            productTags: { where: { product: { isActive: true } } },
+          },
+        },
+      },
+    });
+  });
+
+  it('returns brands with their counts and drops the empty ones', async () => {
+    const { service, brand } = harness();
+    brand.findMany.mockResolvedValue([
+      brandRow(),
+      brandRow({ id: 'brnd_gone', slug: 'gone', isPopular: false, _count: { products: 0 } }),
+    ]);
+
+    const response = await service.listBrands();
+
+    expect(response.items).toEqual([
+      {
+        id: 'brnd_apple',
+        slug: 'apple',
+        name: 'Apple',
+        nameFa: 'اپل',
+        logoUrl: null,
+        descriptionFa: null,
+        isPopular: true,
+        sortOrder: 0,
+        productCount: 4,
+      },
+    ]);
   });
 });
 
