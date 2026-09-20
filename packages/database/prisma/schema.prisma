@@ -265,6 +265,16 @@ enum FeatureFlagKey {
   zarinpal_enabled
 }
 
+/// The contact routes the storefront may offer. A closed set: adding a channel
+/// is a schema change precisely so that no one can introduce an unvetted
+/// outbound link from the admin panel alone.
+enum SupportChannelKind {
+  PHONE
+  TELEGRAM
+  WHATSAPP
+  TICKET
+}
+
 enum ServiceFieldType {
   TEXT
   EMAIL
@@ -576,6 +586,7 @@ model StaffUser {
   pricingRulesCreated         PricingRule[]              @relation("PricingRuleCreator")
   fxRatesCreated              FxRate[]                   @relation("FxRateCreator")
   featureFlagsUpdated         FeatureFlag[]              @relation("FeatureFlagUpdater")
+  supportChannelsUpdated      SupportChannel[]           @relation("SupportChannelUpdater")
   supportTicketsOwned         SupportTicket[]            @relation("SupportTicketOwner")
   supportMessagesAuthored     SupportMessage[]           @relation("SupportMessageStaffAuthor")
   supportOwnershipFrom        SupportOwnershipEvent[]    @relation("SupportOwnershipPrevious")
@@ -1678,4 +1689,37 @@ model FeatureFlag {
   updatedAt DateTime @updatedAt
 
   updatedBy StaffUser? @relation("FeatureFlagUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+}
+
+/// A contact route offered to customers, editable by an admin.
+///
+/// One row per `kind`, created by migration and never by the panel, so the set
+/// of channels stays closed. `value` is what the channel needs to be reachable —
+/// a phone number, a Telegram username, a WhatsApp number, an internal route —
+/// and it is normalised and validated per kind in the API before it is stored.
+/// A channel with an empty `value` is never shown, whatever `isEnabled` says.
+model SupportChannel {
+  id        String             @id @default(cuid())
+  kind      SupportChannelKind @unique
+  isEnabled Boolean            @default(false)
+
+  /// Customer-facing label, e.g. `تماس تلفنی`.
+  title String
+  /// One short line under the title, e.g. answering hours.
+  description String @default("")
+  /// The raw destination. Never rendered directly — the API hands the
+  /// storefront a ready-made href so no link is assembled in the browser.
+  value String @default("")
+
+  /// Ascending display order in the contact sheet.
+  sortOrder Int @default(0)
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  updatedBy StaffUser? @relation("SupportChannelUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([isEnabled, sortOrder])
 }

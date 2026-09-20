@@ -5,9 +5,11 @@ import {
   settingsFeatureFlagListSchema,
   settingsQueueListSchema,
   settingsStaffListSchema,
+  settingsSupportChannelListSchema,
   type SettingsFeatureFlag,
   type SettingsQueue,
   type SettingsStaff,
+  type SettingsSupportChannel,
 } from "./settings-schema";
 
 export const metadata = { title: "تنظیمات | پنل ادمین برات پی" };
@@ -18,17 +20,20 @@ export default async function SettingsPage() {
   let flags: readonly SettingsFeatureFlag[] = [];
   let staff: readonly SettingsStaff[] = [];
   let queues: readonly SettingsQueue[] = [];
+  let supportChannels: readonly SettingsSupportChannel[] = [];
   let loadError: string | null = null;
 
   try {
-    const [flagResponse, staffResponse, queueResponse] = await Promise.all([
+    const [flagResponse, staffResponse, queueResponse, supportResponse] = await Promise.all([
       api.get("/api/admin/settings/feature-flags", settingsFeatureFlagListSchema),
       api.get("/api/admin/settings/staff", settingsStaffListSchema),
       api.get("/api/admin/settings/queues", settingsQueueListSchema),
+      api.get("/api/admin/settings/support-channels", settingsSupportChannelListSchema),
     ]);
     flags = flagResponse.items;
     staff = staffResponse.items;
     queues = queueResponse.items;
+    supportChannels = supportResponse.items;
   } catch {
     loadError = "خواندن تنظیمات از سرویس ممکن نشد. صفحه را دوباره بارگذاری کنید.";
   }
@@ -56,6 +61,7 @@ export default async function SettingsPage() {
         flags={flags}
         staff={staff}
         queues={queues}
+        supportChannels={supportChannels}
         currentStaffId={staffUser.id}
         loadError={loadError}
       />

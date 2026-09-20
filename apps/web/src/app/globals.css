@@ -181,7 +181,11 @@ a { color:inherit; text-decoration:none; }
 @keyframes hero-content-in { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
 @keyframes signal-in { from { opacity:0; transform:translateX(-18px) rotate(5deg) scale(.97); } to { opacity:1; transform:translateX(0) rotate(2deg) scale(1); } }
 @keyframes hero-rings-in { from { opacity:0; transform:scale(.78); } to { opacity:1; transform:scale(1); } }
-@media (max-width:900px) { .nav { display:none; } .mobile-menu { display:inline-flex; } .hero-inner,.split { grid-template-columns:1fr; } .signal { justify-self:center; width:min(100%,420px); } .value-grid,.steps { grid-template-columns:1fr; } .product-grid { grid-template-columns:repeat(2,1fr); } }
+@media (max-width:900px) { .nav { gap:16px; font-size:13px; } .mobile-menu { display:inline-flex; } .hero-inner,.split { grid-template-columns:1fr; } .signal { justify-self:center; width:min(100%,420px); } .value-grid,.steps { grid-template-columns:1fr; } .product-grid { grid-template-columns:repeat(2,1fr); } }
+/* The header nav gives way to the bottom bar, and only once the bottom bar is
+ * actually there. It used to disappear at 900px while the bar starts at 767px,
+ * which left a tablet with no navigation at all. */
+@media (max-width:767px) { .nav { display:none; } }
 @media (max-width:560px) {
   .container { width:min(100% - 24px,1160px); }
   .header { height:68px; }
@@ -433,3 +437,60 @@ a { color:inherit; text-decoration:none; }
 .support-bubble-staff { background:#F3F7FF; border-color:#D5E3F7; }
 .support-bubble-head { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:12px; color:var(--slate); }
 .support-bubble p { margin:7px 0 0; line-height:1.9; white-space:pre-wrap; }
+
+/* ============================================================================
+ * Phone navigation
+ *
+ * A bar fixed to the bottom of the viewport, and the contact sheet it opens.
+ * The bar is hidden by default and only switched on below 768px, so the tablet
+ * and desktop header keeps its own nav and nothing has to be measured in JS.
+ * ==========================================================================*/
+.bottom-nav { display:none; }
+
+@media (max-width:767px) {
+  .bottom-nav { position:fixed; inset-inline:0; bottom:0; z-index:40; display:block; background:rgba(255,255,255,.97); border-top:1px solid var(--line); box-shadow:0 -6px 20px rgba(11,29,51,.07); backdrop-filter:blur(14px); padding-bottom:env(safe-area-inset-bottom); }
+  .bottom-nav ul { display:flex; margin:0; padding:0; list-style:none; }
+  .bottom-nav li { flex:1 1 0; min-width:0; }
+  /* 56px of height and the full width of the cell: the target is the whole
+   * quarter of the bar, not just the icon inside it. */
+  .bottom-nav-item { position:relative; width:100%; min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; padding:7px 4px; color:var(--slate); font:inherit; font-size:11px; font-weight:700; background:none; border:0; cursor:pointer; transition:color .18s ease; }
+  .bottom-nav-item > span { max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .bottom-nav-item svg { width:21px; height:21px; }
+  .bottom-nav-item[aria-current=page],.bottom-nav-item[aria-expanded=true] { color:var(--teal); }
+  /* The turquoise rule above the active tab reads at a glance, where a colour
+   * change alone can be missed; the colour is not the only signal either, since
+   * `aria-current` is what a screen reader announces. */
+  .bottom-nav-item[aria-current=page]::before { position:absolute; inset-inline:22%; top:0; height:3px; content:""; border-radius:0 0 3px 3px; background:var(--teal); }
+  .bottom-nav-item:focus-visible { outline:2px solid var(--teal); outline-offset:-4px; border-radius:12px; }
+
+  /* Nothing may end up underneath the bar: every scrolling surface gets the
+   * bar's height back as bottom padding, plus the home indicator's own inset. */
+  .page { padding-block-end:calc(86px + env(safe-area-inset-bottom)); }
+  .footer { padding-bottom:calc(38px + 62px + env(safe-area-inset-bottom)); }
+  .account-content { padding-bottom:calc(40px + 62px + env(safe-area-inset-bottom)); }
+}
+
+.contact-sheet { width:100%; max-width:min(460px,100%); max-height:86dvh; margin:auto auto 0; padding:0; overflow:visible; background:transparent; border:0; }
+.contact-sheet::backdrop { background:rgba(5,20,36,.55); backdrop-filter:blur(2px); }
+.contact-sheet[open] { animation:contact-sheet-in .24s cubic-bezier(.2,.8,.2,1); }
+.contact-sheet-panel { max-height:86dvh; overflow-y:auto; overscroll-behavior:contain; padding:9px 15px calc(16px + env(safe-area-inset-bottom)); background:var(--paper); border-radius:20px 20px 0 0; box-shadow:0 -18px 48px rgba(5,20,36,.24); direction:rtl; }
+.contact-sheet-grip { display:block; width:44px; height:4px; margin:0 auto 10px; border-radius:999px; background:var(--line); }
+.contact-sheet-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding-bottom:10px; border-bottom:1px solid var(--line); }
+.contact-sheet-head h2 { margin:0; font-size:16px; color:var(--ink); }
+.contact-sheet-close { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:var(--slate); background:var(--soft); border:1px solid var(--line); border-radius:12px; cursor:pointer; }
+.contact-sheet-close:hover,.contact-sheet-close:focus-visible { color:var(--teal); border-color:#8adcd9; outline:2px solid rgba(33,180,176,.18); outline-offset:2px; }
+.contact-sheet-empty { margin:16px 4px; color:var(--slate); font-size:13px; }
+.contact-sheet-list { display:grid; gap:7px; margin:11px 0 0; padding:0; list-style:none; }
+.contact-sheet-item { min-height:60px; display:flex; align-items:center; gap:12px; padding:11px 12px; color:inherit; background:var(--soft); border:1px solid var(--line); border-radius:14px; text-decoration:none; transition:border-color .16s ease, background .16s ease; }
+.contact-sheet-item:hover,.contact-sheet-item:focus-visible { background:var(--mint); border-color:#8adcd9; outline:none; }
+.contact-sheet-item:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+.contact-sheet-icon { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:var(--teal); background:var(--paper); border:1px solid var(--line); border-radius:12px; }
+.contact-sheet-copy { min-width:0; display:grid; gap:2px; }
+.contact-sheet-copy strong { font-size:14px; color:var(--ink); }
+.contact-sheet-copy small { color:var(--slate); font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+
+@keyframes contact-sheet-in { from { transform:translateY(100%); } to { transform:translateY(0); } }
+
+@media (prefers-reduced-motion:reduce) {
+  .contact-sheet[open] { animation:none; }
+}

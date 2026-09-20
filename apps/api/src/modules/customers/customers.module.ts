@@ -3,12 +3,18 @@ import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
 import { AccountController } from './account.controller';
+import { AdminSupportChannelsController } from './admin-support-channels.controller';
 import { AccountService } from './account.service';
 import { BankDetailsService } from './bank-details.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CUSTOMERS_DATABASE } from './customers.tokens';
 import { NotificationsService } from './notifications.service';
+import { SupportChannelsController } from './support-channels.controller';
+import {
+  SUPPORT_CHANNELS_DATABASE,
+  SupportChannelsService,
+} from './support-channels.service';
 import { SupportController } from './support.controller';
 import { SupportService } from './support.service';
 
@@ -21,15 +27,23 @@ import { SupportService } from './support.service';
  */
 @Module({
   imports: [AuditModule],
-  controllers: [AccountController, CustomersController, SupportController],
+  controllers: [
+    AccountController,
+    AdminSupportChannelsController,
+    CustomersController,
+    SupportChannelsController,
+    SupportController,
+  ],
   providers: [
     { provide: CUSTOMERS_DATABASE, useValue: prisma },
+    { provide: SUPPORT_CHANNELS_DATABASE, useValue: prisma },
     AccountService,
     BankDetailsService,
     CustomersService,
     NotificationsService,
+    SupportChannelsService,
     SupportService,
   ],
-  exports: [AccountService, CustomersService, SupportService],
+  exports: [AccountService, CustomersService, SupportChannelsService, SupportService],
 })
 export class CustomersModule {}

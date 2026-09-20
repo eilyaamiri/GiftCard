@@ -97,6 +97,126 @@ test.describe("payment window on the pro-forma invoice", () => {
   });
 });
 
+test.describe("mobile bottom navigation", () => {
+  /* 320px is the narrowest phone the storefront supports; the bar has to hold
+   * four tabs there without pushing the page sideways. */
+  test.use({ viewport: { width: 320, height: 720 }, isMobile: true });
+
+  test("offers exactly the four tabs, and never the desktop nav", async ({ page }) => {
+    await page.goto("/");
+
+    const bar = page.getByRole("navigation", { name: "منوی موبایل" });
+    await expect(bar).toBeVisible();
+    await expect(bar.getByRole("link", { name: "خانه" })).toBeVisible();
+    await expect(bar.getByRole("link", { name: "سفارش‌ها" })).toBeVisible();
+    await expect(bar.getByRole("button", { name: "تماس با ما" })).toBeVisible();
+    await expect(bar.getByRole("link", { name: "حساب کاربری" })).toBeVisible();
+    await expect(bar.getByRole("link", { name: "گیفت‌کارت‌ها" })).toHaveCount(0);
+    await expect(bar.getByRole("link", { name: "پرداخت بین‌المللی" })).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "منوی اصلی" })).toBeHidden();
+
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+
+  test("marks the page you are on, in the brand turquoise", async ({ page }) => {
+    await page.goto("/");
+
+    const home = page.getByRole("navigation", { name: "منوی موبایل" }).getByRole("link", { name: "خانه" });
+    await expect(home).toHaveAttribute("aria-current", "page");
+    /* var(--teal) — #21B4B0. The active tab must not rely on the icon alone. */
+    await expect(home).toHaveCSS("color", "rgb(33, 180, 176)");
+  });
+
+  test("sends a signed-out visitor to login, and back again afterwards", async ({ page }) => {
+    await page.goto("/");
+
+    const bar = page.getByRole("navigation", { name: "منوی موبایل" });
+    await expect(bar.getByRole("link", { name: "سفارش‌ها" })).toHaveAttribute("href", "/login?next=%2Forders");
+    await expect(bar.getByRole("link", { name: "حساب کاربری" })).toHaveAttribute("href", "/login?next=%2Faccount");
+  });
+
+  test("never covers the end of the page", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    const clearance = await page.evaluate(() => {
+      const bar = document.querySelector(".bottom-nav");
+      const main = document.querySelector(".page");
+      if (bar === null || main === null) return null;
+      return {
+        barHeight: bar.getBoundingClientRect().height,
+        padding: Number.parseFloat(getComputedStyle(main).paddingBottom),
+      };
+    });
+    expect(clearance).not.toBeNull();
+    expect(clearance!.padding).toBeGreaterThanOrEqual(clearance!.barHeight);
+  });
+
+  test("the contact sheet opens, lists only live channels, and closes three ways", async ({ page }) => {
+    await page.goto("/");
+
+    const bar = page.getByRole("navigation", { name: "منوی موبایل" });
+    const sheet = page.getByRole("dialog", { name: "تماس با ما" });
+    const openSheet = async () => {
+      await bar.getByRole("button", { name: "تماس با ما" }).click();
+      await expect(sheet).toBeVisible();
+    };
+
+    await openSheet();
+    await expect(sheet.getByRole("link", { name: /تماس تلفنی/u })).toHaveAttribute("href", "tel:02191001234");
+    const telegram = sheet.getByRole("link", { name: /تلگرام/u });
+    await expect(telegram).toHaveAttribute("href", "https://t.me/baratpay");
+    /* Anything that leaves the site opens detached from this page. */
+    await expect(telegram).toHaveAttribute("target", "_blank");
+    await expect(telegram).toHaveAttribute("rel", /noopener/u);
+    await expect(sheet.getByRole("link", { name: /واتساپ/u })).toHaveAttribute("href", "https://wa.me/989121234567");
+    /* Signed out, the ticket link carries the way back to where it was going. */
+    await expect(sheet.getByRole("link", { name: /ثبت تیکت/u })).toHaveAttribute(
+      "href",
+      "/login?next=%2Faccount%2Fsupport",
+    );
+
+    await sheet.getByRole("button", { name: "بستن" }).click();
+    await expect(sheet).toBeHidden();
+
+    await openSheet();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+
+    await openSheet();
+    /* A click on the backdrop lands on the dialog element itself. */
+    await page.mouse.click(10, 10);
+    await expect(sheet).toBeHidden();
+  });
+
+  test("stays inside the viewport at the top of the mobile range", async ({ page }) => {
+    await page.setViewportSize({ width: 767, height: 900 });
+    await page.goto("/");
+
+    await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+});
+
+test.describe("tablet and desktop navigation", () => {
+  test("the bottom bar is gone at 768px, and the header nav is back", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto("/");
+
+    await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeHidden();
+    await expect(page.getByRole("navigation", { name: "منوی اصلی" })).toBeVisible();
+  });
+
+  test("desktop keeps the header nav it always had", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    await expect(nav.getByRole("link", { name: "گیفت‌کارت‌ها" })).toBeVisible();
+    await expect(nav.getByRole("link", { name: "پرداخت بین‌المللی" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeHidden();
+  });
+});
+
 test.describe("mobile RTL storefront", () => {
   test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
 
