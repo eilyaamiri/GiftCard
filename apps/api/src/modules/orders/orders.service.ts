@@ -21,6 +21,13 @@ import {
 } from '../fulfillment/gift-card-asset.service';
 import { maskEmail } from '../identity/identity.utils';
 import { ORDER_STATUS_CHANGED, OrderStateMachine, type OrderActor } from './order-state-machine';
+import {
+  CANCELLABLE_ORDER_STATUSES,
+  CANCELLED_BY_CUSTOMER,
+  CANCELLED_BY_TIMEOUT,
+  LIVE_PAYMENT_STATUSES,
+  PAYMENT_WINDOW_MS,
+} from './order-payment-window';
 import type {
   AdminListOrdersQuery,
   ListOrdersQuery,
@@ -97,6 +104,30 @@ const POST_PAYMENT_STATUSES: ReadonlySet<OrderStatus> = new Set([
   'REFUND_PENDING',
   'REFUNDED',
 ]);
+
+/** How many expired orders one sweep closes. Bounded so a backlog is paced. */
+const EXPIRY_BATCH_SIZE = 100;
+
+/**
+ * Everything the cancel guard needs, and nothing more.
+ *
+ * `payments` is narrowed to the live sessions by the query itself, so a
+ * non-empty array here means "the gateway may still report on this order"
+ * without the service ever holding a payment record.
+ */
+const CANCEL_GUARD_SELECT = {
+  id: true,
+  orderNumber: true,
+  status: true,
+  paidAt: true,
+  payments: {
+    where: { status: { in: [...LIVE_PAYMENT_STATUSES] } },
+    select: { id: true },
+    take: 1,
+  },
+} satisfies Prisma.OrderSelect;
+
+type CancelGuardRow = Prisma.OrderGetPayload<{ select: typeof CANCEL_GUARD_SELECT }>;
 
 @Injectable()
 export class OrdersService implements OrderPaymentBridge {
@@ -348,6 +379,135 @@ export class OrdersService implements OrderPaymentBridge {
       throw DomainErrors.notFound('order');
     }
     return { order: this.toDetailDto(order, await this.timeline(order.id)) };
+  }
+
+  /* ================================================================ cancel */
+
+  /**
+   * Close an unpaid order at the customer's request.
+   *
+   * Scoped by the session customer id, so another customer's order is simply
+   * not found. Nothing here moves money: the order leaves `AWAITING_PAYMENT`
+   * or `PAYMENT_PENDING` for `CANCELLED`, which is the only pre-payment exit
+   * the state machine offers, and no gift card is ever bought against it.
+   *
+   * Replaying the call on an already-cancelled order returns it unchanged
+   * rather than failing — the customer double-clicking their own cancel button
+   * is not an error (rule 9).
+   */
+  async cancelOrderForCustomer(
+    orderNumber: string,
+    actor: OrderCustomerActor,
+  ): Promise<GetOrderResponse> {
+    const order = await this.db.order.findFirst({
+      where: { orderNumber, customerId: actor.customerId },
+      select: CANCEL_GUARD_SELECT,
+    });
+    if (!order) {
+      throw DomainErrors.notFound('order');
+    }
+
+    this.assertCancellable(order);
+    if (order.status !== 'CANCELLED') {
+      await this.stateMachine.transition(
+        order,
+        'CANCELLED',
+        this.auditActor(actor),
+        CANCELLED_BY_CUSTOMER,
+      );
+    }
+
+    return this.getOrderForCustomer(orderNumber, actor.customerId);
+  }
+
+  /**
+   * Cancel every order whose payment window has closed.
+   *
+   * Run on a timer by `OrderPaymentWindowService`. It is a sweep rather than a
+   * per-order timer on purpose: a timer dies with the process that scheduled it
+   * and would leave orders placed before a restart open forever, while a sweep
+   * rediscovers them on its next pass.
+   *
+   * The query does the filtering the guard would otherwise do one row at a
+   * time — unpaid, still in a cancellable status, past the deadline, and with
+   * no payment the gateway might still report on. Each transition is attempted
+   * independently so that one order losing a race to a payment cannot stop the
+   * rest of the batch from closing.
+   */
+  async cancelExpiredOrders(
+    options: { readonly now?: Date; readonly batchSize?: number } = {},
+  ): Promise<{ readonly scanned: number; readonly cancelled: number }> {
+    const now = options.now ?? new Date();
+    const batchSize = options.batchSize ?? EXPIRY_BATCH_SIZE;
+    const cutoff = new Date(now.getTime() - PAYMENT_WINDOW_MS);
+
+    const candidates = await this.db.order.findMany({
+      where: {
+        status: { in: [...CANCELLABLE_ORDER_STATUSES] },
+        paidAt: null,
+        /* `placedAt` is the honest start of the window, but it is nullable, so
+         * the cutoff is applied to whichever of the two the order actually has.
+         * They differ by at most the one request that places the order. */
+        OR: [
+          { placedAt: { lte: cutoff } },
+          { placedAt: null, createdAt: { lte: cutoff } },
+        ],
+        payments: { none: { status: { in: [...LIVE_PAYMENT_STATUSES] } } },
+      },
+      select: CANCEL_GUARD_SELECT,
+      orderBy: { createdAt: 'asc' },
+      take: batchSize,
+    });
+
+    let cancelled = 0;
+    for (const order of candidates) {
+      try {
+        const result = await this.stateMachine.transition(
+          order,
+          'CANCELLED',
+          { id: 'system:order-payment-window', type: 'SYSTEM' },
+          CANCELLED_BY_TIMEOUT,
+          { now },
+        );
+        if (result.changed) {
+          cancelled += 1;
+        }
+      } catch {
+        /* A payment landed between the query and the transition. The state
+         * machine refused it, which is the outcome we want; the row simply
+         * drops out of the next sweep's candidate set. */
+      }
+    }
+
+    return { scanned: candidates.length, cancelled };
+  }
+
+  /** Shared by both cancel paths, so the customer and the sweep agree. */
+  private assertCancellable(order: CancelGuardRow): void {
+    if (order.status === 'CANCELLED') {
+      return;
+    }
+    if (order.paidAt instanceof Date || POST_PAYMENT_STATUSES.has(order.status)) {
+      throw DomainErrors.conflict(
+        'این سفارش پرداخت شده است و قابل لغو نیست. برای بازگشت وجه درخواست پشتیبانی ثبت کنید.',
+        `Order ${order.id} is ${order.status} and has been paid`,
+      );
+    }
+    if (!CANCELLABLE_ORDER_STATUSES.includes(order.status)) {
+      throw DomainErrors.conflict(
+        'وضعیت این سفارش اجازهٔ لغو را نمی‌دهد.',
+        `Order ${order.id} is ${order.status}, expected one of ${CANCELLABLE_ORDER_STATUSES.join(', ')}`,
+      );
+    }
+    if (order.payments.length > 0) {
+      /* The customer is mid-gateway. Closing the order now could be overwritten
+       * by the verification that follows, leaving a paid order marked cancelled
+       * — see `LIVE_PAYMENT_STATUSES`. */
+      throw DomainErrors.conflict(
+        'یک پرداخت برای این سفارش در جریان است. تا مشخص شدن نتیجهٔ آن امکان لغو وجود ندارد.',
+        `Order ${order.id} has a live payment session`,
+      );
+    }
   }
 
   /* ======================================================= payments bridge */

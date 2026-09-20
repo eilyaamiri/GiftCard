@@ -54,6 +54,49 @@ test("public customer pages never expose supplier identity or cost", async ({ pa
   }
 });
 
+test.describe("payment window on the pro-forma invoice", () => {
+  /* The storefront forwards whatever cookies the browser holds, so a session
+   * cookie is all the mock API needs to answer as a signed-in customer. */
+  test.beforeEach(async ({ context }) => {
+    await context.addCookies([{ name: "barat_session", value: "e2e", domain: "localhost", path: "/" }]);
+  });
+
+  test("shows how long is left to pay, next to the way out", async ({ page }) => {
+    await page.goto("/checkout/BP-2026-000001");
+
+    await expect(page.getByText("مهلت پرداخت این سفارش")).toBeVisible();
+    await expect(page.getByRole("timer")).toBeVisible();
+    await expect(page.getByRole("button", { name: "لغو سفارش" })).toBeVisible();
+  });
+
+  test("cancelling asks once, warns the price is not held, then closes the order", async ({ page }) => {
+    await page.goto("/checkout/BP-2026-000002");
+
+    /* One click must not cancel: it only turns the link into a question. */
+    await page.getByRole("button", { name: "لغو سفارش" }).click();
+    await expect(page.getByText(/برای خرید دوباره باید پیش.?فاکتور جدید بگیرید/u)).toBeVisible();
+    await expect(page.getByRole("timer")).toBeVisible();
+
+    await page.getByRole("button", { name: "بله، سفارش را لغو کن" }).click();
+
+    await expect(page.getByText("لغو شد", { exact: true })).toBeVisible();
+    /* Nothing is left to pay or to cancel — only a route back to a fresh price. */
+    await expect(page.getByRole("button", { name: "لغو سفارش" })).toHaveCount(0);
+    await expect(page.getByRole("timer")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "گرفتن پیش‌فاکتور جدید" })).toBeVisible();
+  });
+
+  test("backing out of the confirmation leaves the order payable", async ({ page }) => {
+    await page.goto("/checkout/BP-2026-000001");
+
+    await page.getByRole("button", { name: "لغو سفارش" }).click();
+    await page.getByRole("button", { name: "پشیمان شدم" }).click();
+
+    await expect(page.getByRole("button", { name: "بله، سفارش را لغو کن" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "لغو سفارش" })).toBeVisible();
+  });
+});
+
 test.describe("mobile RTL storefront", () => {
   test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
 
