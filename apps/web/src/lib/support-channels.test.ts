@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 vi.mock("./api", () => ({ api: { get: (...args: unknown[]) => get(...args) } }));
 
-const { getSupportChannels } = await import("./support-channels");
+const { getSupportChannels, supportPhone } = await import("./support-channels");
 
 const PHONE = {
   kind: "PHONE",
@@ -44,5 +44,35 @@ describe("getSupportChannels", () => {
     );
 
     await expect(getSupportChannels()).resolves.toEqual([]);
+  });
+});
+
+describe("supportPhone", () => {
+  const TELEGRAM = {
+    kind: "TELEGRAM",
+    title: "تلگرام",
+    description: "",
+    href: "https://t.me/baratpay",
+    isExternal: true,
+    requiresAuth: false,
+  } as const;
+
+  it("hands the footer a number to print alongside the link to dial", () => {
+    expect(supportPhone([TELEGRAM, PHONE])).toEqual({
+      href: "tel:02191001234",
+      number: "02191001234",
+      description: "شنبه تا چهارشنبه، ۹ تا ۱۷",
+    });
+  });
+
+  it("has nothing to print when no phone channel is published", () => {
+    expect(supportPhone([TELEGRAM])).toBeNull();
+    expect(supportPhone([])).toBeNull();
+  });
+
+  it("prints nothing rather than an empty line if the link carries no number", () => {
+    /* The API drops valueless channels, so this should not arrive — but a
+     * footer showing a bare "tel:" would be worse than showing nothing. */
+    expect(supportPhone([{ ...PHONE, href: "tel:" }])).toBeNull();
   });
 });

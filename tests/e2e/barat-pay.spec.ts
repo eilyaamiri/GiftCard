@@ -215,6 +215,54 @@ test.describe("tablet and desktop navigation", () => {
     await expect(nav.getByRole("link", { name: "پرداخت بین‌المللی" })).toBeVisible();
     await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeHidden();
   });
+
+  test("the header's support button opens the same sheet, and closes two ways", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const button = page.getByRole("button", { name: "تماس با ما" });
+    const sheet = page.getByRole("dialog", { name: "تماس با ما" });
+    await expect(button).toBeVisible();
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+
+    await button.click();
+    await expect(sheet).toBeVisible();
+    await expect(button).toHaveAttribute("aria-expanded", "true");
+    /* The same four rows the phone bar shows, from the same published list. */
+    await expect(sheet.getByRole("link", { name: /تماس تلفنی/u })).toHaveAttribute("href", "tel:02191001234");
+    await expect(sheet.getByRole("link", { name: /تلگرام/u })).toHaveAttribute("href", "https://t.me/baratpay");
+
+    await sheet.getByRole("button", { name: "بستن" }).click();
+    await expect(sheet).toBeHidden();
+    await expect(button).toHaveAttribute("aria-expanded", "false");
+
+    await button.click();
+    await page.keyboard.press("Escape");
+    await expect(sheet).toBeHidden();
+  });
+
+  test("the support button is a desktop affordance only", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/");
+
+    /* The bar's own tab is the phone entry point, so the header must not offer
+     * a second one — the bar's button is a different element inside the nav. */
+    await expect(page.locator(".header-support")).toBeHidden();
+    await expect(
+      page.getByRole("navigation", { name: "منوی موبایل" }).getByRole("button", { name: "تماس با ما" }),
+    ).toBeVisible();
+  });
+
+  test("the footer prints the published phone number and dials it", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const phone = page.locator(".footer-phone");
+    await expect(phone).toHaveAttribute("href", "tel:02191001234");
+    await expect(phone).toContainText("02191001234");
+    /* The hours an admin typed travel with the number. */
+    await expect(phone).toContainText("شنبه تا چهارشنبه، ۹ تا ۱۷");
+  });
 });
 
 test.describe("mobile RTL storefront", () => {
