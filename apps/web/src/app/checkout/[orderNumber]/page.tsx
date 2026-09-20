@@ -4,7 +4,9 @@ import type { OrderDetailDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { requireSession } from "@/lib/session";
 import { orderStatusView } from "@/lib/status";
-import { tomanFromIrr } from "../purchase";
+import { paymentSecondsLeft, tomanFromIrr } from "../purchase";
+import { CancelOrder } from "./cancel-order";
+import { PaymentDeadline } from "./payment-deadline";
 import { StartPayment } from "./start-payment";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +28,10 @@ export default async function CheckoutPage({ params }: { params: Promise<{ order
 
   const view = orderStatusView(order.status);
   const payable = PAYABLE.has(order.status);
+  /* Cancelled orders land back here whenever the customer refreshes after
+   * cancelling, or follows an old link after the payment window closed. They
+   * need the reason and a way forward, not the generic tracking page. */
+  const cancelled = order.status === "CANCELLED";
 
   return (
     <main className="page container" style={{ maxWidth: 560 }}>
@@ -62,7 +68,18 @@ export default async function CheckoutPage({ params }: { params: Promise<{ order
             <div className="alert" style={{ marginBlockStart: 14 }}>
               پس از تأیید پرداخت توسط بانک، سفارش وارد صف آماده‌سازی می‌شود. تا آن لحظه سفارش تحویل‌شده به حساب نمی‌آید.
             </div>
+            <PaymentDeadline createdAt={order.createdAt} secondsLeft={paymentSecondsLeft(order.createdAt)} />
             <StartPayment orderId={order.id} orderNumber={order.orderNumber} />
+            <CancelOrder orderNumber={order.orderNumber} />
+          </>
+        ) : cancelled ? (
+          <>
+            <div className="alert warn" style={{ marginBlockStart: 14 }}>
+              این سفارش لغو شد و مبلغی بابت آن دریافت نشده است. قیمت‌ها روزانه تغییر می‌کنند، بنابراین برای خرید دوباره باید پیش‌فاکتور تازه بگیرید.
+            </div>
+            <Link className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18 }} href="/">
+              گرفتن پیش‌فاکتور جدید
+            </Link>
           </>
         ) : (
           <>

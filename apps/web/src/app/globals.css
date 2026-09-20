@@ -157,6 +157,23 @@ a { color:inherit; text-decoration:none; }
 .payment-start { width:100%; margin-block-start:18px; }
 .account-payment-action { flex:1 1 260px; min-width:min(100%,260px); }
 .account-payment-action .payment-start { margin-block-start:0; }
+/* Cancelling is a way out, not an alternative to paying: it stays quiet next to
+ * the payment button until the customer asks for it, and only the confirmation
+ * carries the warning colour. */
+.cancel-order-start { width:100%; margin-block-start:8px; color:var(--slate); font-weight:700; }
+.cancel-order-start:hover { color:#d94a4a; transform:none; }
+.cancel-order-confirm { margin-block-start:14px; border:1px solid #F1D4D4; border-radius:12px; padding:13px 15px; background:#FDF4F4; }
+.cancel-order-confirm .btn-danger { color:#fff; background:#d94a4a; border:0; }
+.cancel-order-confirm .btn-danger:hover { box-shadow:0 8px 18px rgba(217,74,74,.24); }
+.payment-deadline { display:flex; align-items:center; gap:7px; margin-block-start:14px; color:var(--amber); font-size:13px; font-weight:700; }
+/* `CountdownTimer` styles itself with Tailwind utilities from `@barat/ui`, and
+ * this app's Tailwind build does not scan that package — the utilities are never
+ * generated, so the clock icon and the digits fall out of their row. The same
+ * thing happens to the quote page's timer; fixing it properly means changing
+ * what this app compiles, which is more than an order-cancellation change should
+ * carry. Until then, the timer is dressed here. */
+.payment-deadline [role="timer"] { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:3px 10px; background:#FDF1DF; font-weight:800; font-variant-numeric:tabular-nums; }
+.payment-deadline [role="timer"] svg { width:14px; height:14px; }
 .footer { background:var(--navy); color:#a9bac9; padding:38px 0; font-size:13px; }
 .footer-inner { display:flex; justify-content:space-between; gap:20px; flex-wrap:wrap; }
 .footer .logo { color:#fff; }

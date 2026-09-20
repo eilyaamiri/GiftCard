@@ -19,11 +19,12 @@ const METADATA = { ip: '127.0.0.1', userAgent: 'vitest' };
 function harness() {
   const createOrder = vi.fn().mockResolvedValue({ created: true });
   const getOrderForCustomer = vi.fn();
+  const cancelOrderForCustomer = vi.fn().mockResolvedValue({ order: { status: 'CANCELLED' } });
   const info = vi.fn();
   const read = vi.fn();
   const loadContextByOrder = vi.fn();
   const controller = new OrdersController(
-    { createOrder, getOrderForCustomer } as unknown as OrdersService,
+    { createOrder, getOrderForCustomer, cancelOrderForCustomer } as unknown as OrdersService,
     { info, read } as unknown as PaymentReceiptService,
     { loadContextByOrder } as unknown as FulfillmentStore,
   );
@@ -31,6 +32,7 @@ function harness() {
     controller,
     createOrder,
     getOrderForCustomer,
+    cancelOrderForCustomer,
     info,
     read,
     loadContextByOrder,
@@ -185,5 +187,30 @@ describe('OrdersController payment receipt', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(h.loadContextByOrder).not.toHaveBeenCalled();
     expect(h.read).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersController.cancelOrder', () => {
+  it('cancels with the session customer id, never with one from the request', async () => {
+    const { controller, cancelOrderForCustomer } = harness();
+
+    await controller.cancelOrder({ orderNumber: 'BP-2026-000001' }, 'customer-1', METADATA);
+
+    expect(cancelOrderForCustomer).toHaveBeenCalledWith('BP-2026-000001', {
+      customerId: 'customer-1',
+      ip: '127.0.0.1',
+      userAgent: 'vitest',
+    });
+  });
+
+  it('needs no Idempotency-Key, because cancelling twice cancels once', async () => {
+    const { controller, cancelOrderForCustomer } = harness();
+
+    /* The route takes no request object at all: there is no header to omit and
+     * therefore no way for a caller to be rejected for omitting it. */
+    await expect(
+      controller.cancelOrder({ orderNumber: 'BP-2026-000001' }, 'customer-1', METADATA),
+    ).resolves.toEqual({ order: { status: 'CANCELLED' } });
+    expect(cancelOrderForCustomer).toHaveBeenCalledTimes(1);
   });
 });

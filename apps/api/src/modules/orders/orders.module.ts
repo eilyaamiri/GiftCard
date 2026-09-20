@@ -3,6 +3,7 @@ import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
 import { FulfillmentModule } from '../fulfillment/fulfillment.module';
+import { OrderPaymentWindowService } from './order-payment-window.service';
 import { OrderStateMachine } from './order-state-machine';
 import { OrdersAdminController } from './orders-admin.controller';
 import { OrdersController } from './orders.controller';
@@ -20,6 +21,10 @@ import { ORDER_PAYMENT_BRIDGE, ORDERS_DATABASE } from './orders.tokens';
  * `FulfillmentModule` is imported for `GiftCardAssetService`, the single door to
  * gift-card plaintext, which the customer reveal endpoint goes through. It
  * imports only `AuditModule`, so this edge adds no cycle.
+ *
+ * `OrderPaymentWindowService` is the timer that closes orders nobody paid for.
+ * It lives here rather than in `apps/worker` because no worker service is
+ * installed on the production host — see the note on the class itself.
  */
 @Module({
   imports: [AuditModule, FulfillmentModule],
@@ -28,6 +33,7 @@ import { ORDER_PAYMENT_BRIDGE, ORDERS_DATABASE } from './orders.tokens';
     { provide: ORDERS_DATABASE, useValue: prisma },
     OrderStateMachine,
     OrdersService,
+    OrderPaymentWindowService,
     { provide: ORDER_PAYMENT_BRIDGE, useExisting: OrdersService },
   ],
   exports: [OrdersService, OrderStateMachine, ORDER_PAYMENT_BRIDGE],

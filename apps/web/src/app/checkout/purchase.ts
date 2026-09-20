@@ -5,6 +5,7 @@ import type {
   CreatePaymentResponse,
   CreateQuoteRequest,
   CreateQuoteResponse,
+  GetOrderResponse,
   QuoteSnapshot,
   VerifyPaymentResponse,
 } from "@barat/contracts";
@@ -13,6 +14,7 @@ import {
   createOrderResponseSchema,
   createPaymentResponseSchema,
   createQuoteResponseSchema,
+  getOrderResponseSchema,
   verifyPaymentResponseSchema,
 } from "@barat/contracts";
 import { formatIrr, formatToman } from "@barat/ui";
@@ -68,6 +70,53 @@ export function createOrder(quote: QuoteSnapshot): Promise<CreateOrderResponse> 
 export function createPayment(orderId: string, attempt: string): Promise<CreatePaymentResponse> {
   const key = idempotencyKeyFor("pay", orderId, attempt);
   return idempotentPost("/api/payments", { orderId, idempotencyKey: key }, key, createPaymentResponseSchema);
+}
+
+/**
+ * How long an unpaid order stays open.
+ *
+ * A mirror of `PAYMENT_WINDOW_MS` in the API's `order-payment-window.ts`, not a
+ * second source of truth: `OrderDetailDto` is a frozen contract with nowhere to
+ * carry the deadline, so the storefront has to derive it. Only the server's copy
+ * decides anything. If the two ever drift, the countdown on screen ends slightly
+ * early or late — an order is still cancelled exactly when the API says.
+ */
+export const PAYMENT_WINDOW_MS = 10 * 60_000;
+
+/**
+ * When the payment window closes, measured from order creation.
+ *
+ * The API measures from `placedAt`, which is stamped by the transition into
+ * AWAITING_PAYMENT during order creation — the same request, milliseconds apart.
+ * That difference is invisible against a ten-minute window.
+ */
+export function paymentDeadline(createdAt: string): Date {
+  return new Date(new Date(createdAt).getTime() + PAYMENT_WINDOW_MS);
+}
+
+/**
+ * Seconds left on the window, floored at zero.
+ *
+ * The checkout page computes this while rendering on the server and hands it to
+ * the countdown as its initial value. Letting the countdown read the clock
+ * itself would have it start one number on the server and a different one in the
+ * browser a second later, which React reports as a hydration mismatch and then
+ * throws the server's markup away.
+ */
+export function paymentSecondsLeft(createdAt: string): number {
+  return Math.max(0, Math.floor((paymentDeadline(createdAt).getTime() - Date.now()) / 1000));
+}
+
+/**
+ * Close an unpaid order.
+ *
+ * No idempotency key: cancelling is a one-way move into a terminal status, so
+ * the API answers a replay with the order it already cancelled. The server
+ * decides whether the order may still be cancelled at all — a payment that has
+ * been verified, or one still open at the gateway, is refused there.
+ */
+export function cancelOrder(orderNumber: string): Promise<GetOrderResponse> {
+  return api.post<GetOrderResponse>(`/api/orders/${encodeURIComponent(orderNumber)}/cancel`, {}, getOrderResponseSchema);
 }
 
 /**

@@ -50,6 +50,46 @@ function quoteFor(body = {}) {
   };
 }
 
+/* ============================================================================
+ * Session and orders
+ *
+ * Signed-in pages are reached by setting the `barat_session` cookie the web app
+ * forwards. Tests that do not set it keep seeing the signed-out storefront, so
+ * the public specs are unaffected.
+ * ==========================================================================*/
+
+const customer = {
+  id: "customer-e2e", customerCode: "BP-C-0001", status: "ACTIVE", firstName: "آزمون", lastName: "کاربر",
+  maskedMobile: "0912***4567", maskedEmail: null, isMobileVerified: true, isEmailVerified: false, createdAt: now,
+};
+
+function signedIn(request) {
+  return (request.headers.cookie ?? "").includes("barat_session=");
+}
+
+/**
+ * The orders behind the pro-forma invoice, held in memory so a cancel is
+ * visible on the next read — exactly what the page does after
+ * `router.refresh()`. There are two so that the spec which cancels one cannot
+ * decide what the spec which only looks at one sees.
+ *
+ * `createdAt` is stamped at server start rather than fixed, because the payment
+ * countdown is measured from it: a hard-coded date would render an order that
+ * expired years ago.
+ */
+function orderFixture(orderNumber) {
+  return {
+    id: `order-${orderNumber}`, orderNumber, customerId: customer.id, quoteId: "quote-e2e-001", cartId: null,
+    status: "AWAITING_PAYMENT", totalAmountIrr: "21500000", displayAmountToman: "2150000", currency: "IRR",
+    itemTitleFa: "گیفت‌کارت استیم — $20", createdAt: new Date().toISOString(),
+    paidAt: null, fulfilledAt: null, cancelledAt: null, failureReason: null, delivery: null, timeline: [],
+  };
+}
+
+const orders = new Map(
+  ["BP-2026-000001", "BP-2026-000002"].map((orderNumber) => [orderNumber, orderFixture(orderNumber)]),
+);
+
 function json(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
   response.end(JSON.stringify(body));
@@ -58,7 +98,25 @@ function json(response, status, body) {
 createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", "http://localhost:4001");
   if (url.pathname === "/health") return json(response, 200, { ok: true });
-  if (request.method === "GET" && url.pathname === "/api/auth/me") return json(response, 200, { customer: null, isAuthenticated: false });
+  if (request.method === "GET" && url.pathname === "/api/auth/me") {
+    return signedIn(request)
+      ? json(response, 200, { customer, isAuthenticated: true })
+      : json(response, 200, { customer: null, isAuthenticated: false });
+  }
+  const orderRoute = /^\/api\/orders\/([^/]+)(\/cancel)?$/u.exec(url.pathname);
+  if (orderRoute) {
+    const order = orders.get(decodeURIComponent(orderRoute[1]));
+    if (!signedIn(request)) return json(response, 401, { code: "UNAUTHORIZED", message: "Unauthorized" });
+    if (!order) return json(response, 404, { code: "NOT_FOUND", message: "Not found" });
+    if (request.method === "GET" && !orderRoute[2]) return json(response, 200, { order });
+    if (request.method === "POST" && orderRoute[2]) {
+      /* The real API refuses a paid order; the fixture only ever holds an
+       * unpaid one, so cancelling always succeeds and is idempotent on replay. */
+      order.status = "CANCELLED";
+      order.cancelledAt ??= new Date().toISOString();
+      return json(response, 200, { order });
+    }
+  }
   if (request.method === "GET" && url.pathname === "/api/catalog/products") return json(response, 200, { items: products, meta: { page: 1, pageSize: 20, total: products.length, totalPages: 1 } });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/steam-wallet") return json(response, 200, { product: steam });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/apple-us") return json(response, 200, { product: { ...products[1], redemptionNotesFa: null, skus: [] } });

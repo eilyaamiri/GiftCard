@@ -22,6 +22,7 @@ const QUICK_FILTERS = [
   "FULFILLING",
   "FULFILLED",
   "FAILED",
+  "CANCELLED",
   "REFUNDED",
 ] as const satisfies readonly OrderStatus[];
 

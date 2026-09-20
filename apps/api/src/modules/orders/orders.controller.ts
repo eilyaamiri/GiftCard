@@ -90,6 +90,33 @@ export class OrdersController {
     return this.orders.getOrderForCustomer(params.orderNumber, customerId);
   }
 
+  /**
+   * Close an unpaid order at the customer's own request.
+   *
+   * POST because it changes state and is audited. No `Idempotency-Key` is
+   * required: cancelling is a one-way move into a terminal status, so a replay
+   * finds the order already cancelled and returns it unchanged rather than
+   * doing anything a second time.
+   *
+   * The rate limit is well above what a person clicking a button needs and far
+   * below what walking order numbers would take — and a wrong guess is a 404
+   * anyway, because the lookup is scoped to the session customer.
+   */
+  @Post(':orderNumber/cancel')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ short: { ttl: 60_000, limit: 10 } })
+  cancelOrder(
+    @Param(zodPipe(orderNumberParamSchema)) params: { orderNumber: string },
+    @CurrentCustomer() customerId: string,
+    @RequestMetadata() metadata: IdentityActor,
+  ): Promise<GetOrderResponse> {
+    return this.orders.cancelOrderForCustomer(params.orderNumber, {
+      customerId,
+      ip: metadata.ip,
+      userAgent: metadata.userAgent,
+    });
+  }
+
   @Get(':orderNumber/payment-receipt/status')
   @Header('Cache-Control', 'private, no-store')
   async paymentReceiptStatus(
