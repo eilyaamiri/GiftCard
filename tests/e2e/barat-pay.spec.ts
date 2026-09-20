@@ -6,21 +6,106 @@ test("customer can navigate the public storefront", async ({ page }) => {
   await expect(page.getByRole("heading", { name: /چیزی که در جهان می.?خواهید/i })).toBeVisible();
   await page.getByRole("link", { name: "گیفت‌کارت‌ها" }).click();
   await expect(page).toHaveURL(/\/gift-cards$/u);
-  await expect(page.getByRole("heading", { name: "گیفت‌کارت‌های محبوب" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "گیفت‌کارت‌ها", level: 1 })).toBeVisible();
 });
 
-test("customer can search and filter the gift-card catalog", async ({ page }) => {
-  await page.goto("/gift-cards");
+test.describe("catalog taxonomy", () => {
+  test("customer can search the gift-card catalog", async ({ page }) => {
+    await page.goto("/gift-cards");
 
-  const search = page.getByRole("searchbox", { name: "جستجو در گیفت‌کارت‌ها" });
-  await search.fill("استیم");
-  await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+    const search = page.getByRole("searchbox", { name: "جست‌وجو در گیفت‌کارت‌ها" });
+    await search.fill("استیم");
+    await search.press("Enter");
 
-  await search.fill("");
-  await page.getByRole("group", { name: "فیلتر منطقه" }).getByRole("button", { name: "UK" }).click();
-  await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
-  await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+    await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("استیم");
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+  });
+
+  test("customer can narrow the catalog by category, then by region", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    await page.getByRole("complementary").getByRole("link", { name: /بازی و گیم/u }).click();
+    await expect(page).toHaveURL(/[?&]category=gaming/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+
+    await page.getByRole("link", { name: "پاک کردن فیلترها" }).click();
+    await expect(page).toHaveURL(/\/gift-cards$/u);
+
+    await page.getByLabel("منطقهٔ گیفت‌کارت").selectOption("UK");
+    await page.getByRole("button", { name: "اعمال" }).click();
+    await expect(page).toHaveURL(/[?&]region=UK/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+  });
+
+  test("customer can narrow the catalog by brand", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    await page.getByRole("complementary").getByRole("link", { name: /اپل/u }).click();
+    await expect(page).toHaveURL(/[?&]brand=apple/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت اپل/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toHaveCount(0);
+  });
+
+  test("a product still missing data is listed but cannot be bought", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    await expect(page.getByText("گیفت‌کارت اسپاتیفای")).toBeVisible();
+    await expect(page.getByText("فعلاً قابل سفارش نیست")).toBeVisible();
+    await expect(page.getByRole("link", { name: /گیفت‌کارت اسپاتیفای/i })).toHaveCount(0);
+  });
+
+  test("customer can browse brands from the directory and land back in the catalog", async ({ page }) => {
+    await page.goto("/brands");
+
+    await expect(page.getByRole("heading", { name: "برندها", level: 1 })).toBeVisible();
+    await page.getByRole("link", { name: /استیم/u }).first().click();
+    await expect(page).toHaveURL(/[?&]brand=steam/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+  });
+
+  test("a region picked in the catalog is carried into the product page", async ({ page }) => {
+    await page.goto("/gift-cards?region=UK");
+
+    await page.getByRole("link", { name: /گیفت‌کارت استیم/i }).click();
+    await expect(page).toHaveURL(/\/gift-cards\/steam-wallet\?region=UK$/u);
+    await expect(
+      page.getByRole("radiogroup", { name: "انتخاب منطقه" }).getByRole("radio", { name: "UK" }),
+    ).toBeChecked();
+  });
+});
+
+test.describe("catalog browsing on a phone", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
+
+  test("the drawer opens over the page, without disturbing the bottom navigation", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeVisible();
+    await page.getByRole("button", { name: /دسته‌بندی‌ها/u }).click();
+
+    const drawer = page.getByRole("dialog", { name: "دسته‌بندی‌ها" });
+    await expect(drawer).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "منوی موبایل" })).toBeVisible();
+
+    await drawer.getByRole("link", { name: /بازی و گیم/u }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page).toHaveURL(/[?&]category=gaming/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+
+  test("closes on Escape without applying a filter", async ({ page }) => {
+    await page.goto("/gift-cards");
+
+    await page.getByRole("button", { name: /برندها/u }).click();
+    await expect(page.getByRole("dialog", { name: "برندها" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "برندها" })).toBeHidden();
+    await expect(page).toHaveURL(/\/gift-cards$/u);
+  });
 });
 
 test("customer can obtain a gift-card quote after choosing region and amount", async ({ page }) => {
@@ -272,7 +357,7 @@ test.describe("mobile RTL storefront", () => {
     await page.goto("/gift-cards");
 
     await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-    await expect(page.getByRole("heading", { name: "گیفت‌کارت‌های محبوب" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "گیفت‌کارت‌ها", level: 1 })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
   });
 
