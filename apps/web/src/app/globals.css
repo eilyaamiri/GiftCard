@@ -22,10 +22,14 @@ a { color:inherit; text-decoration:none; }
 .grid { display:grid; gap:16px; }
 .card { background:#fff; border:1px solid var(--line); border-radius:18px; box-shadow:0 8px 24px rgba(11,29,51,.06); }
 .header { background:rgba(255,255,255,.92); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:20; backdrop-filter:blur(14px); }
-.header-topbar { min-height:76px; display:flex; align-items:center; justify-content:space-between; gap:22px; padding-block:10px; }
+.header-topbar { min-height:76px; display:flex; align-items:center; gap:28px; padding-block:10px; }
 /* The one field this row is built around: a customer who already knows the
- * brand they want should not have to open the catalog page first. */
-.header-search { flex:1 1 auto; min-width:0; max-width:420px; display:flex; align-items:center; gap:8px; padding:5px 6px 5px 14px; background:var(--soft); border:1px solid var(--line); border-radius:12px; transition:border-color .18s ease,box-shadow .18s ease; }
+ * brand they want should not have to open the catalog page first. It sits
+ * right beside the logo — the `space-between` layout this replaced spread the
+ * leftover width as a gap *before* the search field, stranding it away from
+ * the logo instead of anchoring it there. `header-end` carries the leftover
+ * space instead, via its own margin, so it is the one pushed to the far side. */
+.header-search { flex:0 1 460px; min-width:0; max-width:460px; display:flex; align-items:center; gap:8px; padding:5px 6px 5px 14px; background:var(--soft); border:1px solid var(--line); border-radius:12px; transition:border-color .18s ease,box-shadow .18s ease; }
 .header-search:focus-within { border-color:var(--teal); background:#fff; box-shadow:0 8px 20px rgba(33,180,176,.12); }
 .header-search > svg { flex:0 0 auto; color:var(--slate); }
 .header-search input { flex:1; min-width:0; min-height:34px; padding:0; color:var(--ink); background:transparent; border:0; font-size:13px; }
@@ -74,7 +78,7 @@ a { color:inherit; text-decoration:none; }
  * longer gets silently cut on the wrong side by an RTL text-overflow ellipsis. */
 .nav-dropdown-item-label { overflow-wrap:break-word; unicode-bidi:plaintext; }
 .nav-dropdown-empty { grid-column:1 / -1; padding:10px; color:var(--slate); font-size:12px; text-align:center; }
-.header-end { display:flex; align-items:center; gap:10px; }
+.header-end { display:flex; align-items:center; gap:10px; margin-inline-start:auto; }
 .header-actions { display:flex; align-items:center; gap:9px; }
 .header-actions .btn { gap:7px; }
 /* Contact, from tablet up. Below 767px the bottom bar carries the same sheet,
