@@ -4,7 +4,7 @@ test("customer can navigate the public storefront", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("heading", { name: /چیزی که در جهان می.?خواهید/i })).toBeVisible();
-  await page.getByRole("link", { name: "گیفت‌کارت‌ها" }).click();
+  await page.getByRole("navigation", { name: "منوی اصلی" }).getByRole("link", { name: "گیفت‌کارت‌ها" }).click();
   await expect(page).toHaveURL(/\/gift-cards$/u);
   await expect(page.getByRole("heading", { name: "گیفت‌کارت‌ها", level: 1 })).toBeVisible();
 });
@@ -290,6 +290,88 @@ test.describe("mobile bottom navigation", () => {
   });
 });
 
+test.describe("mobile navigation drawer", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
+
+  test("collapses the header search and nav behind a top-right trigger", async ({ page }) => {
+    await page.goto("/");
+
+    await expect(page.getByRole("banner").getByRole("searchbox", { name: "جست‌وجوی گیفت‌کارت یا برند" })).toBeHidden();
+    await expect(page.getByRole("navigation", { name: "منوی اصلی" })).toBeHidden();
+
+    const trigger = page.getByRole("button", { name: "باز کردن منو" });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+
+    const drawer = page.getByRole("dialog", { name: "منوی ناوبری" });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole("searchbox", { name: "جست‌وجوی گیفت‌کارت یا برند" })).toBeVisible();
+    await expect(drawer.getByRole("link", { name: "گیفت‌کارت‌ها" })).toBeVisible();
+    await expect(drawer.getByRole("link", { name: "پرداخت بین‌المللی" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+
+  test("the search field sends a customer straight into a filtered catalog", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "باز کردن منو" }).click();
+    const drawer = page.getByRole("dialog", { name: "منوی ناوبری" });
+    await drawer.getByRole("searchbox", { name: "جست‌وجوی گیفت‌کارت یا برند" }).fill("استیم");
+    await drawer.getByRole("button", { name: "جست‌وجو" }).click();
+
+    await expect(page).toHaveURL(/\/gift-cards\?q=/u);
+    await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("استیم");
+    await expect(drawer).toBeHidden();
+  });
+
+  test("categories and brands expand as accordions and land in the filtered catalog", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "باز کردن منو" }).click();
+    const drawer = page.getByRole("dialog", { name: "منوی ناوبری" });
+
+    const categoriesGroup = drawer.locator(".mobile-nav-drawer-group", { hasText: "دسته‌بندی‌ها" });
+    await expect(categoriesGroup.getByRole("link", { name: /بازی و گیم/u })).toBeHidden();
+    await categoriesGroup.locator("summary").click();
+    await categoriesGroup.getByRole("link", { name: /بازی و گیم/u }).click();
+
+    await expect(drawer).toBeHidden();
+    await expect(page).toHaveURL(/[?&]category=gaming/u);
+  });
+
+  test("closes on Escape, on the backdrop, and via the close button", async ({ page }) => {
+    await page.goto("/");
+
+    const drawer = page.getByRole("dialog", { name: "منوی ناوبری" });
+    const openDrawer = async () => {
+      await page.getByRole("button", { name: "باز کردن منو" }).click();
+      await expect(drawer).toBeVisible();
+    };
+
+    await openDrawer();
+    await drawer.getByRole("button", { name: "بستن منو" }).click();
+    await expect(drawer).toBeHidden();
+
+    await openDrawer();
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+
+    await openDrawer();
+    /* A click on the backdrop lands on the dialog element itself. */
+    await page.mouse.click(10, 10);
+    await expect(drawer).toBeHidden();
+  });
+
+  test("disappears at 768px, where the desktop header nav takes over", async ({ page }) => {
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.goto("/");
+
+    await expect(page.getByRole("button", { name: "باز کردن منو" })).toBeHidden();
+    await expect(page.getByRole("navigation", { name: "منوی اصلی" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+});
+
 test.describe("tablet and desktop navigation", () => {
   test("the bottom bar is gone at 768px, and the header nav is back", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 1024 });
@@ -430,6 +512,21 @@ test.describe("tablet and desktop navigation", () => {
     const sitemap = page.getByRole("navigation", { name: "نقشه سایت" });
     await expect(sitemap.getByRole("link", { name: "پیگیری سفارش" })).toHaveAttribute("href", "/orders");
     await expect(sitemap.getByRole("link", { name: "راهنما" })).toHaveAttribute("href", "/help");
+  });
+
+  test("the footer sitemap lists every live section, stacked vertically", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const sitemap = page.getByRole("navigation", { name: "نقشه سایت" });
+    await expect(sitemap.getByRole("link", { name: "گیفت‌کارت‌ها" })).toHaveAttribute("href", "/gift-cards");
+    await expect(sitemap.getByRole("link", { name: "پرداخت بین‌المللی" })).toHaveAttribute("href", "/services");
+    await expect(sitemap.getByRole("link", { name: "برندها" })).toHaveAttribute("href", "/brands");
+    /* No session cookie is set, so the sitemap's account link points at login, not the panel. */
+    await expect(sitemap.getByRole("link", { name: "ورود" })).toHaveAttribute("href", "/login");
+
+    const flexDirection = await sitemap.evaluate((element) => getComputedStyle(element).flexDirection);
+    expect(flexDirection).toBe("column");
   });
 });
 
