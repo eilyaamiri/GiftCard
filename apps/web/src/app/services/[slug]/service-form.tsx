@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Label, Select, Textarea, FormMessage, Ltr } from "@barat/ui";
 import { Info } from "lucide-react";
@@ -31,7 +32,7 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-export function ServiceForm({ service }: { readonly service: InternationalServiceDto }) {
+export function ServiceForm({ service, children }: { readonly service: InternationalServiceDto; readonly children?: ReactNode }) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -206,6 +207,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
           {submitting ? "در حال محاسبه قیمت..." : "دریافت قیمت"}
         </button>
       </form>
+      {children}
     </main>
   );
 }

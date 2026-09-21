@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ErrorState } from "@barat/ui";
-import { api, ApiClientError } from "@/lib/api";
+import { ApiClientError } from "@/lib/api";
+import { listAllServices } from "@/lib/all-services";
+import { ServiceInformation } from "@/components/service-information";
 import { ServiceForm } from "./service-form";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +18,7 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
 
   let items;
   try {
-    ({ items } = await api.services());
+    items = await listAllServices();
   } catch (error) {
     return (
       <main className="page container" style={{ maxWidth: 560 }}>
@@ -32,5 +34,5 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
   const service = items.find((item) => item.slug === slug);
   if (!service) notFound();
 
-  return <ServiceForm service={service} />;
+  return <ServiceForm service={service}><ServiceInformation slug={service.slug} /></ServiceForm>;
 }
