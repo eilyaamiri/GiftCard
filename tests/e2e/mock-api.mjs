@@ -4,6 +4,7 @@ const now = "2026-09-18T12:00:00.000Z";
 const later = "2026-09-18T12:15:00.000Z";
 
 const categories = [
+  { id: "category-popular", slug: "popular", name: "Popular", nameFa: "عمومی و پرکاربرد", iconKey: "sparkles", descriptionFa: null, parentId: null, sortOrder: 0, productCount: 3 },
   { id: "category-gaming", slug: "gaming", name: "Gaming", nameFa: "بازی و گیم", iconKey: "gamepad-2", descriptionFa: null, parentId: null, sortOrder: 1, productCount: 1 },
   { id: "category-shopping", slug: "shopping", name: "Shopping", nameFa: "فروشگاهی و خرید", iconKey: "shopping-bag", descriptionFa: null, parentId: null, sortOrder: 2, productCount: 1 },
   { id: "category-entertainment", slug: "entertainment", name: "Entertainment", nameFa: "سرگرمی و استریم", iconKey: "clapperboard", descriptionFa: null, parentId: null, sortOrder: 3, productCount: 1 },
@@ -40,6 +41,30 @@ const products = [
     descriptionFa: null, category: "Entertainment", imageUrl: null, isActive: true,
     sortOrder: 3, regions: [], createdAt: now,
     brandSlug: "spotify", brandNameFa: "اسپاتیفای", categorySlug: "entertainment", categoryNameFa: "سرگرمی و استریم", categoryIconKey: "clapperboard",
+    needsReview: true, isQuickPick: false,
+  },
+  /* The landing-page strip's source category: two orderable products (one
+   * curated as a quick pick, so it sorts first) plus one still missing data,
+   * to prove the strip excludes what a customer can't actually buy. */
+  {
+    id: "product-google-play", slug: "google-play", brand: "Google", title: "Google Play Gift Card", titleFa: "گیفت‌کارت گوگل‌پلی", description: null,
+    descriptionFa: null, category: "General", imageUrl: null, isActive: true,
+    sortOrder: 4, regions: ["US"], createdAt: now,
+    brandSlug: "google", brandNameFa: "گوگل", categorySlug: "popular", categoryNameFa: "عمومی و پرکاربرد", categoryIconKey: "sparkles",
+    needsReview: false, isQuickPick: true,
+  },
+  {
+    id: "product-amazon", slug: "amazon-us", brand: "Amazon", title: "Amazon Gift Card", titleFa: "گیفت‌کارت آمازون", description: null,
+    descriptionFa: null, category: "General", imageUrl: null, isActive: true,
+    sortOrder: 5, regions: ["US"], createdAt: now,
+    brandSlug: "amazon", brandNameFa: "آمازون", categorySlug: "popular", categoryNameFa: "عمومی و پرکاربرد", categoryIconKey: "sparkles",
+    needsReview: false, isQuickPick: false,
+  },
+  {
+    id: "product-itunes", slug: "itunes-us", brand: "iTunes", title: "iTunes Gift Card", titleFa: "گیفت‌کارت آیتیونز", description: null,
+    descriptionFa: null, category: "General", imageUrl: null, isActive: true,
+    sortOrder: 6, regions: [], createdAt: now,
+    brandSlug: "itunes", brandNameFa: "آیتیونز", categorySlug: "popular", categoryNameFa: "عمومی و پرکاربرد", categoryIconKey: "sparkles",
     needsReview: true, isQuickPick: false,
   },
 ];

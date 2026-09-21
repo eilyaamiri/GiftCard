@@ -87,11 +87,14 @@ export function SiteChrome({
     <>
       <header className="header">
         <div className="container header-topbar">
-          <MobileNavDrawer categories={categories} brands={brands} />
+          <div className="mobile-brand">
+            <MobileNavDrawer categories={categories} brands={brands} />
+            <span className="mobile-brand-word" aria-hidden="true">برات</span>
+          </div>
 
           <Link href="/" className="logo" aria-label="برات، صفحه اصلی">
             <span className="logo-mark">ب</span>
-            <span>برات</span>
+            <span className="logo-word">برات</span>
           </Link>
 
           {/* A plain GET form: the query lives in the URL like every other

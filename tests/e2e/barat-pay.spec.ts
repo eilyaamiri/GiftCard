@@ -52,8 +52,9 @@ test.describe("catalog taxonomy", () => {
   test("a product still missing data is listed but cannot be bought", async ({ page }) => {
     await page.goto("/gift-cards");
 
-    await expect(page.getByText("گیفت‌کارت اسپاتیفای")).toBeVisible();
-    await expect(page.getByText("فعلاً قابل سفارش نیست")).toBeVisible();
+    const spotifyCard = page.locator(".catalog-card-off", { hasText: "گیفت‌کارت اسپاتیفای" });
+    await expect(spotifyCard).toBeVisible();
+    await expect(spotifyCard.getByText("فعلاً قابل سفارش نیست")).toBeVisible();
     await expect(page.getByRole("link", { name: /گیفت‌کارت اسپاتیفای/i })).toHaveCount(0);
   });
 
@@ -538,6 +539,64 @@ test("the homepage offers a row of category tiles below the hero", async ({ page
   await expect(tile).toBeVisible();
   await tile.click();
   await expect(page).toHaveURL(/\/gift-cards\?category=gaming$/u);
+});
+
+test.describe("homepage featured strip", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("shows only orderable «عمومی و پرکاربرد» products, quick pick first, between the category tiles and the three-step section", async ({ page }) => {
+    await page.goto("/");
+
+    const featured = page.locator("section", { has: page.getByRole("heading", { name: "شروع‌های مطمئن" }) });
+    await expect(featured.getByRole("link", { name: /گیفت‌کارت گوگل‌پلی/i })).toBeVisible();
+    await expect(featured.getByRole("link", { name: /گیفت‌کارت آمازون/i })).toBeVisible();
+    // Still missing data, and from other categories — neither belongs on the strip.
+    await expect(featured.getByRole("link", { name: /گیفت‌کارت آیتیونز/i })).toHaveCount(0);
+    await expect(featured.getByRole("link", { name: /گیفت‌کارت استیم/i })).toHaveCount(0);
+    await expect(featured.getByRole("link", { name: /گیفت‌کارت اپل/i })).toHaveCount(0);
+
+    const cards = featured.locator(".product-grid").getByRole("link");
+    await expect(cards.nth(0)).toContainText("گوگل‌پلی");
+    await expect(cards.nth(1)).toContainText("آمازون");
+
+    const sectionHeadings = await page.locator("main > section h2").allTextContents();
+    expect(sectionHeadings).toEqual(["شروع‌های مطمئن", "سه قدم تا مقصد"]);
+  });
+
+  test("puts the three value cards last, right before the footer", async ({ page }) => {
+    await page.goto("/");
+
+    const lastSection = page.locator("main > section").last();
+    await expect(lastSection.locator(".value-grid")).toBeVisible();
+    await expect(lastSection.getByRole("heading", { name: "قیمت، قبل از تصمیم" })).toBeVisible();
+    await expect(lastSection.getByRole("heading", { name: "پیگیری تا پایان" })).toBeVisible();
+  });
+});
+
+test.describe("mobile header brand mark", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
+
+  test("shows only the logo mark up top; the wordmark moves next to the drawer trigger", async ({ page }) => {
+    await page.goto("/");
+
+    const logo = page.getByRole("link", { name: "برات، صفحه اصلی" });
+    await expect(logo).toBeVisible();
+    await expect(logo.locator(".logo-word")).toBeHidden();
+
+    const wordmark = page.locator(".mobile-brand-word");
+    await expect(wordmark).toBeVisible();
+    await expect(wordmark).toHaveText("برات");
+  });
+});
+
+test.describe("desktop header brand mark", () => {
+  test("keeps the full wordmark next to the icon, and hides the mobile grouping", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    await expect(page.getByRole("link", { name: "برات، صفحه اصلی" }).locator(".logo-word")).toBeVisible();
+    await expect(page.locator(".mobile-brand-word")).toBeHidden();
+  });
 });
 
 test.describe("mobile RTL storefront", () => {

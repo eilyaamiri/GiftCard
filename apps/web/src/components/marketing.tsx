@@ -5,12 +5,17 @@ import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CategoryIcon } from "@/components/category-icon";
 
-const FEATURED_COUNT = 4;
+const FEATURED_COUNT = 8;
+/**
+ * The category the landing-page strip is curated from. Matched by name, not
+ * slug — the slug this category is seeded under differs by environment.
+ */
+const FEATURED_CATEGORY_NAME_FA = "عمومی و پرکاربرد";
 
 /**
  * The category row under the hero.
  *
- * Same graceful-degradation shape as `featuredProducts`: a catalog hiccup
+ * Same graceful-degradation shape as `catalogProducts`: a catalog hiccup
  * hides the row rather than breaking the landing page.
  */
 async function homeCategories(): Promise<readonly Category[]> {
@@ -24,19 +29,12 @@ async function homeCategories(): Promise<readonly Category[]> {
 }
 
 /**
- * The cards on the landing page.
- *
- * «نمایش در انتخاب سریع» is a flag an operator sets per product, so the strip
- * is curated from the panel rather than being whatever the catalog happens to
- * return first. With nothing flagged — or fewer than four — the rest of the
- * page fills in behind them, so the section is never half empty.
+ * Every catalog product; degrades the same way `homeCategories` does.
  */
-async function featuredProducts(): Promise<readonly CatalogProduct[]> {
+async function catalogProducts(): Promise<readonly CatalogProduct[]> {
   try {
     const { items } = await api.products();
-    const quickPicks = items.filter((product) => product.isQuickPick);
-    const rest = items.filter((product) => !product.isQuickPick);
-    return [...quickPicks, ...rest].slice(0, FEATURED_COUNT);
+    return items;
   } catch (error) {
     // Marketing homepage degrades gracefully — a catalog hiccup should never
     // take the whole landing page down with it.
@@ -45,8 +43,33 @@ async function featuredProducts(): Promise<readonly CatalogProduct[]> {
   }
 }
 
+/**
+ * The cards on the landing page.
+ *
+ * Scoped to «عمومی و پرکاربرد» and to what a customer can actually buy today
+ * — the same `orderable` rule `CatalogProductCard` renders by — so the first
+ * thing a visitor sees is never a disabled "فعلاً قابل سفارش نیست" card.
+ * Within that pool, «نمایش در انتخاب سریع» is a flag an operator sets per
+ * product, so the strip is curated from the panel rather than being whatever
+ * the catalog happens to return first.
+ */
+function featuredProducts(
+  products: readonly CatalogProduct[],
+  categories: readonly Category[],
+): readonly CatalogProduct[] {
+  const categorySlug = categories.find((category) => category.nameFa === FEATURED_CATEGORY_NAME_FA)?.slug;
+  if (categorySlug === undefined) return [];
+  const eligible = products.filter(
+    (product) => product.categorySlug === categorySlug && !product.needsReview && product.regions.length > 0,
+  );
+  const quickPicks = eligible.filter((product) => product.isQuickPick);
+  const rest = eligible.filter((product) => !product.isQuickPick);
+  return [...quickPicks, ...rest].slice(0, FEATURED_COUNT);
+}
+
 export async function HomePage() {
-  const [products, categories] = await Promise.all([featuredProducts(), homeCategories()]);
+  const [allProducts, categories] = await Promise.all([catalogProducts(), homeCategories()]);
+  const products = featuredProducts(allProducts, categories);
   return (
     <>
       <main>
@@ -95,25 +118,6 @@ export async function HomePage() {
             </div>
           </section>
         ) : null}
-        <section className="container section">
-          <div className="grid value-grid">
-            <div className="card value">
-              <div className="value-icon"><Sparkles /></div>
-              <h3>قیمت، قبل از تصمیم</h3>
-              <p>قیمت نهایی را همان لحظه می‌بینید؛ بدون هزینه پنهان و غافلگیری.</p>
-            </div>
-            <div className="card value">
-              <div className="value-icon"><Globe2 /></div>
-              <h3>برای دنیای واقعی</h3>
-              <p>از اپل و استیم تا ابزارهای کاری و آموزشی؛ سرویس مورد نیازتان را پیدا کنید.</p>
-            </div>
-            <div className="card value">
-              <div className="value-icon"><LockKeyhole /></div>
-              <h3>پیگیری تا پایان</h3>
-              <p>هر سفارش یک مسیر روشن دارد. وضعیت را آنلاین ببینید و با ما در تماس باشید.</p>
-            </div>
-          </div>
-        </section>
         {products.length > 0 ? (
           <section className="container section">
             <div className="section-head">
@@ -150,6 +154,25 @@ export async function HomePage() {
               <span className="step-num">تحویل</span>
               <h3>با خیال راحت تحویل بگیرید</h3>
               <p className="muted">پرداخت را انجام دهید و وضعیت سفارش را از پنل خود دنبال کنید.</p>
+            </div>
+          </div>
+        </section>
+        <section className="container section">
+          <div className="grid value-grid">
+            <div className="card value">
+              <div className="value-icon"><Sparkles /></div>
+              <h3>قیمت، قبل از تصمیم</h3>
+              <p>قیمت نهایی را همان لحظه می‌بینید؛ بدون هزینه پنهان و غافلگیری.</p>
+            </div>
+            <div className="card value">
+              <div className="value-icon"><Globe2 /></div>
+              <h3>برای دنیای واقعی</h3>
+              <p>از اپل و استیم تا ابزارهای کاری و آموزشی؛ سرویس مورد نیازتان را پیدا کنید.</p>
+            </div>
+            <div className="card value">
+              <div className="value-icon"><LockKeyhole /></div>
+              <h3>پیگیری تا پایان</h3>
+              <p>هر سفارش یک مسیر روشن دارد. وضعیت را آنلاین ببینید و با ما در تماس باشید.</p>
             </div>
           </div>
         </section>
