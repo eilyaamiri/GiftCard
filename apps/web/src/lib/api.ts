@@ -317,7 +317,7 @@ export const api = {
   product: (slug: string) => request<GetCatalogProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getCatalogProductResponseSchema),
   categories: () => request<ListCategoriesResponse>("/api/catalog/categories", undefined, listCategoriesResponseSchema),
   brands: () => request<ListBrandsResponse>("/api/catalog/brands", undefined, listBrandsResponseSchema),
-  services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
+  services: (page = 1, pageSize = 20) => request<ListServicesResponse>(`/api/catalog/services?page=${page}&pageSize=${pageSize}`, undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),
   paymentReceiptStatus: (number: string) =>

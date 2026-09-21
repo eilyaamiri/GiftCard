@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 
 const now = "2026-09-18T12:00:00.000Z";
 const later = "2026-09-18T12:15:00.000Z";
@@ -83,6 +84,10 @@ const services = [{
   id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false,
   fields: [{ id: "field-invoice", key: "invoiceNumber", label: "Invoice number", labelFa: "شماره فاکتور", fieldType: "TEXT", isRequired: true, validationRegex: null, helpTextFa: "شمارهٔ فاکتور را از صفحهٔ پرداخت کپی کنید.", options: null, sortOrder: 0 }],
 }];
+const documentServices = JSON.parse(readFileSync(new URL("../../packages/database/prisma/international-services.json", import.meta.url), "utf8"));
+services.push(...documentServices.map((entry) => ({ ...services[0], ...entry,
+  id: `content_service_${entry.sourceId.toLowerCase()}`, requiresManualReview: true,
+})));
 
 function quoteFor(body = {}) {
   const service = Boolean(body.serviceId);
@@ -218,7 +223,11 @@ createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/api/catalog/products/steam-wallet") return json(response, 200, { product: steam });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/apple-us") return json(response, 200, { product: { ...products[1], redemptionNotesFa: null, skus: [] } });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/spotify-premium") return json(response, 200, { product: { ...products[2], redemptionNotesFa: null, skus: [] } });
-  if (request.method === "GET" && url.pathname === "/api/catalog/services") return json(response, 200, { items: services, meta: { page: 1, pageSize: 20, total: services.length, totalPages: 1 } });
+  if (request.method === "GET" && url.pathname === "/api/catalog/services") {
+    const page = Number(url.searchParams.get("page") ?? 1);
+    const pageSize = Number(url.searchParams.get("pageSize") ?? 20);
+    return json(response, 200, { items: services.slice((page - 1) * pageSize, page * pageSize), meta: { page, pageSize, total: services.length, totalPages: Math.ceil(services.length / pageSize) } });
+  }
   if (request.method === "GET" && url.pathname === "/api/quotes/quote-e2e-001") return json(response, 200, { quote: quoteFor().quote });
   if (request.method === "POST" && url.pathname === "/api/quotes") {
     let text = "";
