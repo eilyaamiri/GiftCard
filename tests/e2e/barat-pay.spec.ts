@@ -356,6 +356,91 @@ test.describe("tablet and desktop navigation", () => {
     /* The hours an admin typed travel with the number. */
     await expect(phone).toContainText("شنبه تا چهارشنبه، ۹ تا ۱۷");
   });
+
+  test("the header search bar sends a customer straight into a filtered catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const search = page.getByRole("banner").getByRole("searchbox", { name: "جست‌وجوی گیفت‌کارت یا برند" });
+    await search.fill("استیم");
+    await search.press("Enter");
+
+    await expect(page).toHaveURL(/\/gift-cards\?q=/u);
+    await expect.poll(() => new URL(page.url()).searchParams.get("q")).toBe("استیم");
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+  });
+
+  test("the header's category dropdown opens a menu and lands in the filtered catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    const trigger = nav.getByRole("button", { name: "دسته‌بندی‌ها" });
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+
+    await trigger.click();
+    const menu = nav.getByRole("menu");
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    await expect(menu.getByRole("menuitem", { name: /بازی و گیم/u })).toBeVisible();
+
+    await menu.getByRole("menuitem", { name: /بازی و گیم/u }).click();
+    await expect(page).toHaveURL(/\/gift-cards\?category=gaming$/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+  });
+
+  test("the header's brand dropdown opens a menu and lands in the filtered catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    await nav.getByRole("button", { name: "برندها" }).click();
+    const menu = nav.getByRole("menu");
+    await menu.getByRole("menuitem", { name: /استیم/u }).click();
+
+    await expect(page).toHaveURL(/\/gift-cards\?brand=steam$/u);
+    await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
+  });
+
+  test("a header dropdown closes on Escape and on an outside click", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    const trigger = nav.getByRole("button", { name: "دسته‌بندی‌ها" });
+
+    await trigger.click();
+    await expect(nav.getByRole("menu")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(nav.getByRole("menu")).toBeHidden();
+
+    await trigger.click();
+    await expect(nav.getByRole("menu")).toBeVisible();
+    await page.mouse.click(10, 10);
+    await expect(nav.getByRole("menu")).toBeHidden();
+  });
+
+  test("order tracking and help moved out of the header, into the footer sitemap", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    await expect(nav.getByRole("link", { name: "پیگیری سفارش" })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "راهنما" })).toHaveCount(0);
+
+    const sitemap = page.getByRole("navigation", { name: "نقشه سایت" });
+    await expect(sitemap.getByRole("link", { name: "پیگیری سفارش" })).toHaveAttribute("href", "/orders");
+    await expect(sitemap.getByRole("link", { name: "راهنما" })).toHaveAttribute("href", "/help");
+  });
+});
+
+test("the homepage offers a row of category tiles below the hero", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/");
+
+  const tile = page.getByRole("link", { name: "بازی و گیم" });
+  await expect(tile).toBeVisible();
+  await tile.click();
+  await expect(page).toHaveURL(/\/gift-cards\?category=gaming$/u);
 });
 
 test.describe("mobile RTL storefront", () => {
