@@ -1,10 +1,27 @@
 import Link from "next/link";
 import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
-import type { CatalogProduct } from "@/lib/catalog";
+import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
+import { CategoryIcon } from "@/components/category-icon";
 
 const FEATURED_COUNT = 4;
+
+/**
+ * The category row under the hero.
+ *
+ * Same graceful-degradation shape as `featuredProducts`: a catalog hiccup
+ * hides the row rather than breaking the landing page.
+ */
+async function homeCategories(): Promise<readonly Category[]> {
+  try {
+    const { items } = await api.categories();
+    return items;
+  } catch (error) {
+    if (error instanceof ApiClientError) return [];
+    throw error;
+  }
+}
 
 /**
  * The cards on the landing page.
@@ -29,7 +46,7 @@ async function featuredProducts(): Promise<readonly CatalogProduct[]> {
 }
 
 export async function HomePage() {
-  const products = await featuredProducts();
+  const [products, categories] = await Promise.all([featuredProducts(), homeCategories()]);
   return (
     <>
       <main>
@@ -60,6 +77,24 @@ export async function HomePage() {
             </div>
           </div>
         </section>
+        {categories.length > 0 ? (
+          <section className="container category-tiles-section">
+            <div className="category-tiles">
+              {categories.map((category) => (
+                <Link
+                  key={category.id}
+                  href={`/gift-cards?category=${encodeURIComponent(category.slug)}`}
+                  className="category-tile"
+                >
+                  <span className="category-tile-icon" aria-hidden="true">
+                    <CategoryIcon iconKey={category.iconKey} size={26} />
+                  </span>
+                  <span className="category-tile-label">{category.nameFa}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
+        ) : null}
         <section className="container section">
           <div className="grid value-grid">
             <div className="card value">

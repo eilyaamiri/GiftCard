@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CircleUserRound, Headphones, Phone, ShoppingBag } from "lucide-react";
+import { CircleUserRound, Headphones, Phone, Search, ShoppingBag } from "lucide-react";
 import type { CustomerDto } from "@barat/contracts";
+import { CategoryIcon } from "@/components/category-icon";
 import { ContactSheet } from "@/components/contact-sheet";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { NavDropdown } from "@/components/nav-dropdown";
+import type { Brand, Category } from "@/lib/catalog";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 
 function profileLabel(customer: CustomerDto): string {
@@ -34,10 +37,14 @@ function profileLabel(customer: CustomerDto): string {
 export function SiteChrome({
   customer,
   supportChannels,
+  categories,
+  brands,
   children,
 }: Readonly<{
   customer: CustomerDto | null;
   supportChannels: readonly SupportChannel[];
+  categories: readonly Category[];
+  brands: readonly Brand[];
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
@@ -70,18 +77,25 @@ export function SiteChrome({
   return (
     <>
       <header className="header">
-        <div className="container header-inner">
+        <div className="container header-topbar">
           <Link href="/" className="logo" aria-label="برات، صفحه اصلی">
             <span className="logo-mark">ب</span>
             <span>برات</span>
           </Link>
 
-          <nav className="nav" aria-label="منوی اصلی">
-            <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
-            <Link href="/services" aria-current={pathname.startsWith("/services") ? "page" : undefined}>پرداخت بین‌المللی</Link>
-            <Link href="/orders" aria-current={pathname.startsWith("/orders") ? "page" : undefined}>پیگیری سفارش</Link>
-            <Link href="/help" aria-current={pathname === "/help" ? "page" : undefined}>راهنما</Link>
-          </nav>
+          {/* A plain GET form: the query lives in the URL like every other
+              catalog filter, so it works before any JavaScript has loaded. */}
+          <form action="/gift-cards" method="get" className="header-search" role="search" aria-label="جست‌وجوی سریع">
+            <Search size={17} aria-hidden="true" />
+            <input
+              type="search"
+              name="q"
+              maxLength={120}
+              placeholder="جست‌وجوی گیفت‌کارت یا برند"
+              aria-label="جست‌وجوی گیفت‌کارت یا برند"
+            />
+            <button type="submit" className="btn btn-teal header-search-submit">جست‌وجو</button>
+          </form>
 
           <div className="header-end">
             {supportChannels.length > 0 ? (
@@ -116,6 +130,34 @@ export function SiteChrome({
             )}
           </div>
         </div>
+
+        <div className="header-navbar">
+          <div className="container header-navbar-inner">
+            <nav className="nav" aria-label="منوی اصلی">
+              <NavDropdown
+                label="دسته‌بندی‌ها"
+                emptyLabel="دسته‌بندی‌ای موجود نیست"
+                items={categories.map((category) => ({
+                  key: category.id,
+                  label: category.nameFa,
+                  href: `/gift-cards?category=${encodeURIComponent(category.slug)}`,
+                  icon: <CategoryIcon iconKey={category.iconKey} size={15} />,
+                }))}
+              />
+              <NavDropdown
+                label="برندها"
+                emptyLabel="برندی موجود نیست"
+                items={brands.map((brand) => ({
+                  key: brand.id,
+                  label: brand.nameFa,
+                  href: `/gift-cards?brand=${encodeURIComponent(brand.slug)}`,
+                }))}
+              />
+              <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
+              <Link href="/services" aria-current={pathname.startsWith("/services") ? "page" : undefined}>پرداخت بین‌المللی</Link>
+            </nav>
+          </div>
+        </div>
       </header>
 
       {children}
@@ -139,6 +181,10 @@ export function SiteChrome({
           ) : (
             <div className="footer-support"><Headphones size={16} /> پشتیبانی همه‌روزه · پاسخ‌گویی سریع</div>
           )}
+          <nav className="footer-sitemap" aria-label="نقشه سایت">
+            <Link href="/orders">پیگیری سفارش</Link>
+            <Link href="/help">راهنما</Link>
+          </nav>
           <div>© ۱۴۰۵ برات</div>
         </div>
       </footer>

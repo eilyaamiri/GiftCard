@@ -12,6 +12,7 @@ import {
 import { formatCount } from "../_lib/format";
 import { CategoryIcon } from "./category-icon";
 import { ToggleActiveButton } from "./toggle-active-button";
+import { ToggleQuickPickButton } from "./toggle-quick-pick-button";
 
 /**
  * The product list, with a checkbox per row.
@@ -123,6 +124,7 @@ export function ProductTable({
               <th>دسته‌بندی</th>
               <th>تعداد SKU</th>
               <th>وضعیت</th>
+              <th>صفحهٔ اول</th>
               <th></th>
             </tr>
           </thead>
@@ -162,6 +164,14 @@ export function ProductTable({
                 <td>
                   <span className={`badge ${product.isActive ? "badge-success" : "badge-danger"}`}>
                     {product.isActive ? "فعال" : "غیرفعال"}
+                  </span>
+                </td>
+                <td>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    <span className={`badge ${product.isQuickPick ? "badge-success" : "badge-danger"}`}>
+                      {product.isQuickPick ? "نمایش داده می‌شود" : "نمایش داده نمی‌شود"}
+                    </span>
+                    <ToggleQuickPickButton productId={product.id} isQuickPick={product.isQuickPick} />
                   </span>
                 </td>
                 <td>
