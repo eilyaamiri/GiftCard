@@ -174,6 +174,15 @@ createServer(async (request, response) => {
       : json(response, 200, { customer: null, isAuthenticated: false });
   }
   if (request.method === "GET" && url.pathname === "/api/support/channels") return json(response, 200, { items: supportChannels });
+  if (request.method === "GET" && url.pathname === "/api/account/orders") {
+    if (!signedIn(request)) return json(response, 401, { code: "UNAUTHORIZED", message: "Unauthorized" });
+    const items = [...orders.values()].map((order) => ({
+      id: order.id, orderNumber: order.orderNumber, status: order.status,
+      totalAmountIrr: order.totalAmountIrr, displayAmountToman: order.displayAmountToman, currency: order.currency,
+      createdAt: order.createdAt, paidAt: order.paidAt, fulfilledAt: order.fulfilledAt,
+    }));
+    return json(response, 200, { items, meta: { page: 1, pageSize: 10, total: items.length, totalPages: 1 } });
+  }
   const orderRoute = /^\/api\/orders\/([^/]+)(\/cancel)?$/u.exec(url.pathname);
   if (orderRoute) {
     const order = orders.get(decodeURIComponent(orderRoute[1]));

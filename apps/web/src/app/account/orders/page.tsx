@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Badge, EmptyState, Ltr, formatJalaliDate, toPersianDigits } from "@barat/ui";
-import { PackageSearch } from "lucide-react";
+import { PackageSearch, Plus } from "lucide-react";
 import { AccountNav } from "@/components/account-nav";
 import { orderStatusView } from "@/lib/status";
 import { api } from "@/lib/api";
@@ -24,8 +24,15 @@ export default async function AccountOrdersPage({ searchParams }: { searchParams
 
   return (
     <main className="page container" style={{ maxWidth: 760 }}>
-      <div className="eyebrow">حساب کاربری</div>
-      <h1 className="h2">سفارش‌های من</h1>
+      <div className="section-head">
+        <div>
+          <div className="eyebrow">حساب کاربری</div>
+          <h1 className="h2">سفارش‌های من</h1>
+        </div>
+        <Link className="btn btn-primary" href="/gift-cards">
+          <Plus size={16} /> سفارش جدید
+        </Link>
+      </div>
       <AccountNav />
 
       {orders.items.length === 0 ? (
