@@ -191,6 +191,44 @@ test.describe("payment window on the pro-forma invoice", () => {
   });
 });
 
+test.describe("new-order button on the account orders page", () => {
+  test.beforeEach(async ({ context }) => {
+    await context.addCookies([{ name: "barat_session", value: "e2e", domain: "localhost", path: "/" }]);
+  });
+
+  test("sits beside the heading on desktop, and links to the catalog", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/account/orders");
+
+    const newOrder = page.getByRole("link", { name: "سفارش جدید" });
+    await expect(newOrder).toBeVisible();
+    await expect(newOrder).toHaveAttribute("href", "/gift-cards");
+
+    const sameRow = await page.evaluate(() => {
+      const heading = document.querySelector("main h1")!.getBoundingClientRect();
+      const link = [...document.querySelectorAll("a")].find((a) => a.textContent?.includes("سفارش جدید"))!.getBoundingClientRect();
+      return link.top < heading.bottom && link.bottom > heading.top;
+    });
+    expect(sameRow).toBe(true);
+  });
+
+  test("drops below the heading on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await page.goto("/account/orders");
+
+    const newOrder = page.getByRole("link", { name: "سفارش جدید" });
+    await expect(newOrder).toBeVisible();
+
+    const stacked = await page.evaluate(() => {
+      const heading = document.querySelector("main h1")!.getBoundingClientRect();
+      const link = [...document.querySelectorAll("a")].find((a) => a.textContent?.includes("سفارش جدید"))!.getBoundingClientRect();
+      return link.top > heading.bottom;
+    });
+    expect(stacked).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+});
+
 test.describe("mobile bottom navigation", () => {
   /* 320px is the narrowest phone the storefront supports; the bar has to hold
    * four tabs there without pushing the page sideways. */
