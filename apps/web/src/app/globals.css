@@ -32,7 +32,7 @@ a { color:inherit; text-decoration:none; }
 .header-search input:focus-visible { outline:none; }
 .header-search-submit { min-height:34px; padding:6px 16px; font-size:13px; }
 .header-navbar { border-top:1px solid var(--line); background:#fff; }
-.header-navbar-inner { min-height:46px; display:flex; align-items:center; }
+.header-navbar-inner { min-height:46px; display:flex; align-items:center; justify-content:center; }
 .logo { display:flex; align-items:center; gap:10px; color:var(--navy); font-weight:900; font-size:22px; letter-spacing:-.04em; }
 .logo-mark { width:35px; height:35px; display:grid; place-items:center; border-radius:11px; color:#fff; background:linear-gradient(140deg,var(--navy),var(--teal)); font-weight:900; transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s ease; }
 .logo:hover .logo-mark { transform:rotate(-5deg) scale(1.05); box-shadow:0 7px 16px rgba(11,29,51,.18); }
@@ -46,11 +46,12 @@ a { color:inherit; text-decoration:none; }
 .nav-dropdown-trigger:hover,.nav-dropdown-trigger[aria-expanded=true] { color:var(--teal); }
 .nav-dropdown-trigger svg { transition:transform .18s ease; }
 .nav-dropdown-trigger[aria-expanded=true] svg { transform:rotate(180deg); }
-.nav-dropdown-menu { position:absolute; z-index:30; top:calc(100% + 8px); right:0; width:min(260px,80vw); max-height:360px; overflow-y:auto; display:grid; gap:2px; margin:0; padding:8px; list-style:none; background:#fff; border:1px solid var(--line); border-radius:14px; box-shadow:0 16px 38px rgba(11,29,51,.14); }
-.nav-dropdown-item { display:flex; align-items:center; gap:9px; min-height:40px; padding:7px 10px; color:var(--ink); border-radius:9px; font-size:13px; font-weight:700; transition:background .16s ease,color .16s ease; }
+.nav-dropdown-menu { position:absolute; z-index:30; top:calc(100% + 10px); left:50%; transform:translateX(-50%); width:min(540px,calc(100vw - 32px)); max-height:70vh; overflow-y:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:2px 20px; margin:0; padding:16px; list-style:none; background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 20px 46px rgba(11,29,51,.16); }
+.nav-dropdown-item { display:flex; align-items:center; gap:9px; min-width:0; min-height:40px; padding:7px 10px; color:var(--ink); border-radius:9px; font-size:13px; font-weight:700; transition:background .16s ease,color .16s ease; }
 .nav-dropdown-item:hover,.nav-dropdown-item:focus-visible { color:var(--navy); background:var(--soft); outline:none; }
 .nav-dropdown-item svg { flex:0 0 auto; color:var(--teal); }
-.nav-dropdown-empty { padding:10px; color:var(--slate); font-size:12px; text-align:center; }
+.nav-dropdown-item-label { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.nav-dropdown-empty { grid-column:1 / -1; padding:10px; color:var(--slate); font-size:12px; text-align:center; }
 .header-end { display:flex; align-items:center; gap:10px; }
 .header-actions { display:flex; align-items:center; gap:9px; }
 .header-actions .btn { gap:7px; }
@@ -109,11 +110,12 @@ a { color:inherit; text-decoration:none; }
 .value h3 { font-size:17px; margin:0 0 7px; color:var(--navy); }
 .value p { margin:0; color:var(--slate); line-height:1.85; font-size:14px; }
 .category-tiles-section { padding-block:26px 0; }
-.category-tiles { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; }
-.category-tile { display:flex; flex-direction:column; align-items:center; gap:10px; padding:18px 10px; text-align:center; background:#fff; border:1px solid var(--line); border-radius:16px; transition:transform .2s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease,border-color .2s ease; }
-.category-tile:hover,.category-tile:focus-visible { transform:translateY(-3px); border-color:color-mix(in srgb,var(--teal) 55%,var(--line)); box-shadow:0 14px 28px rgba(11,29,51,.1); outline:none; }
-.category-tile-icon { width:52px; height:52px; display:grid; place-items:center; color:var(--teal); background:var(--mint); border-radius:16px; }
-.category-tile-label { max-width:100%; overflow:hidden; color:var(--ink); font-size:12px; font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
+.category-tiles { display:flex; gap:10px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
+.category-tiles::-webkit-scrollbar { display:none; }
+.category-tile { display:inline-flex; flex:0 0 auto; align-items:center; gap:8px; padding:9px 16px; color:var(--ink); background:#fff; border:1px solid var(--line); border-radius:999px; font-size:13px; font-weight:700; transition:color .18s ease,border-color .18s ease,background-color .18s ease; }
+.category-tile:hover,.category-tile:focus-visible { color:var(--navy); border-color:var(--teal); background:var(--mint); outline:none; }
+.category-tile-icon { display:grid; place-items:center; color:var(--teal); }
+.category-tile-label { white-space:nowrap; }
 .section-head { display:flex; justify-content:space-between; align-items:end; gap:16px; margin-bottom:22px; }
 .product-grid { grid-template-columns:repeat(4,1fr); }
 .product { min-width:0; overflow:hidden; transition:transform .24s cubic-bezier(.2,.8,.2,1), box-shadow .24s ease; }
@@ -216,7 +218,7 @@ a { color:inherit; text-decoration:none; }
 @keyframes hero-content-in { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
 @keyframes signal-in { from { opacity:0; transform:translateX(-18px) rotate(5deg) scale(.97); } to { opacity:1; transform:translateX(0) rotate(2deg) scale(1); } }
 @keyframes hero-rings-in { from { opacity:0; transform:scale(.78); } to { opacity:1; transform:scale(1); } }
-@media (max-width:900px) { .nav { gap:16px; font-size:13px; } .mobile-menu { display:inline-flex; } .hero-inner,.split { grid-template-columns:1fr; } .signal { justify-self:center; width:min(100%,420px); } .value-grid,.steps { grid-template-columns:1fr; } .product-grid { grid-template-columns:repeat(2,1fr); } .category-tiles { grid-template-columns:repeat(4,1fr); } .header-search { max-width:280px; } }
+@media (max-width:900px) { .nav { gap:16px; font-size:13px; } .mobile-menu { display:inline-flex; } .hero-inner,.split { grid-template-columns:1fr; } .signal { justify-self:center; width:min(100%,420px); } .value-grid,.steps { grid-template-columns:1fr; } .product-grid { grid-template-columns:repeat(2,1fr); } .header-search { max-width:280px; } }
 /* The header nav gives way to the bottom bar, and only once the bottom bar is
  * actually there. It used to disappear at 900px while the bar starts at 767px,
  * which left a tablet with no navigation at all. The search bar and the
@@ -234,9 +236,7 @@ a { color:inherit; text-decoration:none; }
   .section { padding-block:42px; }
   .section-head { align-items:start; flex-direction:column; }
   .product-grid,.catalog-grid { grid-template-columns:1fr 1fr; gap:10px; }
-  .category-tiles { grid-template-columns:repeat(3,1fr); gap:10px; }
-  .category-tile { padding:14px 6px; }
-  .category-tile-icon { width:44px; height:44px; border-radius:13px; }
+  .category-tile { padding:8px 13px; font-size:12px; }
   .product-art,.service-art { aspect-ratio:4/3; }
   .catalog-art-plate { width:70%; padding:10px; border-radius:12px; }
   .catalog-art-plate svg { width:25px; height:25px; }

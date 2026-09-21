@@ -70,7 +70,7 @@ export function NavDropdown({
                   onClick={() => setOpen(false)}
                 >
                   {item.icon}
-                  {item.label}
+                  <span className="nav-dropdown-item-label">{item.label}</span>
                 </Link>
               </li>
             ))

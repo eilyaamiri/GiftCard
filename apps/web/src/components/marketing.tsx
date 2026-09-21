@@ -87,7 +87,7 @@ export async function HomePage() {
                   className="category-tile"
                 >
                   <span className="category-tile-icon" aria-hidden="true">
-                    <CategoryIcon iconKey={category.iconKey} size={26} />
+                    <CategoryIcon iconKey={category.iconKey} size={16} />
                   </span>
                   <span className="category-tile-label">{category.nameFa}</span>
                 </Link>
