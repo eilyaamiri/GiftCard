@@ -29,11 +29,14 @@ async function homeCategories(): Promise<readonly Category[]> {
 }
 
 /**
- * Every catalog product; degrades the same way `homeCategories` does.
+ * Products in one category, fetched directly rather than paged through the
+ * whole catalog — the catalog is large enough now that an unfiltered
+ * first page can easily miss this category's products entirely. Degrades
+ * the same way `homeCategories` does.
  */
-async function catalogProducts(): Promise<readonly CatalogProduct[]> {
+async function categoryProducts(categorySlug: string): Promise<readonly CatalogProduct[]> {
   try {
-    const { items } = await api.products();
+    const { items } = await api.products(`categorySlug=${encodeURIComponent(categorySlug)}&pageSize=100`);
     return items;
   } catch (error) {
     // Marketing homepage degrades gracefully — a catalog hiccup should never
@@ -53,23 +56,18 @@ async function catalogProducts(): Promise<readonly CatalogProduct[]> {
  * product, so the strip is curated from the panel rather than being whatever
  * the catalog happens to return first.
  */
-function featuredProducts(
-  products: readonly CatalogProduct[],
-  categories: readonly Category[],
-): readonly CatalogProduct[] {
-  const categorySlug = categories.find((category) => category.nameFa === FEATURED_CATEGORY_NAME_FA)?.slug;
-  if (categorySlug === undefined) return [];
-  const eligible = products.filter(
-    (product) => product.categorySlug === categorySlug && !product.needsReview && product.regions.length > 0,
-  );
+function featuredProducts(products: readonly CatalogProduct[]): readonly CatalogProduct[] {
+  const eligible = products.filter((product) => !product.needsReview && product.regions.length > 0);
   const quickPicks = eligible.filter((product) => product.isQuickPick);
   const rest = eligible.filter((product) => !product.isQuickPick);
   return [...quickPicks, ...rest].slice(0, FEATURED_COUNT);
 }
 
 export async function HomePage() {
-  const [allProducts, categories] = await Promise.all([catalogProducts(), homeCategories()]);
-  const products = featuredProducts(allProducts, categories);
+  const categories = await homeCategories();
+  const featuredCategorySlug = categories.find((category) => category.nameFa === FEATURED_CATEGORY_NAME_FA)?.slug;
+  const categoryItems = featuredCategorySlug === undefined ? [] : await categoryProducts(featuredCategorySlug);
+  const products = featuredProducts(categoryItems);
   return (
     <>
       <main>
