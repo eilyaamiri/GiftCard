@@ -516,6 +516,51 @@ test.describe("tablet and desktop navigation", () => {
     expect(brands.actualCols).toBe(brands.expectedCols);
   });
 
+  test("a long brand list never grows the panel past the trending column; it scrolls in place instead", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+    await nav.getByRole("button", { name: "برندها" }).click();
+    const menu = page.locator(".nav-dropdown-menu");
+    await expect(menu).toBeVisible();
+
+    /* The local fixture only has a handful of brands — nowhere near enough to
+     * overflow the trending column's height. A synthetic long list stands in
+     * for the production catalog (300+ brands) that this fix targets. */
+    await menu.evaluate((el) => {
+      el.innerHTML = Array.from(
+        { length: 200 },
+        (_, i) => `<li role="none"><a role="menuitem" class="nav-dropdown-item" href="#"><span class="nav-dropdown-item-label">Synthetic Brand ${i}</span></a></li>`,
+      ).join("");
+    });
+
+    const { trendingHeight, panelHeight, menuClientHeight, menuScrollHeight } = await page.evaluate(() => ({
+      trendingHeight: document.querySelector(".nav-dropdown-trending")!.getBoundingClientRect().height,
+      panelHeight: document.querySelector(".nav-dropdown-panel")!.getBoundingClientRect().height,
+      menuClientHeight: document.querySelector(".nav-dropdown-menu")!.clientHeight,
+      menuScrollHeight: document.querySelector(".nav-dropdown-menu")!.scrollHeight,
+    }));
+
+    /* The menu has far more rows than fit in the trending column's height, so
+     * it must be clamped (clientHeight well under its own scrollHeight)... */
+    expect(menuScrollHeight).toBeGreaterThan(menuClientHeight + 100);
+    /* ...to (approximately) the trending column's height, not its own content height. */
+    expect(Math.abs(panelHeight - trendingHeight)).toBeLessThan(4);
+
+    const trendingTopBefore = await page.evaluate(
+      () => document.querySelector(".nav-dropdown-trending")!.getBoundingClientRect().top,
+    );
+    await menu.evaluate((el) => { el.scrollTop = 500; });
+    const { trendingTopAfter, menuScrollTop } = await page.evaluate(() => ({
+      trendingTopAfter: document.querySelector(".nav-dropdown-trending")!.getBoundingClientRect().top,
+      menuScrollTop: document.querySelector(".nav-dropdown-menu")!.scrollTop,
+    }));
+    /* Scrolling the long list must not carry the trending column away with it. */
+    expect(menuScrollTop).toBeGreaterThan(0);
+    expect(trendingTopAfter).toBe(trendingTopBefore);
+  });
+
   test("a header dropdown closes on Escape and on an outside click", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");

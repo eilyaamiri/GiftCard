@@ -59,7 +59,7 @@ a { color:inherit; text-decoration:none; }
 .nav-dropdown-trending-item:hover,.nav-dropdown-trending-item:focus-visible { color:var(--navy); background:#fff; outline:none; }
 /* Column count comes from `--nav-dropdown-cols` (set inline, from item
  * count) instead of a hardcoded 3 — see `menuColumnCount` in nav-dropdown.tsx. */
-.nav-dropdown-menu { flex:0 0 auto; min-width:0; display:grid; grid-template-columns:repeat(var(--nav-dropdown-cols,3),minmax(170px,220px)); gap:2px 20px; margin:0; padding:16px; list-style:none; }
+.nav-dropdown-menu { flex:0 0 auto; min-width:0; display:grid; grid-template-columns:repeat(var(--nav-dropdown-cols,3),minmax(170px,220px)); gap:2px 20px; margin:0; padding:16px; list-style:none; max-height:var(--nav-dropdown-menu-max,74vh); overflow-y:auto; }
 /* At the narrow end of the desktop nav's range, 3 full-width (220px) columns
  * plus the trending sidebar no longer fit — narrower columns keep the panel
  * on-screen without falling back to clipped or horizontally-scrolling text. */

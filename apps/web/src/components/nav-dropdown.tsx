@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 
 const MAX_MENU_COLUMNS = 3;
@@ -56,6 +56,8 @@ export function NavDropdown({
 }>) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const trendingRef = useRef<HTMLDivElement>(null);
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -73,6 +75,28 @@ export function NavDropdown({
     };
   }, [open]);
 
+  /*
+   * The trending column is a short, curated shortlist; the main grid can run
+   * to hundreds of rows. Without this, the panel grows to the main grid's
+   * full height instead of the trending column's — capping the menu to match
+   * keeps the popular-brands column fully visible while the long list scrolls
+   * in place beside it.
+   */
+  useLayoutEffect(() => {
+    if (!open || !trendingRef.current) {
+      setMenuMaxHeight(null);
+      return;
+    }
+    const trendingEl = trendingRef.current;
+    function measure() {
+      setMenuMaxHeight(trendingEl.getBoundingClientRect().height);
+    }
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(trendingEl);
+    return () => observer.disconnect();
+  }, [open]);
+
   return (
     <div className="nav-dropdown" ref={rootRef}>
       <button
@@ -88,7 +112,7 @@ export function NavDropdown({
       {open ? (
         <div className="nav-dropdown-panel" role="menu">
           {trending && trending.items.length > 0 ? (
-            <div className="nav-dropdown-trending">
+            <div className="nav-dropdown-trending" ref={trendingRef}>
               <div className="nav-dropdown-trending-heading">{trending.heading}</div>
               <ul className="nav-dropdown-trending-list">
                 {trending.items.map((item) => (
@@ -109,7 +133,10 @@ export function NavDropdown({
           ) : null}
           <ul
             className="nav-dropdown-menu"
-            style={{ "--nav-dropdown-cols": menuColumnCount(items.length) } as CSSProperties}
+            style={{
+              "--nav-dropdown-cols": menuColumnCount(items.length),
+              ...(menuMaxHeight ? { "--nav-dropdown-menu-max": `${menuMaxHeight}px` } : {}),
+            } as CSSProperties}
           >
             {items.length === 0 ? (
               <li className="nav-dropdown-empty">{emptyLabel}</li>
