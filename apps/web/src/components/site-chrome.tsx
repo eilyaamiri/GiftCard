@@ -9,6 +9,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { ContactSheet } from "@/components/contact-sheet";
 import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
 import { NavDropdown } from "@/components/nav-dropdown";
 import type { Brand, Category } from "@/lib/catalog";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
@@ -86,6 +87,8 @@ export function SiteChrome({
     <>
       <header className="header">
         <div className="container header-topbar">
+          <MobileNavDrawer categories={categories} brands={brands} />
+
           <Link href="/" className="logo" aria-label="برات، صفحه اصلی">
             <span className="logo-mark">ب</span>
             <span>برات</span>
@@ -203,8 +206,13 @@ export function SiteChrome({
             <div className="footer-support"><Headphones size={16} /> پشتیبانی همه‌روزه · پاسخ‌گویی سریع</div>
           )}
           <nav className="footer-sitemap" aria-label="نقشه سایت">
+            <div className="footer-sitemap-title">نقشه سایت</div>
+            <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
+            <Link href="/services">پرداخت بین‌المللی</Link>
+            <Link href="/brands">برندها</Link>
             <Link href="/orders">پیگیری سفارش</Link>
             <Link href="/help">راهنما</Link>
+            <Link href={customer ? "/account" : "/login"}>{customer ? "پنل کاربری" : "ورود"}</Link>
           </nav>
           <div>© ۱۴۰۵ برات</div>
         </div>
