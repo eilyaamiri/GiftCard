@@ -1,0 +1,51 @@
+name: Migration replay
+
+on:
+  pull_request:
+    paths:
+      - 'packages/database/**'
+      - '.github/workflows/migration-replay.yml'
+      - 'pnpm-lock.yaml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+          POSTGRES_DB: migration_replay
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d migration_replay"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://postgres@localhost:5432/migration_replay?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.24.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify recovered historical migration
+        run: |
+          echo '777c47a65aa324e40bbae49905952914d4690831bce49147df9c01b06eac584c  packages/database/prisma/migrations/20260831023802_init/migration.sql' | sha256sum --check
+      - name: Apply complete history to an empty disposable database
+        run: pnpm --filter @barat/database exec prisma migrate deploy
+      - name: Verify repeated deployment is a no-op
+        run: pnpm --filter @barat/database exec prisma migrate deploy
+      - name: Compare replayed database with the current schema
+        run: pnpm --filter @barat/database exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
