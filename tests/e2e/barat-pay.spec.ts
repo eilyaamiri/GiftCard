@@ -484,6 +484,38 @@ test.describe("tablet and desktop navigation", () => {
     await expect(page.getByRole("link", { name: /گیفت‌کارت استیم/i })).toBeVisible();
   });
 
+  test("a dropdown menu's column count tracks its own item count, and no label is clipped", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/");
+
+    const nav = page.getByRole("navigation", { name: "منوی اصلی" });
+
+    async function checkMenu(triggerName: string) {
+      await nav.getByRole("button", { name: triggerName }).click();
+      const menu = page.locator(".nav-dropdown-menu");
+      await expect(menu).toBeVisible();
+      const result = await menu.evaluate((el) => {
+        const itemCount = el.querySelectorAll("li[role=none]").length;
+        const expectedCols = Math.min(3, Math.max(1, Math.ceil(itemCount / 8)));
+        const actualCols = Number(getComputedStyle(el).getPropertyValue("--nav-dropdown-cols").trim());
+        const clipped = [...el.querySelectorAll(".nav-dropdown-item-label")].some(
+          (label) => label.scrollWidth > label.clientWidth + 1 || label.scrollHeight > label.clientHeight + 1,
+        );
+        return { itemCount, expectedCols, actualCols, clipped };
+      });
+      await page.keyboard.press("Escape");
+      return result;
+    }
+
+    const categories = await checkMenu("دسته‌بندی‌ها");
+    expect(categories.clipped).toBe(false);
+    expect(categories.actualCols).toBe(categories.expectedCols);
+
+    const brands = await checkMenu("برندها");
+    expect(brands.clipped).toBe(false);
+    expect(brands.actualCols).toBe(brands.expectedCols);
+  });
+
   test("a header dropdown closes on Escape and on an outside click", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");

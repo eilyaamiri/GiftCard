@@ -1,9 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
+
+const MAX_MENU_COLUMNS = 3;
+const ITEMS_PER_COLUMN = 8;
+
+/**
+ * Fewer items should never sit in a panel sized for a much longer list — the
+ * column count scales with the actual item count instead of staying fixed
+ * at 3, so the grid (and the panel around it) shrinks on its own as the
+ * catalog's brand/category counts change.
+ */
+function menuColumnCount(itemCount: number): number {
+  return Math.min(MAX_MENU_COLUMNS, Math.max(1, Math.ceil(itemCount / ITEMS_PER_COLUMN)));
+}
 
 export interface NavDropdownItem {
   readonly key: string;
@@ -94,7 +107,10 @@ export function NavDropdown({
               </ul>
             </div>
           ) : null}
-          <ul className="nav-dropdown-menu">
+          <ul
+            className="nav-dropdown-menu"
+            style={{ "--nav-dropdown-cols": menuColumnCount(items.length) } as CSSProperties}
+          >
             {items.length === 0 ? (
               <li className="nav-dropdown-empty">{emptyLabel}</li>
             ) : (
