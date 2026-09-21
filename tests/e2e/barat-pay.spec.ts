@@ -576,12 +576,10 @@ test.describe("homepage featured strip", () => {
 test.describe("mobile header brand mark", () => {
   test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
 
-  test("shows only the logo mark up top; the wordmark moves next to the drawer trigger", async ({ page }) => {
+  test("drops the top-of-page logo; the wordmark sits next to the drawer trigger instead", async ({ page }) => {
     await page.goto("/");
 
-    const logo = page.getByRole("link", { name: "برات، صفحه اصلی" });
-    await expect(logo).toBeVisible();
-    await expect(logo.locator(".logo-word")).toBeHidden();
+    await expect(page.locator(".header-topbar > .logo")).toBeHidden();
 
     const wordmark = page.locator(".mobile-brand-word");
     await expect(wordmark).toBeVisible();
