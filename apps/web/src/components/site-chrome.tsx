@@ -7,10 +7,14 @@ import { CircleUserRound, Headphones, Phone, Search, ShoppingBag } from "lucide-
 import type { CustomerDto } from "@barat/contracts";
 import { CategoryIcon } from "@/components/category-icon";
 import { ContactSheet } from "@/components/contact-sheet";
+import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { NavDropdown } from "@/components/nav-dropdown";
 import type { Brand, Category } from "@/lib/catalog";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
+
+/** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
+const TRENDING_BRANDS_SHOWN = 8;
 
 function profileLabel(customer: CustomerDto): string {
   const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
@@ -73,6 +77,10 @@ export function SiteChrome({
   );
 
   if (pathname.startsWith("/account")) return <>{children}{contact}</>;
+
+  const popularBrands = brands.filter((brand) => brand.isPopular).slice(0, TRENDING_BRANDS_SHOWN);
+  const popularBrandIds = new Set(popularBrands.map((brand) => brand.id));
+  const restBrands = brands.filter((brand) => !popularBrandIds.has(brand.id));
 
   return (
     <>
@@ -147,7 +155,20 @@ export function SiteChrome({
               <NavDropdown
                 label="برندها"
                 emptyLabel="برندی موجود نیست"
-                items={brands.map((brand) => ({
+                trending={
+                  popularBrands.length > 0
+                    ? {
+                        heading: "محبوب‌ترین‌ها",
+                        items: popularBrands.map((brand) => ({
+                          key: brand.id,
+                          label: brand.nameFa,
+                          href: `/gift-cards?brand=${encodeURIComponent(brand.slug)}`,
+                          icon: <BrandMark brand={brand} size={26} />,
+                        })),
+                      }
+                    : undefined
+                }
+                items={restBrands.map((brand) => ({
                   key: brand.id,
                   label: brand.nameFa,
                   href: `/gift-cards?brand=${encodeURIComponent(brand.slug)}`,

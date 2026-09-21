@@ -36,17 +36,25 @@ a { color:inherit; text-decoration:none; }
 .logo { display:flex; align-items:center; gap:10px; color:var(--navy); font-weight:900; font-size:22px; letter-spacing:-.04em; }
 .logo-mark { width:35px; height:35px; display:grid; place-items:center; border-radius:11px; color:#fff; background:linear-gradient(140deg,var(--navy),var(--teal)); font-weight:900; transition:transform .28s cubic-bezier(.2,.8,.2,1),box-shadow .28s ease; }
 .logo:hover .logo-mark { transform:rotate(-5deg) scale(1.05); box-shadow:0 7px 16px rgba(11,29,51,.18); }
-.nav { display:flex; gap:24px; color:var(--slate); font-size:14px; font-weight:600; }
+.nav { position:relative; display:flex; gap:24px; color:var(--slate); font-size:14px; font-weight:600; }
 .nav a { position:relative; padding-block:8px; transition:color .2s ease; }
 .nav a::after { position:absolute; right:0; bottom:2px; left:0; height:2px; content:""; border-radius:999px; background:var(--teal); transform:scaleX(0); transform-origin:right; transition:transform .24s cubic-bezier(.2,.8,.2,1); }
 .nav a:hover,.nav a[aria-current=page] { color:var(--teal); }
 .nav a:hover::after,.nav a[aria-current=page]::after { transform:scaleX(1); }
-.nav-dropdown { position:relative; }
 .nav-dropdown-trigger { display:inline-flex; align-items:center; gap:5px; padding-block:8px; color:var(--slate); background:none; border:0; cursor:pointer; font:inherit; font-size:14px; font-weight:600; transition:color .2s ease; }
 .nav-dropdown-trigger:hover,.nav-dropdown-trigger[aria-expanded=true] { color:var(--teal); }
 .nav-dropdown-trigger svg { transition:transform .18s ease; }
 .nav-dropdown-trigger[aria-expanded=true] svg { transform:rotate(180deg); }
-.nav-dropdown-menu { position:absolute; z-index:30; top:calc(100% + 10px); left:50%; transform:translateX(-50%); width:min(540px,calc(100vw - 32px)); max-height:70vh; overflow-y:auto; display:grid; grid-template-columns:repeat(3,1fr); gap:2px 20px; margin:0; padding:16px; list-style:none; background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 20px 46px rgba(11,29,51,.16); }
+/* Positioned against `.nav` (the whole bar), not the individual trigger: a
+ * trigger near either edge of the bar would otherwise center a wide panel
+ * partly off-screen, which is what forced the page to scroll sideways. */
+.nav-dropdown-panel { position:absolute; z-index:30; top:calc(100% + 10px); left:50%; transform:translateX(-50%); display:flex; align-items:flex-start; width:min(720px,calc(100vw - 32px)); max-height:74vh; overflow-y:auto; overflow-x:hidden; background:#fff; border:1px solid var(--line); border-radius:16px; box-shadow:0 20px 46px rgba(11,29,51,.16); }
+.nav-dropdown-trending { flex:0 0 190px; min-width:0; padding:16px; background:var(--soft); border-left:1px solid var(--line); }
+.nav-dropdown-trending-heading { margin:0 0 8px; padding:0 6px; color:var(--slate); font-size:11px; font-weight:800; }
+.nav-dropdown-trending-list { display:flex; flex-direction:column; gap:2px; margin:0; padding:0; list-style:none; }
+.nav-dropdown-trending-item { display:flex; align-items:center; gap:9px; min-width:0; min-height:38px; padding:6px; color:var(--ink); border-radius:9px; font-size:13px; font-weight:700; transition:background .16s ease,color .16s ease; }
+.nav-dropdown-trending-item:hover,.nav-dropdown-trending-item:focus-visible { color:var(--navy); background:#fff; outline:none; }
+.nav-dropdown-menu { flex:1 1 auto; min-width:0; display:grid; grid-template-columns:repeat(3,1fr); gap:2px 20px; margin:0; padding:16px; list-style:none; }
 .nav-dropdown-item { display:flex; align-items:center; gap:9px; min-width:0; min-height:40px; padding:7px 10px; color:var(--ink); border-radius:9px; font-size:13px; font-weight:700; transition:background .16s ease,color .16s ease; }
 .nav-dropdown-item:hover,.nav-dropdown-item:focus-visible { color:var(--navy); background:var(--soft); outline:none; }
 .nav-dropdown-item svg { flex:0 0 auto; color:var(--teal); }

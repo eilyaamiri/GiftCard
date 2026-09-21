@@ -12,19 +12,35 @@ export interface NavDropdownItem {
   readonly icon?: ReactNode;
 }
 
+export interface NavDropdownTrending {
+  readonly heading: string;
+  readonly items: readonly NavDropdownItem[];
+}
+
 /**
- * A header menu that opens a list of links.
+ * A header menu that opens a panel of links.
  *
  * Closes on an outside pointerdown or Escape, and on picking an item — the
  * usual expectations for `aria-haspopup="menu"`. There is no full-screen
  * overlay: unlike `ContactSheet`, this is a small anchored popover, so it never
  * needs the drawer treatment the phone nav uses.
+ *
+ * `trending` is an optional highlighted column (an operator-curated shortlist,
+ * e.g. popular brands) rendered beside the main grid. `role="menu"` sits on
+ * the outer panel rather than either list, so the two lists read as one menu
+ * to assistive tech and to `getByRole("menu")` in tests.
  */
 export function NavDropdown({
   label,
   items,
   emptyLabel,
-}: Readonly<{ label: string; items: readonly NavDropdownItem[]; emptyLabel: string }>) {
+  trending,
+}: Readonly<{
+  label: string;
+  items: readonly NavDropdownItem[];
+  emptyLabel: string;
+  trending?: NavDropdownTrending;
+}>) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -57,25 +73,47 @@ export function NavDropdown({
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open ? (
-        <ul className="nav-dropdown-menu" role="menu">
-          {items.length === 0 ? (
-            <li className="nav-dropdown-empty">{emptyLabel}</li>
-          ) : (
-            items.map((item) => (
-              <li key={item.key} role="none">
-                <Link
-                  href={item.href}
-                  role="menuitem"
-                  className="nav-dropdown-item"
-                  onClick={() => setOpen(false)}
-                >
-                  {item.icon}
-                  <span className="nav-dropdown-item-label">{item.label}</span>
-                </Link>
-              </li>
-            ))
-          )}
-        </ul>
+        <div className="nav-dropdown-panel" role="menu">
+          {trending && trending.items.length > 0 ? (
+            <div className="nav-dropdown-trending">
+              <div className="nav-dropdown-trending-heading">{trending.heading}</div>
+              <ul className="nav-dropdown-trending-list">
+                {trending.items.map((item) => (
+                  <li key={item.key} role="none">
+                    <Link
+                      href={item.href}
+                      role="menuitem"
+                      className="nav-dropdown-trending-item"
+                      onClick={() => setOpen(false)}
+                    >
+                      {item.icon}
+                      <span className="nav-dropdown-item-label">{item.label}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <ul className="nav-dropdown-menu">
+            {items.length === 0 ? (
+              <li className="nav-dropdown-empty">{emptyLabel}</li>
+            ) : (
+              items.map((item) => (
+                <li key={item.key} role="none">
+                  <Link
+                    href={item.href}
+                    role="menuitem"
+                    className="nav-dropdown-item"
+                    onClick={() => setOpen(false)}
+                  >
+                    {item.icon}
+                    <span className="nav-dropdown-item-label">{item.label}</span>
+                  </Link>
+                </li>
+              ))
+            )}
+          </ul>
+        </div>
       ) : null}
     </div>
   );
