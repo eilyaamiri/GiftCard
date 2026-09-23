@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Ltr } from "@barat/ui";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { ServiceArtwork } from "@/components/catalog-artwork";
+import { serviceCategoryLabelFa } from "@/lib/service-categories";
 
 export function ServiceCard({ service }: { readonly service: InternationalServiceDto }) {
   return (
@@ -13,7 +14,7 @@ export function ServiceCard({ service }: { readonly service: InternationalServic
         slug={service.slug}
       />
       <div className="service-card-body">
-        <span className="service-card-category">{service.category}</span>
+        <span className="service-card-category">{serviceCategoryLabelFa(service.category)}</span>
         <h3>{service.nameFa}</h3>
         <p className="muted">
           ارز پایه: <Ltr>{service.currency}</Ltr>

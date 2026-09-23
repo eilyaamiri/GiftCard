@@ -192,6 +192,7 @@ const SERVICE_PUBLIC_SELECT = {
   name: true,
   nameFa: true,
   category: true,
+  descriptionFa: true,
   currency: true,
   minAmount: true,
   maxAmount: true,
@@ -1369,6 +1370,7 @@ export class CatalogService {
     name: string;
     nameFa: string;
     category: string;
+    descriptionFa: string | null;
     currency: string;
     minAmount: DecimalLike | null;
     maxAmount: DecimalLike | null;
@@ -1393,6 +1395,7 @@ export class CatalogService {
       name: row.name,
       nameFa: row.nameFa,
       category: row.category,
+      descriptionFa: row.descriptionFa,
       currency: row.currency,
       minAmount: row.minAmount === null ? null : (decimalString(row.minAmount) as DecimalString),
       maxAmount: row.maxAmount === null ? null : (decimalString(row.maxAmount) as DecimalString),

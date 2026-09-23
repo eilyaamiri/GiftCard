@@ -19,6 +19,7 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:import:reloadly": "tsx prisma/import-reloadly-catalog.ts",
+    "db:populate:catalog-descriptions": "tsx prisma/populate-catalog-descriptions.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
     "build": "prisma generate && tsc -p tsconfig.json",

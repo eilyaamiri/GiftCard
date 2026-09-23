@@ -355,6 +355,7 @@ const internationalServiceMutableShape = {
   name: z.string().trim().min(1).max(240),
   nameFa: z.string().trim().min(1).max(240),
   category: z.string().trim().min(1).max(120),
+  descriptionFa: z.string().max(4_000).nullable().optional(),
   currency: currencySchema.default('USD'),
   minAmount: nonNegativeDecimalSchema.nullable().optional(),
   maxAmount: nonNegativeDecimalSchema.nullable().optional(),

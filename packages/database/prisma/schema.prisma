@@ -838,6 +838,7 @@ model InternationalService {
   name                 String
   nameFa               String
   category             String
+  descriptionFa        String?
   currency             String  @default("USD")
   minAmount            Decimal? @db.Decimal(18, 6)
   maxAmount            Decimal? @db.Decimal(18, 6)

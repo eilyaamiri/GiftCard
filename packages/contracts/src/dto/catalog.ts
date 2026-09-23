@@ -126,6 +126,7 @@ export const internationalServiceDtoSchema = z.object({
   name: z.string().min(1),
   nameFa: z.string().min(1),
   category: z.string().min(1),
+  descriptionFa: z.string().nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/u),
   minAmount: positiveDecimalStringSchema.nullable(),
   maxAmount: positiveDecimalStringSchema.nullable(),

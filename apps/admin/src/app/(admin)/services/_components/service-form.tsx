@@ -13,6 +13,7 @@ export function ServiceForm({ service }: { service?: AdminService }) {
   const [name, setName] = useState(service?.name ?? "");
   const [nameFa, setNameFa] = useState(service?.nameFa ?? "");
   const [category, setCategory] = useState(service?.category ?? "");
+  const [descriptionFa, setDescriptionFa] = useState(service?.descriptionFa ?? "");
   const [currency, setCurrency] = useState(service?.currency ?? "USD");
   const [minAmount, setMinAmount] = useState(service?.minAmount ?? "");
   const [maxAmount, setMaxAmount] = useState(service?.maxAmount ?? "");
@@ -31,6 +32,7 @@ export function ServiceForm({ service }: { service?: AdminService }) {
       name: name.trim(),
       nameFa: nameFa.trim(),
       category: category.trim(),
+      descriptionFa: descriptionFa.trim() || null,
       currency: currency.trim().toUpperCase(),
       minAmount: minAmount.trim() || null,
       maxAmount: maxAmount.trim() || null,
@@ -103,6 +105,16 @@ export function ServiceForm({ service }: { service?: AdminService }) {
             <option value="true">فعال</option>
             <option value="false">غیرفعال</option>
           </select>
+        </label>
+      </div>
+      <div className="form-grid" style={{ marginTop: 13 }}>
+        <label>
+          توضیحات (اختیاری)
+          <textarea
+            value={descriptionFa}
+            onChange={(event) => setDescriptionFa(event.target.value)}
+            maxLength={4000}
+          />
         </label>
       </div>
       <div className="save-row">
