@@ -3,6 +3,7 @@ import { ArrowLeft } from "lucide-react";
 import { Ltr, toPersianDigits } from "@barat/ui";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { ServiceArtwork } from "@/components/catalog-artwork";
+import { FavoriteButton } from "@/components/favorite-button";
 import { serviceCategoryLabelFa } from "@/lib/service-categories";
 
 export function ServiceCard({ service }: { readonly service: InternationalServiceDto }) {
@@ -12,6 +13,7 @@ export function ServiceCard({ service }: { readonly service: InternationalServic
         category={service.category}
         label={service.nameFa}
         slug={service.slug}
+        overlay={<FavoriteButton itemType="SERVICE" itemSlug={service.slug} label={service.nameFa} />}
       />
       <div className="service-card-body">
         <span className="service-card-category">{serviceCategoryLabelFa(service.category)}</span>
@@ -37,16 +39,14 @@ export function ServiceCard({ service }: { readonly service: InternationalServic
 export function ServiceCategoryCard({
   slug,
   labelFa,
-  descriptionFa,
   count,
-}: Readonly<{ slug: string; labelFa: string; descriptionFa: string | null; count: number }>) {
+}: Readonly<{ slug: string; labelFa: string; count: number }>) {
   return (
     <Link href={`/services?category=${encodeURIComponent(slug)}`} className="card service-card">
       <ServiceArtwork category={slug} label={labelFa} slug={slug} />
       <div className="service-card-body">
         <span className="service-card-category">{toPersianDigits(count)} سرویس</span>
         <h3>{labelFa}</h3>
-        <p className="muted">{descriptionFa ?? "هزینه این دسته از سرویس‌های خارجی را با ریال بپردازید."}</p>
         <span className="service-card-action">
           مشاهده سرویس‌ها <ArrowLeft size={14} />
         </span>

@@ -7,6 +7,7 @@ const links = [
   { href: "/account/profile", label: "اطلاعات حساب" },
   { href: "/account/orders", label: "سفارش‌ها" },
   { href: "/account/payments", label: "پرداخت‌ها" },
+  { href: "/account/favorites", label: "علاقه‌مندی‌ها" },
   { href: "/account/support", label: "پشتیبانی" },
 ];
 

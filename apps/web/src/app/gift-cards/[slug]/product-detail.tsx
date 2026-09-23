@@ -9,6 +9,7 @@ import { api, ApiClientError } from "@/lib/api";
 import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
+import { FavoriteButton } from "@/components/favorite-button";
 
 /**
  * Land on something the customer can actually buy.
@@ -88,6 +89,7 @@ export function ProductDetail({
             brandSlug={product.brandSlug}
             label={product.titleFa}
             size="detail"
+            overlay={<FavoriteButton itemType="PRODUCT" itemSlug={product.slug} label={product.titleFa} />}
           />
           <div className="product-detail-copy">
             <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>

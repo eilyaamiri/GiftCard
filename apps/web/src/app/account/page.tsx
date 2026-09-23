@@ -10,11 +10,12 @@ export const dynamic = "force-dynamic";
 
 export default async function AccountPage() {
   await requireSession();
-  const [profile, orders, payments, support] = await Promise.all([
+  const [profile, orders, payments, support, favorites] = await Promise.all([
     api.accountProfile(),
     api.accountOrders({ pageSize: 5 }),
     api.accountPayments({ pageSize: 1 }),
     api.supportRequests(),
+    api.accountFavorites(),
   ]);
 
   const openTickets = support.filter((ticket) => ticket.status !== "COMPLETED" && ticket.status !== "CANCELLED").length;
@@ -41,6 +42,10 @@ export default async function AccountPage() {
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>پیگیری‌های باز</p>
           <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--text-primary)" }}>{toPersianDigits(openTickets)}</p>
         </div>
+        <Link href="/account/favorites" className="card pad">
+          <p className="muted" style={{ margin: 0, fontSize: 13 }}>علاقه‌مندی‌ها</p>
+          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--text-primary)" }}>{toPersianDigits(favorites.length)}</p>
+        </Link>
       </div>
 
       <h2 className="h2" style={{ fontSize: 20, marginBlockStart: 26 }}>آخرین سفارش‌ها</h2>

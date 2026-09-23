@@ -8,6 +8,7 @@ import {
   CircleCheckBig,
   CreditCard,
   ChevronDown,
+  Heart,
   LayoutDashboard,
   LifeBuoy,
   MessageCircle,
@@ -40,6 +41,7 @@ const SHORTCUTS: readonly AccountShortcut[] = [
   { href: '/account/profile', label: 'اطلاعات حساب', icon: Settings2 },
   { href: '/account/orders', label: 'سفارش‌های من', icon: ShoppingBag },
   { href: '/account/payments', label: 'پرداخت‌ها', icon: ReceiptText },
+  { href: '/account/favorites', label: 'علاقه‌مندی‌ها', icon: Heart },
   { href: '/account/support', label: 'پشتیبانی و تیکت‌ها', icon: LifeBuoy },
 ];
 
