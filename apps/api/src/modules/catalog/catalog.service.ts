@@ -453,8 +453,18 @@ export class CatalogService {
     };
   }
 
-  async listServices(page = 1, pageSize = 20): Promise<ListServicesResponse> {
-    const where: Prisma.InternationalServiceWhereInput = { isActive: true };
+  async listServices(page = 1, pageSize = 20, search?: string): Promise<ListServicesResponse> {
+    const where: Prisma.InternationalServiceWhereInput = {
+      isActive: true,
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { nameFa: { contains: search } },
+            ],
+          }
+        : {}),
+    };
     const [rows, total] = await this.db.$transaction([
       this.db.internationalService.findMany({
         where,
