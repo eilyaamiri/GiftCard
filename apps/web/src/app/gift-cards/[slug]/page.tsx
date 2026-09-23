@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ErrorState } from "@barat/ui";
-import type { ProductDetailDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
+import type { CatalogProductDetail } from "@/lib/catalog";
 import { ProductDetail } from "./product-detail";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function ProductDetailPage({
   const requestedRegion = (await searchParams).region;
   const initialRegion = typeof requestedRegion === "string" ? requestedRegion : undefined;
 
-  let product: ProductDetailDto;
+  let product: CatalogProductDetail;
   try {
     ({ product } = await api.product(slug));
   } catch (error) {

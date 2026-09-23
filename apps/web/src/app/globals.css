@@ -153,14 +153,70 @@ a { color:inherit; text-decoration:none; }
 .catalog-art-plate svg { filter:drop-shadow(0 5px 12px rgba(5,16,29,.2)); }
 .catalog-art-plate strong { align-self:flex-end; max-width:100%; overflow:hidden; font-size:14px; font-weight:800; letter-spacing:.01em; text-overflow:ellipsis; white-space:nowrap; }
 .catalog-art-orbit { position:absolute; z-index:-1; width:72%; aspect-ratio:1; left:-19%; top:-55%; border:1px solid rgba(255,255,255,.32); border:1px solid color-mix(in srgb,var(--art-accent) 72%,white); border-radius:50%; box-shadow:0 0 0 24px rgba(255,255,255,.05),0 0 0 52px rgba(255,255,255,.03); box-shadow:0 0 0 24px color-mix(in srgb,var(--art-accent) 11%,transparent),0 0 0 52px color-mix(in srgb,var(--art-accent) 7%,transparent); opacity:.65; transform-origin:center; transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .3s ease; }
+/* Covers built from real brand art.
+ *
+ * Every one of them sits in the same navy well the rest of the site is made of,
+ * rather than a per-brand colour like the generated plates below. Supplier
+ * artwork arrives loud and in whatever palette the brand happens to own; a
+ * shelf of twelve differently-tinted panels behind twelve loud renders stops
+ * reading as one catalog. The brand's own colour survives as the halo behind
+ * the art — enough to tell the covers apart, not enough to compete with them.
+ *
+ * Files are transparent, so the well is the only background there is. */
+.catalog-art-photo { background:linear-gradient(152deg,#0B1D33 0%,#102A46 56%,#091A2E 100%); }
+.catalog-art-halo { position:absolute; z-index:1; top:50%; left:50%; width:82%; aspect-ratio:1.45; border-radius:50%; background:radial-gradient(closest-side,color-mix(in srgb,var(--art-accent) 58%,transparent),transparent 74%); opacity:.5; transform:translate(-50%,-50%); transition:opacity .3s ease; }
+/* Same easing, duration and gesture as `.catalog-art-plate` so a mixed grid
+ * animates as one. The resting tilt is shallower because these renders already
+ * carry their own perspective, and tilting a tilted card twice reads as a
+ * mistake rather than a flourish. */
+/* Sized off the cover's height, not its width. The cover is 16:9 on desktop,
+ * 4:3 on phones and 2.2:1 on the detail banner, while the art is 4:3 — bound it
+ * by width and it grows straight through the top and bottom edges. The renders
+ * are drawn edge to edge with almost no margin of their own, so the 82% here is
+ * what keeps a rim of the navy well visible around them — and it leaves room
+ * for the tilt and the hover scale, both of which make the painted box taller
+ * than the layout box. */
+.catalog-art-figure { position:absolute; z-index:2; top:50%; left:50%; width:auto; max-width:84%; height:min(82%,235px); object-fit:contain; transform:translate(-50%,-50%) rotate(-2.5deg); transition:transform .42s cubic-bezier(.2,.8,.2,1); filter:drop-shadow(0 14px 26px rgba(5,16,29,.45)); }
+.product:is(:hover,:focus-visible) .catalog-art-figure { transform:translate(-50%,-50%) rotate(0deg) scale(1.05); }
+.product:is(:hover,:focus-visible) .catalog-art-halo { opacity:.78; }
 .product-art,.service-art { height:auto; aspect-ratio:16/9; }
-.product-art.apple { --art-base:#171A23; --art-accent:#8E80E8; }
-.product-art.playstation { --art-base:#071E56; --art-accent:#2876EA; }
-.product-art.steam { --art-base:#132A3E; --art-accent:#5BA4D8; }
-.product-art.google-play { --art-base:#185A58; --art-accent:#F2B84B; }
-.product-art.netflix { --art-base:#221216; --art-accent:#E50914; }
-.product-art.xbox { --art-base:#15351D; --art-accent:#55A630; }
-.product-art.amazon { --art-base:#172638; --art-accent:#FFB347; }
+/* Accents for the covers that carry real artwork.
+ *
+ * Each one is sampled from its own file — the dominant saturated hue, weighted
+ * by how vivid it is — and then floored at 55% saturation and 52% lightness.
+ * Sampling keeps the halo honest: it glows with the colour the render actually
+ * glows with, which is not always the brand's official colour (Nike's card is
+ * black, but its neon is orange). The floor is what makes it visible, since a
+ * hue as dark as PlayStation's blue disappears into the navy well behind it.
+ *
+ * Only `--art-accent` is set: these covers never paint `--art-base`, because
+ * `.catalog-art-photo` gives every one of them the same navy well. */
+.product-art.airbnb { --art-accent:#EB3854; }
+.product-art.amazon { --art-accent:#EE701B; }
+.product-art.apple { --art-accent:#9CB9E2; }
+.product-art.blizzard { --art-accent:#239AE6; }
+.product-art.fortnite { --art-accent:#6F1AEF; }
+.product-art.free-fire { --art-accent:#F86B11; }
+.product-art.google-play { --art-accent:#3DDC84; }
+.product-art.hotels-com { --art-accent:#D93041; }
+.product-art.jawaker { --art-accent:#1BA6EE; }
+.product-art.netflix { --art-accent:#DA3230; }
+.product-art.nike { --art-accent:#DC6D2D; }
+.product-art.nintendo { --art-accent:#E22927; }
+.product-art.playstation { --art-accent:#1063F9; }
+.product-art.pubg { --art-accent:#E0A429; }
+.product-art.razer-gold { --art-accent:#E3C93A; }
+.product-art.roblox { --art-accent:#D03A39; }
+.product-art.shein { --art-accent:#C89941; }
+.product-art.spotify { --art-accent:#23E664; }
+.product-art.steam { --art-accent:#1670F4; }
+.product-art.tinder { --art-accent:#E02A49; }
+.product-art.twitch { --art-accent:#6D2FDA; }
+.product-art.uber { --art-accent:#3CCD4F; }
+.product-art.xbox { --art-accent:#38E821; }
+/* Zara's render is black and silver, so the sampler found no hue to take. A
+ * cool grey reads as a rim light rather than a colour it does not have. */
+.product-art.zara { --art-accent:#A8B8C8; }
 .service-art { --art-base:#102A46; --art-accent:#46D0CB; }
 .service-art.ai-tools { --art-base:#262050; --art-accent:#9187F1; }
 .service-art.cloud { --art-base:#163F63; --art-accent:#55B8E8; }
@@ -185,6 +241,10 @@ a { color:inherit; text-decoration:none; }
 .service-card:is(:hover,:focus-visible) .service-card-action svg { transform:translateX(-4px); }
 .catalog-art-size-detail { margin-bottom:22px; aspect-ratio:2.2/1; border-radius:20px; }
 .catalog-art-size-detail .catalog-art-plate { width:min(48%,245px); }
+/* The detail banner is more than twice as wide as it is tall, so it needs a
+ * tighter cap than the cards to keep the same rim of navy around the art. */
+.catalog-art-size-detail .catalog-art-figure { max-width:56%; height:min(80%,260px); }
+.catalog-art-size-detail .catalog-art-halo { width:52%; }
 .product-detail-copy,.service-detail-copy { margin-bottom:18px; }
 .service-detail-page { max-width:720px; }
 .service-detail-page > form { max-width:560px; margin-inline:auto; }
@@ -310,6 +370,8 @@ a { color:inherit; text-decoration:none; }
   .catalog-art-plate { width:70%; padding:10px; border-radius:12px; }
   .catalog-art-plate svg { width:25px; height:25px; }
   .catalog-art-plate strong { font-size:11px; }
+  /* Two tiles to a row, and the cover turns 4:3 — the art can take more of it. */
+  .catalog-art-halo { width:92%; }
   .service-art-symbol { width:52px; height:52px; border-radius:16px; }
   .service-art-symbol svg { width:28px; height:28px; }
   .service-art-payment { right:7px; bottom:7px; padding:5px; }

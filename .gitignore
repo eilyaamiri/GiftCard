@@ -43,3 +43,9 @@ Thumbs.db
 _extract/
 *.zip
 tmp/
+
+# Cover-art masters. Each is a ~2.8 MB transparent PNG and the site never loads
+# one: `apps/web/public/brand-art/*.webp` is what ships, built from these. Keep
+# them out of the history and back them up somewhere that is not a git repo.
+apps/web/public/brand-art/*.png
+apps/web/public/brand-art/*.PNG
