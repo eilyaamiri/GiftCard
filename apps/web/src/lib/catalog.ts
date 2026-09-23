@@ -120,6 +120,12 @@ export type CatalogSku = z.infer<typeof skuDtoSchema>;
 export interface CatalogQuery {
   readonly categorySlug?: string | undefined;
   readonly brandSlug?: string | undefined;
+  /**
+   * The brands the storefront will display at all — see `lib/brand-art`. Sent
+   * alongside `brandSlug`, not instead of it: one is the customer's filter, the
+   * other is the shelf they are filtering within.
+   */
+  readonly brandSlugs?: readonly string[] | undefined;
   readonly region?: string | undefined;
   readonly search?: string | undefined;
   readonly page?: number | undefined;
@@ -136,6 +142,7 @@ export function catalogQueryString(query: CatalogQuery = {}): string {
   const search = new URLSearchParams();
   if (query.categorySlug) search.set("categorySlug", query.categorySlug);
   if (query.brandSlug) search.set("brandSlug", query.brandSlug);
+  if (query.brandSlugs?.length) search.set("brandSlugs", query.brandSlugs.join(","));
   if (query.region) search.set("region", query.region);
   if (query.search) search.set("search", query.search);
   if (query.page) search.set("page", String(query.page));

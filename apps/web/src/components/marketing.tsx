@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
+import { visibleBrandsQuery } from "@/lib/brand-art";
 import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CategoryIcon } from "@/components/category-icon";
@@ -20,7 +21,7 @@ const FEATURED_CATEGORY_NAME_FA = "عمومی و پرکاربرد";
  */
 async function homeCategories(): Promise<readonly Category[]> {
   try {
-    const { items } = await api.categories();
+    const { items } = await api.categories(visibleBrandsQuery());
     return items;
   } catch (error) {
     if (error instanceof ApiClientError) return [];
@@ -36,7 +37,9 @@ async function homeCategories(): Promise<readonly Category[]> {
  */
 async function categoryProducts(categorySlug: string): Promise<readonly CatalogProduct[]> {
   try {
-    const { items } = await api.products(`categorySlug=${encodeURIComponent(categorySlug)}&pageSize=100`);
+    const { items } = await api.products(
+      `categorySlug=${encodeURIComponent(categorySlug)}&pageSize=100&${visibleBrandsQuery()}`,
+    );
     return items;
   } catch (error) {
     // Marketing homepage degrades gracefully — a catalog hiccup should never

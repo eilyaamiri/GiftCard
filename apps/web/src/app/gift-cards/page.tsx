@@ -3,6 +3,7 @@ import { EmptyState, ErrorState, toPersianDigits } from "@barat/ui";
 import { ChevronLeft, PackageSearch, Search, SearchX } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString, type Brand, type Category } from "@/lib/catalog";
+import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
 import { CATALOG_PAGE_SIZE, catalogHref, hasActiveFilter, readCatalogFilters } from "./_lib/catalog-url";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CatalogBrowser } from "./_components/catalog-browser";
@@ -34,12 +35,15 @@ export default async function GiftCardsPage({
     /* Three independent reads. The results are meaningless without the facets
      * beside them, so they go out together rather than one after the other. */
     [categories, brands, products] = await Promise.all([
-      api.categories().then((response) => response.items),
-      api.brands().then((response) => response.items),
+      api.categories(visibleBrandsQuery()).then((response) => response.items),
+      api.brands(visibleBrandsQuery()).then((response) => response.items),
       api.products(
         catalogQueryString({
           categorySlug: filters.category,
           brandSlug: filters.brand,
+          /* The shelf, not a filter: the same scope goes on all three reads, so
+           * the tile counts, the brand list and the grid agree on what exists. */
+          brandSlugs: VISIBLE_BRAND_SLUGS,
           region: filters.region,
           search: filters.q,
           page: filters.page,

@@ -16,6 +16,25 @@ import type {
 const slugSchema = z.string().trim().min(1).max(90);
 
 /**
+ * `?brandSlugs=netflix,steam,xbox` — the brands a caller will display.
+ *
+ * Comma-separated rather than a repeated key, because it goes on every
+ * storefront catalog request and the repeated form triples the length. Capped
+ * at 200: the catalog has ~325 brands, so a caller wanting more than that is
+ * better off omitting it, and the cap is what keeps the `IN` list bounded.
+ */
+const brandSlugsSchema = z
+  .string()
+  .optional()
+  .transform((value) => {
+    const slugs = (value ?? '')
+      .split(',')
+      .map((slug) => slug.trim())
+      .filter((slug) => slug.length > 0 && slug.length <= 90);
+    return slugs.length > 0 ? slugs.slice(0, 200) : undefined;
+  });
+
+/**
  * `listProductsRequestSchema` is the frozen contract and has no field for a
  * category or brand slug, and `.parse` would drop one silently. So the contract
  * validates what it knows and the two taxonomy filters are carried alongside
@@ -28,6 +47,7 @@ const listProductsQuerySchema = z
     brand: z.string().optional(),
     categorySlug: slugSchema.optional(),
     brandSlug: slugSchema.optional(),
+    brandSlugs: brandSlugsSchema,
     region: z.string().optional(),
     search: z.string().max(120).optional(),
     onlyAvailable: z
@@ -41,7 +61,10 @@ const listProductsQuerySchema = z
     ...listProductsRequestSchema.parse(value),
     categorySlug: value.categorySlug,
     brandSlug: value.brandSlug,
+    brandSlugs: value.brandSlugs,
   }));
+
+const brandScopeQuerySchema = z.object({ brandSlugs: brandSlugsSchema });
 
 const listServicesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -72,14 +95,18 @@ export class CatalogController {
 
   /** The category tiles on the catalog page. Empty categories are left out. */
   @Get('categories')
-  listCategories(): Promise<ListCategoriesResponse> {
-    return this.catalog.listCategories();
+  listCategories(
+    @Query(zodPipe(brandScopeQuerySchema)) query: { brandSlugs?: readonly string[] | undefined },
+  ): Promise<ListCategoriesResponse> {
+    return this.catalog.listCategories(query.brandSlugs);
   }
 
   /** Every brand with something on sale, popular ones flagged, not separated. */
   @Get('brands')
-  listBrands(): Promise<ListBrandsResponse> {
-    return this.catalog.listBrands();
+  listBrands(
+    @Query(zodPipe(brandScopeQuerySchema)) query: { brandSlugs?: readonly string[] | undefined },
+  ): Promise<ListBrandsResponse> {
+    return this.catalog.listBrands(query.brandSlugs);
   }
 
   /** Serves the uploaded logo. `Brand.logoUrl` points straight at this route. */

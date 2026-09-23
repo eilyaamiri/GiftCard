@@ -1,4 +1,5 @@
 import { api, ApiClientError } from "./api";
+import { visibleBrandsQuery } from "./brand-art";
 import type { Brand, Category } from "./catalog";
 
 /**
@@ -16,8 +17,8 @@ export interface NavFacets {
 export async function getNavFacets(): Promise<NavFacets> {
   try {
     const [categories, brands] = await Promise.all([
-      api.categories().then((response) => response.items),
-      api.brands().then((response) => response.items),
+      api.categories(visibleBrandsQuery()).then((response) => response.items),
+      api.brands(visibleBrandsQuery()).then((response) => response.items),
     ]);
     return { categories, brands };
   } catch (error) {
