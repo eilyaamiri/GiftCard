@@ -28,6 +28,7 @@ import type {
 } from './catalog-taxonomy.dto';
 import {
   assignCategorySchema,
+  bulkSetProductActiveSchema,
   createBrandSchema,
   createCategorySchema,
   createInternationalServiceSchema,
@@ -51,6 +52,7 @@ import {
   type AdminSkuListInput,
   type AdminSupplierOfferListInput,
   type AssignCategoryInput,
+  type BulkSetProductActiveInput,
   type CreateBrandInput,
   type CreateCategoryInput,
   type CreateInternationalServiceInput,
@@ -619,6 +621,14 @@ export class CatalogService {
   async adminArchiveProduct(id: string) {
     await this.assertExists(this.db.product.count({ where: { id } }), 'product');
     return this.db.product.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /** Activate or deactivate a batch of products in one pass. */
+  async adminBulkSetProductActive(input: BulkSetProductActiveInput) {
+    const { productIds, isActive } = bulkSetProductActiveSchema.parse(input);
+    const ids = [...new Set(productIds)];
+    const { count } = await this.db.product.updateMany({ where: { id: { in: ids } }, data: { isActive } });
+    return { requested: ids.length, updated: count };
   }
 
   async adminListSkus(query: AdminSkuListInput) {

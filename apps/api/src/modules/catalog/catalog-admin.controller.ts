@@ -23,6 +23,7 @@ import {
   adminCatalogListSchema,
   adminProductListSchema,
   assignCategorySchema,
+  bulkSetProductActiveSchema,
   createBrandSchema,
   createCategorySchema,
   adminServiceFieldListSchema,
@@ -52,6 +53,7 @@ import type {
   AdminSkuListInput,
   AdminSupplierOfferListInput,
   AssignCategoryInput,
+  BulkSetProductActiveInput,
   CreateBrandInput,
   CreateCategoryInput,
   CreateInternationalServiceInput,
@@ -100,6 +102,11 @@ export class CatalogAdminController {
   @Delete('products/:id')
   archiveProduct(@Param(zodPipe(idParamSchema)) params: IdParam) {
     return this.catalog.adminArchiveProduct(params.id);
+  }
+
+  @Post('products/bulk-active')
+  bulkSetProductActive(@Body(zodPipe(bulkSetProductActiveSchema)) body: BulkSetProductActiveInput) {
+    return this.catalog.adminBulkSetProductActive(body);
   }
 
   /* ---------------------------------------------------------- taxonomy */

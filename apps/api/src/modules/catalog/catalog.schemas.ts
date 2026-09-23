@@ -186,6 +186,12 @@ export const assignCategorySchema = z.object({
   categoryId: idSchema,
 });
 
+/** Activate or deactivate a batch of products in a single pass. */
+export const bulkSetProductActiveSchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  isActive: z.boolean(),
+});
+
 /**
  * Fold one brand into another.
  *
@@ -206,6 +212,7 @@ export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 export type CreateBrandInput = z.infer<typeof createBrandSchema>;
 export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
 export type AssignCategoryInput = z.infer<typeof assignCategorySchema>;
+export type BulkSetProductActiveInput = z.infer<typeof bulkSetProductActiveSchema>;
 export type MergeBrandsInput = z.infer<typeof mergeBrandsSchema>;
 
 /* -------------------------------------------------------------- product */

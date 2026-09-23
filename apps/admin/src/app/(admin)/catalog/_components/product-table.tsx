@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import {
   assignCategoryResultSchema,
+  bulkSetProductActiveResultSchema,
   type AdminCategory,
   type AdminProduct,
 } from "../_lib/catalog-contracts";
@@ -72,6 +73,29 @@ export function ProductTable({
     }
   }
 
+  async function bulkSetActive(isActive: boolean) {
+    if (selected.length === 0) return;
+    setError(null);
+    setDone(null);
+    setPending(true);
+    try {
+      const result = await api.post(
+        "/api/admin/catalog/products/bulk-active",
+        { productIds: [...selected], isActive },
+        bulkSetProductActiveResultSchema,
+      );
+      setSelected([]);
+      setDone(
+        `${formatCount(result.updated)} محصول ${isActive ? "فعال" : "غیرفعال"} شد.`,
+      );
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof ApiClientError ? caught.message : "ارتباط با سرویس ممکن نیست.");
+    } finally {
+      setPending(false);
+    }
+  }
+
   return (
     <div className="card list-card">
       {selected.length > 0 ? (
@@ -94,6 +118,22 @@ export function ProductTable({
           </label>
           <button type="button" className="primary-btn" onClick={assign} disabled={pending || !categoryId}>
             {pending ? "در حال انتقال…" : "اعمال"}
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => bulkSetActive(true)}
+            disabled={pending}
+          >
+            {pending ? "در حال اعمال…" : "فعال‌سازی گروهی"}
+          </button>
+          <button
+            type="button"
+            className="secondary-btn"
+            onClick={() => bulkSetActive(false)}
+            disabled={pending}
+          >
+            {pending ? "در حال اعمال…" : "غیرفعال‌سازی گروهی"}
           </button>
           <button type="button" className="filter" onClick={() => setSelected([])} disabled={pending}>
             لغو انتخاب
