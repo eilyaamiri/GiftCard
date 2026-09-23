@@ -261,7 +261,7 @@ a { color:inherit; text-decoration:none; }
 .eyebrow { color:var(--text-secondary); font-size:13px; font-weight:800; letter-spacing:.02em; }
 .h1 { color:var(--text-primary); font-size:clamp(32px,5vw,58px); line-height:1.18; letter-spacing:-.04em; margin:12px 0 18px; font-weight:900; }
 .h2 { color:var(--text-primary); font-size:clamp(24px,3vw,36px); line-height:1.3; letter-spacing:-.025em; margin:0 0 12px; font-weight:900; }
-.muted { color:var(--text-secondary); line-height:1.9; }
+.muted { color:var(--text-secondary); line-height:1.9; white-space:pre-line; }
 .grid { display:grid; gap:16px; }
 .card { background:var(--surface-card); border:1px solid var(--border-primary); border-radius:18px; box-shadow:var(--shadow-sm); }
 .header { background:var(--chrome); border-bottom:1px solid var(--border-primary); position:sticky; top:0; z-index:20; backdrop-filter:blur(14px); }

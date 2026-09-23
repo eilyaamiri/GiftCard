@@ -7,6 +7,7 @@ import { ChevronDown, Menu, Search, X } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
+import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 
 /**
  * The header's search bar and nav links, collapsed into a slide-in drawer
@@ -121,6 +122,22 @@ export function MobileNavDrawer({
                   ))}
                 </ul>
               )}
+            </details>
+
+            <details className="mobile-nav-drawer-group">
+              <summary>
+                <span>پرداخت بین‌المللی</span>
+                <ChevronDown size={16} aria-hidden="true" />
+              </summary>
+              <ul>
+                {SERVICE_CATEGORIES.map((category) => (
+                  <li key={category.slug}>
+                    <Link href={`/services?category=${encodeURIComponent(category.slug)}`}>
+                      <span>{category.labelFa}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
             </details>
 
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>

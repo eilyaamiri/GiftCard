@@ -453,9 +453,15 @@ export class CatalogService {
     };
   }
 
-  async listServices(page = 1, pageSize = 20, search?: string): Promise<ListServicesResponse> {
+  async listServices(
+    page = 1,
+    pageSize = 20,
+    search?: string,
+    category?: string,
+  ): Promise<ListServicesResponse> {
     const where: Prisma.InternationalServiceWhereInput = {
       isActive: true,
+      ...(category ? { category } : {}),
       ...(search
         ? {
             OR: [
