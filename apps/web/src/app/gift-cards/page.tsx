@@ -126,7 +126,7 @@ export default async function GiftCardsPage({
         </button>
       </form>
 
-      <CatalogBrowser categories={categories} brands={brands} filters={filters} />
+      <CatalogBrowser categories={categories} brands={brands} regions={regions} filters={filters} />
 
       <div className="catalog-layout">
         <CatalogSidebar
