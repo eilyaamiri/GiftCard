@@ -3,9 +3,10 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ltr } from "@barat/ui";
 import { ShieldCheck, Info } from "lucide-react";
-import type { ProductDetailDto, CreateQuoteResponse } from "@barat/contracts";
+import type { CreateQuoteResponse } from "@barat/contracts";
 import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
+import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
 
@@ -26,7 +27,7 @@ export function ProductDetail({
   product,
   initialRegion,
 }: {
-  readonly product: ProductDetailDto;
+  readonly product: CatalogProductDetail;
   /** Carried over from the catalog's region filter, when the product still offers it. */
   readonly initialRegion?: string | undefined;
 }) {
@@ -84,6 +85,7 @@ export function ProductDetail({
         <div>
           <ProductArtwork
             brand={product.brand}
+            brandSlug={product.brandSlug}
             label={product.titleFa}
             size="detail"
           />

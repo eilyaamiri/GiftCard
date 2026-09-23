@@ -33,10 +33,10 @@ export function CatalogProductCard({
     <>
       {/* Supplier photos vary wildly in style and quality across a catalog
        * fed by hundreds of brands, so the card never renders `imageUrl`
-       * directly — the same generated icon-on-plate mark used on the detail
-       * page keeps the grid visually consistent regardless of what any one
-       * supplier sent. */}
-      <ProductArtwork brand={product.brand} label={product.titleFa} />
+       * directly — commissioned cover art where we have it, and the generated
+       * icon-on-plate mark everywhere else, keeps the grid visually consistent
+       * regardless of what any one supplier sent. */}
+      <ProductArtwork brand={product.brand} brandSlug={product.brandSlug} label={product.titleFa} />
       <div className="product-body">
         <p className="catalog-card-brand">{brand}</p>
         <h3>{product.titleFa}</h3>
