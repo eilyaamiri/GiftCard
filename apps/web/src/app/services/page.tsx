@@ -3,7 +3,7 @@ import { EmptyState, ErrorState } from "@barat/ui";
 import { ChevronLeft, PackageSearch } from "lucide-react";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
-import { ServiceCard } from "@/components/service-card";
+import { ServiceCard, ServiceCategoryCard } from "@/components/service-card";
 import { GENERIC_SERVICE_SLUGS, SERVICE_CATEGORIES } from "@/lib/service-categories";
 
 export const dynamic = "force-dynamic";
@@ -115,17 +115,15 @@ export default async function ServicesPage({
           description="فهرست سرویس‌ها به‌زودی به‌روزرسانی می‌شود. لطفاً بعداً دوباره سر بزنید."
         />
       ) : (
-        <div className="services-category-stack" style={{ marginTop: 22 }}>
+        <div className="grid catalog-grid" style={{ marginTop: 22 }}>
           {groups.map((group) => (
-            <section key={group.slug} className="services-category-section">
-              <h2>{group.labelFa}</h2>
-              {group.descriptionFa ? <p className="muted">{group.descriptionFa}</p> : null}
-              <div className="grid catalog-grid" style={{ marginTop: 14 }}>
-                {group.items.map((service) => (
-                  <ServiceCard key={service.slug} service={service} />
-                ))}
-              </div>
-            </section>
+            <ServiceCategoryCard
+              key={group.slug}
+              slug={group.slug}
+              labelFa={group.labelFa}
+              descriptionFa={group.descriptionFa}
+              count={group.items.length}
+            />
           ))}
         </div>
       )}
