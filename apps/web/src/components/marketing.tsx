@@ -171,6 +171,43 @@ function ShelfHead({
   );
 }
 
+/** How long the headline takes to fully type itself in, ~50 characters at this pace. */
+const HERO_TYPE_CHAR_DELAY_MS = 22;
+/** Lets the hero block's own fade/slide finish before the headline starts typing. */
+const HERO_TYPE_START_DELAY_MS = 550;
+
+/**
+ * The hero headline, typed in one character at a time.
+ *
+ * Every character is already in the markup — this only staggers each one's
+ * `opacity` via a precomputed `animation-delay`, so the full sentence is there
+ * for SEO and for a reader with no JavaScript; only the paint is staggered.
+ * `aria-label` carries the real sentence so a screen reader gets it whole
+ * instead of one span at a time.
+ */
+function TypewriterHeading({ text, className }: Readonly<{ text: string; className?: string }>) {
+  const chars = Array.from(text);
+  return (
+    <h1 className={className} aria-label={text}>
+      <span aria-hidden="true">
+        {chars.map((char, index) => (
+          <span
+            key={index}
+            className="hero-typewriter-char"
+            style={{ animationDelay: `${HERO_TYPE_START_DELAY_MS + index * HERO_TYPE_CHAR_DELAY_MS}ms` }}
+          >
+            {char}
+          </span>
+        ))}
+        <span
+          className="hero-typewriter-cursor"
+          style={{ animationDelay: `${HERO_TYPE_START_DELAY_MS + chars.length * HERO_TYPE_CHAR_DELAY_MS}ms` }}
+        />
+      </span>
+    </h1>
+  );
+}
+
 export async function HomePage() {
   const categories = await homeCategories();
   const [shelves, services] = await Promise.all([homeShelves(categories), homeServices()]);
@@ -181,7 +218,7 @@ export async function HomePage() {
           <div className="container hero-inner">
             <div className="hero-content">
               <div className="eyebrow">برات · دسترسی به جهان</div>
-              <h1 className="h1">چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات.</h1>
+              <TypewriterHeading text="چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات." className="h1" />
               <p className="hero-copy">گیفت‌کارت بخرید یا هزینه سرویس‌های بین‌المللی را با خیال راحت پرداخت کنید. قیمت شفاف، پرداخت امن و پشتیبانی واقعی.</p>
               <div className="hero-actions">
                 <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
