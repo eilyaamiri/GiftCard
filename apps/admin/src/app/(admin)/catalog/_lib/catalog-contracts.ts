@@ -180,6 +180,16 @@ export const assignCategoryResultSchema = z.object({
   updated: z.number().int().min(0),
 });
 
+export const bulkSetProductActiveRequestSchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  isActive: z.boolean(),
+});
+export type BulkSetProductActiveRequest = z.infer<typeof bulkSetProductActiveRequestSchema>;
+export const bulkSetProductActiveResultSchema = z.object({
+  requested: z.number().int().min(0),
+  updated: z.number().int().min(0),
+});
+
 export const mergeBrandsRequestSchema = z
   .object({ sourceBrandId: idSchema, targetBrandId: idSchema })
   .refine((value) => value.sourceBrandId !== value.targetBrandId, {
