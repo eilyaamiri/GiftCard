@@ -5,10 +5,12 @@
  * (Foundation-owned) and do not yet declare `FX_PRIMARY_URL`,
  * `FX_SECONDARY_URL`, `FX_PROVIDER_TIMEOUT_MS`, `FX_USE_MOCK_PROVIDERS`,
  * `FX_PRIMARY_VENUE`, `FX_SECONDARY_VENUE`, `FX_NOBITEX_BASE_URL`,
- * `FX_AUTO_REFRESH` or `FX_REFRESH_INTERVAL_SECONDS`.
+ * `FX_AUTO_REFRESH`, `FX_REFRESH_INTERVAL_SECONDS`, `FX_CROSS_RATE_VENUE`,
+ * `FX_FRANKFURTER_BASE_URL`, `FX_CROSS_RATE_REFRESH_SECONDS` or
+ * `FX_CROSS_RATE_STALE_SECONDS`.
  * They are read here — in one file, never scattered — so the Foundation agent
- * can lift these nine entries into the validated schema in a single pass and
- * this file then becomes a thin adapter over `AppConfigService`.
+ * can lift these thirteen entries into the validated schema in a single pass
+ * and this file then becomes a thin adapter over `AppConfigService`.
  *
  * No secret is read here: the endpoints are plain URLs. Credentials, when a
  * real provider is chosen, belong in the adapter, never in a log line.
@@ -102,6 +104,59 @@ function readVenue(key: string): FxVenue | undefined {
   return venue;
 }
 
+/** The source of the non-rial leg. A separate axis from the rial venue. */
+export type FxCrossRateVenue = 'frankfurter';
+
+const CROSS_RATE_VENUES: readonly FxCrossRateVenue[] = ['frankfurter'];
+
+function readCrossRateVenue(): FxCrossRateVenue | undefined {
+  const value = process.env['FX_CROSS_RATE_VENUE']?.trim().toLowerCase();
+  if (!value) {
+    return undefined;
+  }
+  const venue = CROSS_RATE_VENUES.find((candidate) => candidate === value);
+  if (!venue) {
+    throw new Error(`FX_CROSS_RATE_VENUE must be one of: ${CROSS_RATE_VENUES.join(', ')}`);
+  }
+  return venue;
+}
+
+/**
+ * How often the cross-rate table is re-fetched.
+ *
+ * The default is hourly against a feed that publishes once per business day.
+ * That is not wasteful polling — it is how quickly a rate appears after the
+ * daily print, and it bounds how long a transient outage can last before the
+ * next attempt.
+ */
+const MIN_CROSS_REFRESH_SECONDS = 60;
+const MAX_CROSS_REFRESH_SECONDS = 86_400;
+const DEFAULT_CROSS_REFRESH_SECONDS = 3_600;
+
+/**
+ * How old the table may be and still price an order.
+ *
+ * Six hours, against a once-a-day feed, so a short outage is absorbed and a
+ * feed that has genuinely stopped answering stops quoting. Measured from our
+ * last successful fetch, never from the source's print date — see
+ * `CrossRateConfig.staleThresholdSeconds`.
+ */
+const MIN_CROSS_STALE_SECONDS = 60;
+const MAX_CROSS_STALE_SECONDS = 604_800;
+const DEFAULT_CROSS_STALE_SECONDS = 21_600;
+
+function readBoundedSeconds(key: string, fallback: number, min: number, max: number): number {
+  const raw = process.env[key]?.trim();
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${key} must be an integer from ${min} to ${max}`);
+  }
+  return parsed;
+}
+
 export interface FxProviderEnv {
   readonly primaryUrl: string | undefined;
   readonly secondaryUrl: string | undefined;
@@ -112,6 +167,10 @@ export interface FxProviderEnv {
   readonly forceMock: boolean;
   readonly autoRefresh: boolean;
   readonly refreshIntervalSeconds: number;
+  readonly crossRateVenue: FxCrossRateVenue | undefined;
+  readonly frankfurterBaseUrl: string | undefined;
+  readonly crossRateRefreshSeconds: number;
+  readonly crossRateStaleSeconds: number;
 }
 
 export function readFxProviderEnv(): FxProviderEnv {
@@ -125,5 +184,19 @@ export function readFxProviderEnv(): FxProviderEnv {
     forceMock: process.env['FX_USE_MOCK_PROVIDERS']?.trim().toLowerCase() === 'true',
     autoRefresh: readAutoRefresh(),
     refreshIntervalSeconds: readRefreshSeconds(),
+    crossRateVenue: readCrossRateVenue(),
+    frankfurterBaseUrl: readUrl('FX_FRANKFURTER_BASE_URL'),
+    crossRateRefreshSeconds: readBoundedSeconds(
+      'FX_CROSS_RATE_REFRESH_SECONDS',
+      DEFAULT_CROSS_REFRESH_SECONDS,
+      MIN_CROSS_REFRESH_SECONDS,
+      MAX_CROSS_REFRESH_SECONDS,
+    ),
+    crossRateStaleSeconds: readBoundedSeconds(
+      'FX_CROSS_RATE_STALE_SECONDS',
+      DEFAULT_CROSS_STALE_SECONDS,
+      MIN_CROSS_STALE_SECONDS,
+      MAX_CROSS_STALE_SECONDS,
+    ),
   };
 }

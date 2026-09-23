@@ -24,12 +24,15 @@ import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { CatalogService, type SkuQuoteTarget } from '../catalog/catalog.service';
+import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-rate.types';
 import { PricingRuleService, toEnginePricingRule } from '../pricing/pricing-rule.service';
 import type { PricingBreakdown, PricingRule } from '../pricing/pricing.types';
 import {
   QUOTES_DATABASE,
+  QUOTE_CROSS_RATE_SERVICE,
   QUOTE_FX_AGGREGATOR,
   QUOTE_PRICING_SERVICE,
+  type QuoteCrossRateService,
   type QuoteFxAggregator,
   type QuotePricingService,
   type QuotesDatabase,
@@ -69,6 +72,21 @@ const COMPONENT_INCLUDE = { components: { orderBy: { sortOrder: 'asc' as const }
 const QUOTE_ID_RANDOM_BYTES = 16;
 const QUOTE_NUMBER_RANDOM_BYTES = 8;
 
+/**
+ * The currency we settle supplier invoices in, and the one the pricing pair is
+ * denominated in.
+ *
+ * It is not the currency of the product. `CreateQuoteRequest.currency` names
+ * what the customer is buying — the face value on the card — and the two are
+ * routinely different: a £25 card is billed to us in dollars. Passing the face
+ * currency where this constant belongs asks the catalog for an offer priced in
+ * pounds, finds none, and reports a perfectly stocked card as unavailable.
+ */
+const QUOTE_COST_CURRENCY = 'USD';
+
+/** `Quote.supplierCostUsd` and the FX columns are `Decimal(18,6)`. */
+const USD_DECIMAL_PLACES = 6;
+
 export const QUOTE_CREATED = 'QUOTE_CREATED';
 export const QUOTE_ACCEPTED = 'QUOTE_ACCEPTED';
 export const QUOTE_AMOUNT_MISMATCH = 'QUOTE_AMOUNT_MISMATCH';
@@ -86,6 +104,7 @@ export class QuotesService {
     @Inject(PricingRuleService) private readonly pricingRules: PricingRuleService,
     @Inject(QUOTE_PRICING_SERVICE) private readonly pricing: QuotePricingService,
     @Inject(QUOTE_FX_AGGREGATOR) private readonly fx: QuoteFxAggregator,
+    @Inject(QUOTE_CROSS_RATE_SERVICE) private readonly crossRates: QuoteCrossRateService,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(AppConfigService) private readonly config: AppConfigService,
   ) {}
@@ -127,36 +146,41 @@ export class QuotesService {
     }
 
     const quantity = input.quantity ?? 1;
-    const supplierCostUsd =
+    const unitSupplierCost =
       target.kind === 'sku' ? target.sku.effectiveCost : input.requestedAmountForeign;
-    if (!supplierCostUsd) {
+    if (!unitSupplierCost) {
       throw DomainErrors.validation([
         { path: 'requestedAmountForeign', message: 'A foreign amount is required' },
       ]);
     }
-    if (target.kind === 'sku' && target.sku.costCurrency !== 'USD') {
-      throw DomainErrors.conflict(
-        'این محصول در حال حاضر قابل قیمت‌گذاری نیست.',
-        'Only USD supplier costs are supported by the USD_IRR pricing pair',
-      );
-    }
-    if (target.kind === 'service' && target.service.currency !== 'USD') {
-      throw DomainErrors.conflict(
-        'این خدمت در حال حاضر قابل قیمت‌گذاری نیست.',
-        'Only USD international services are supported by the USD_IRR pricing pair',
-      );
-    }
+    const unitFaceAmount = unitCustomerForeignAmount(target, input);
+    const faceCurrency = targetFaceCurrency(target);
+    const costCurrency = target.kind === 'sku' ? target.sku.costCurrency : faceCurrency;
+
+    /*
+     * Two amounts go into a quote and they are not in the same currency.
+     *
+     * What the customer buys is the face value printed on the card — GBP 25 —
+     * while the supplier bills us in whatever it settles in, typically dollars,
+     * and typically a different number: USD 33.40. The pricing engine is pure
+     * and speaks one currency, so each amount is converted with its own rate
+     * here, before the engine, and the engine keeps knowing nothing about FX
+     * sources. Treating one currency as the other is how a £25 card gets priced
+     * as a $25 one, roughly a quarter under cost.
+     *
+     * `USD` resolves to identity without a network call, so the dollar-priced
+     * majority of the catalog is unaffected by this leg existing at all.
+     */
+    const [faceRate, costRate] = await Promise.all([
+      this.crossRate(faceCurrency),
+      this.crossRate(costCurrency),
+    ]);
 
     const rule = toEnginePricingRule(ruleRecord);
-    /*
-     * Two different dollars go into a quote: what the customer is buying (the
-     * card's face value) and what it costs us. The price is built from the
-     * first; the second only decides how much of that price is margin.
-     */
     const breakdown = this.pricing.computeQuote(
       {
-        supplierCostUsd: new Decimal(supplierCostUsd),
-        customerForeignAmount: new Decimal(unitCustomerForeignAmount(target, input)),
+        supplierCostUsd: toUsd(unitSupplierCost, costRate),
+        customerForeignAmount: toUsd(unitFaceAmount, faceRate),
         quantity,
       },
       rule,
@@ -167,9 +191,16 @@ export class QuotesService {
     const expiresAt = new Date(now.getTime() + rule.quoteTtlSeconds * 1_000);
     const quoteId = makeQuoteId();
     const quoteNumber = makeQuoteNumber(now);
-    /* Taken from the breakdown rather than recomputed, so the dollars shown to
-     * the customer are provably the dollars the price was built from. */
-    const foreignAmount = breakdown.totalCustomerForeignAmount;
+    /*
+     * What the proforma shows as «بهای کالا»: the thing being bought, in the
+     * currency it is denominated in — «۲۵ پوند», not the dollars it passed
+     * through on the way to a rial figure. Showing the intermediate dollars
+     * would invite the customer to check them against a card that says £25.
+     */
+    const foreignAmount = new Decimal(unitFaceAmount).mul(quantity).toFixed();
+    /* Taken from the breakdown rather than recomputed, so the dollars the price
+     * was actually built from are the dollars the audit trail records. */
+    const chargeBaseUsd = breakdown.totalCustomerForeignAmount;
     const serviceAccount =
       target.kind === 'service' ? this.sealServiceAccount(input.serviceFields ?? {}) : null;
     const snapshot = makeSnapshot({
@@ -183,6 +214,10 @@ export class QuotesService {
       breakdown,
       wireBreakdown,
       foreignAmount,
+      foreignCurrency: faceCurrency,
+      chargeBaseUsd,
+      faceRate,
+      costRate,
       serviceAccount,
       now,
       expiresAt,
@@ -200,7 +235,10 @@ export class QuotesService {
           serviceId: target.kind === 'service' ? target.id : null,
           supplierOfferId: target.kind === 'sku' ? target.sku.offerId : null,
           quantity,
-          currency: input.currency ?? 'USD',
+          /* The currency of the thing bought, taken from the catalog rather
+           * than from the request — a client that omits it must not be able to
+           * relabel a £25 card as a $25 one. */
+          currency: faceCurrency,
           pricingRuleId: rule.id,
           pricingVersion: rule.version,
           marketFxRate: wireBreakdown.marketFxRate,
@@ -266,12 +304,7 @@ export class QuotesService {
     const publicQuote = this.toPublicSnapshot(quote, now);
     return {
       quote: publicQuote,
-      breakdown: toAudienceBreakdown(
-        wireBreakdown,
-        'CUSTOMER',
-        foreignAmount,
-        input.currency ?? 'USD',
-      ),
+      breakdown: toAudienceBreakdown(wireBreakdown, 'CUSTOMER', foreignAmount, faceCurrency),
       fx: toAudienceFxSnapshot(fx, 'CUSTOMER', wireBreakdown.effectiveFxRate),
     };
   }
@@ -510,7 +543,14 @@ export class QuotesService {
 
   private async resolveTarget(input: CreateQuoteRequest): Promise<QuoteTarget> {
     if (input.skuId) {
-      const sku = await this.catalog.getSkuQuoteTarget(input.skuId, input.currency ?? 'USD');
+      /*
+       * `QUOTE_COST_CURRENCY`, not `input.currency`. This argument filters
+       * supplier offers by the currency the supplier invoices in, which has
+       * nothing to do with the currency the card is denominated in. The request
+       * carries the latter, and passing it here made every non-dollar card look
+       * out of stock to the one caller that actually wanted to buy it.
+       */
+      const sku = await this.catalog.getSkuQuoteTarget(input.skuId, QUOTE_COST_CURRENCY);
       const quantity = input.quantity ?? 1;
       if (quantity < sku.sku.minQuantity || quantity > sku.sku.maxQuantity) {
         throw DomainErrors.validation([
@@ -572,6 +612,34 @@ export class QuotesService {
     }
   }
 
+  /**
+   * One currency's standing against the dollar, or no quote at all.
+   *
+   * A stale cross rate is refused exactly as a stale rial rate is: the customer
+   * is shown a price they can act on or nothing, never a price built on a number
+   * we no longer stand behind. The two failures read differently to an operator
+   * — one means the feed is quiet, the other that we have never heard of the
+   * currency — and identically to the customer, who can only try again later.
+   */
+  private async crossRate(currency: string): Promise<CrossRateSnapshot> {
+    let snapshot: CrossRateSnapshot;
+    try {
+      snapshot = await this.crossRates.getSnapshot(currency);
+    } catch (error) {
+      if (error instanceof CrossRateUnavailableError) {
+        throw DomainErrors.conflict(
+          'قیمت‌گذاری این محصول در حال حاضر ممکن نیست. کمی بعد دوباره تلاش کنید.',
+          `No USD cross rate for ${currency} (${error.reason})`,
+        );
+      }
+      throw error;
+    }
+    if (snapshot.isStale) {
+      throw DomainErrors.fxRateStale(snapshot.ageSeconds);
+    }
+    return snapshot;
+  }
+
   private async selectRule(target: QuoteTarget): Promise<DatabaseRule | null> {
     const rules = await this.pricingRules.list();
     const candidates =
@@ -624,8 +692,36 @@ function makeQuoteNumber(now: Date): string {
   return `BQ-${day}-${suffix}`;
 }
 
+/** The currency the thing being bought is denominated in. */
+function targetFaceCurrency(target: QuoteTarget): string {
+  return target.kind === 'sku' ? target.sku.sku.currency : target.service.currency;
+}
+
 /**
- * What ONE unit is worth to the customer, in USD.
+ * `amount`, stated in the snapshot's currency, as dollars.
+ *
+ * A division, not a multiplication by an inverted rate. The snapshot carries
+ * the rate in the direction the source published it — units per dollar —
+ * precisely so that this step divides at full precision instead of against a
+ * reciprocal that had already been rounded to six places. On a JPY 10,000 card
+ * that difference is worth a few hundred toman, which is small right up until
+ * it is the sign of the margin.
+ *
+ * The result is quantized here rather than deeper in, so the dollars the engine
+ * priced from are exactly the dollars `Quote.supplierCostUsd` stores. USD is the
+ * identity and passes through untouched, byte-for-byte as before this leg
+ * existed.
+ */
+function toUsd(amount: string, rate: CrossRateSnapshot): Decimal {
+  const value = new Decimal(amount);
+  if (rate.isIdentity) {
+    return value;
+  }
+  return value.div(rate.unitsPerUsd).toDecimalPlaces(USD_DECIMAL_PLACES, Decimal.ROUND_HALF_UP);
+}
+
+/**
+ * What ONE unit is worth to the customer, in the currency it is priced in.
  *
  * For a gift card that is the face value printed on it — the number the site
  * advertises and the number the price is computed from — never the supplier's
@@ -662,7 +758,15 @@ function makeSnapshot(params: {
    * that cannot be re-derived years later is not an auditable amount. */
   readonly breakdown: PricingBreakdown;
   readonly wireBreakdown: ReturnType<QuotePricingService['toWirePricingBreakdown']>;
+  /** The total in the currency the customer sees, e.g. `25` of GBP. */
   readonly foreignAmount: string;
+  readonly foreignCurrency: string;
+  /** The same total in the dollars the engine actually priced from. */
+  readonly chargeBaseUsd: string;
+  /* Both legs of the conversion, so a price can be re-derived years later from
+   * the snapshot alone — which is what rule 4 means by auditable. */
+  readonly faceRate: CrossRateSnapshot;
+  readonly costRate: CrossRateSnapshot;
   /** Sealed already: this function never sees a plaintext credential. */
   readonly serviceAccount: ServiceAccountSnapshot | null;
   readonly now: Date;
@@ -679,6 +783,10 @@ function makeSnapshot(params: {
     breakdown,
     wireBreakdown,
     foreignAmount,
+    foreignCurrency,
+    chargeBaseUsd,
+    faceRate,
+    costRate,
     serviceAccount,
     now,
     expiresAt,
@@ -698,7 +806,7 @@ function makeSnapshot(params: {
     target: quoteTargetSnapshot(target),
     supplierOfferId: target.kind === 'sku' ? target.sku.offerId : null,
     quantity: input.quantity ?? 1,
-    currency: input.currency ?? 'USD',
+    currency: foreignCurrency,
     pricingRuleId: rule.id,
     pricingVersion: rule.version,
     rule: ruleSnapshot(rule) as unknown as Prisma.InputJsonObject,
@@ -733,6 +841,16 @@ function makeSnapshot(params: {
     createdAt: now.toISOString(),
     components: wireBreakdown.components as unknown as Prisma.InputJsonArray,
     customerForeignAmount: foreignAmount,
+    customerForeignCurrency: foreignCurrency,
+    /* The dollar figure the rial price was built from, and the two rates that
+     * produced it. Without these a non-dollar quote could not be re-derived
+     * from its own snapshot — the face value alone does not determine a price
+     * once a second currency is in the chain. */
+    chargeBaseUsd: databaseDecimalString(chargeBaseUsd),
+    crossRates: {
+      face: faceRate as unknown as Prisma.InputJsonObject,
+      cost: costRate as unknown as Prisma.InputJsonObject,
+    },
     ...(configuredFields === undefined
       ? {}
       : { serviceFields: configuredFields as Prisma.InputJsonObject }),

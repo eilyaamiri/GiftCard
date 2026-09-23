@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
 import {
+  createCrossRateProvider,
   createPrimaryFxRateProvider,
   createSecondaryFxRateProvider,
+  FX_CROSS_RATE_PROVIDER,
   FX_PRIMARY_RATE_PROVIDER,
   FX_SECONDARY_RATE_PROVIDER,
+  type CrossRateProvider,
+  type CrossRateProviderKind,
   type FxProviderKind,
   type FxRateProvider,
 } from '@barat/fx';
@@ -11,11 +15,13 @@ import {
 import { AppConfigModule, AppConfigService } from '../../common/config';
 import { AuditModule } from '../audit/audit.module';
 import { AuditService } from '../audit/audit.service';
+import { CrossRateService } from './cross-rate.service';
+import { FX_CROSS_RATE_CONFIG, type CrossRateConfig } from './cross-rate.types';
 import { FxAggregatorService } from './fx-aggregator.service';
 import { FxRateRefresherService } from './fx-rate-refresher.service';
 import { PrismaFxRateRepository } from './fx-rate.repository';
 import { FxController } from './fx.controller';
-import { readFxProviderEnv, type FxVenue } from './fx.env';
+import { readFxProviderEnv, type FxCrossRateVenue, type FxVenue } from './fx.env';
 import {
   FX_AGGREGATOR_CONFIG,
   FX_AUDIT_RECORDER,
@@ -66,6 +72,31 @@ function resolveKind(
     return 'http';
   }
   return isProduction ? 'http' : 'mock';
+}
+
+/**
+ * Pick the cross-rate adapter.
+ *
+ * Same rule as above and for the same reason: a fabricated rate in production
+ * is money, not a placeholder. Unlike the rial leg there is no "unconfigured"
+ * position to fall back to — Frankfurter needs no credential and no endpoint —
+ * so production always gets the real feed unless a venue is named explicitly.
+ */
+function resolveCrossRateKind(
+  venue: FxCrossRateVenue | undefined,
+  forceMock: boolean,
+  isProduction: boolean,
+): CrossRateProviderKind {
+  if (venue) {
+    return venue;
+  }
+  if (forceMock) {
+    if (isProduction) {
+      throw new Error('FX_USE_MOCK_PROVIDERS must never be enabled in production');
+    }
+    return 'mock';
+  }
+  return 'frankfurter';
 }
 
 @Module({
@@ -124,12 +155,41 @@ function resolveKind(
         };
       },
     },
+    {
+      provide: FX_CROSS_RATE_PROVIDER,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService): CrossRateProvider => {
+        const env = readFxProviderEnv();
+        return createCrossRateProvider({
+          kind: resolveCrossRateKind(env.crossRateVenue, env.forceMock, config.isProduction),
+          ...(env.frankfurterBaseUrl === undefined
+            ? {}
+            : { frankfurterBaseUrl: env.frankfurterBaseUrl }),
+          timeoutMs: env.timeoutMs,
+        });
+      },
+    },
+    {
+      provide: FX_CROSS_RATE_CONFIG,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService): CrossRateConfig => {
+        const env = readFxProviderEnv();
+        return {
+          refreshIntervalSeconds: env.crossRateRefreshSeconds,
+          staleThresholdSeconds: env.crossRateStaleSeconds,
+          /* Never under test: a boot-time fetch would land in the middle of
+           * another test's assertions, exactly as the refresher's would. */
+          warmOnStart: !config.isTest,
+        };
+      },
+    },
     { provide: FX_RATE_REPOSITORY, useClass: PrismaFxRateRepository },
     /* The aggregator depends on the narrow port so its tests need no database. */
     { provide: FX_AUDIT_RECORDER, useExisting: AuditService },
+    CrossRateService,
     FxAggregatorService,
     FxRateRefresherService,
   ],
-  exports: [FxAggregatorService, FX_RATE_REPOSITORY],
+  exports: [CrossRateService, FxAggregatorService, FX_RATE_REPOSITORY],
 })
 export class FxModule {}
