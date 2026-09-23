@@ -353,6 +353,93 @@ describe('CatalogService taxonomy', () => {
 });
 
 /**
+ * The storefront shelves only the brands it has cover art for, and says so on
+ * every read. The scope has to reach the counts and the facets too: a category
+ * tile that says 48 and opens on 12 is worse than no tile at all.
+ */
+describe('CatalogService brand scope', () => {
+  const SCOPE = ['apple', 'steam'];
+
+  it('returns the whole catalog when no scope is given', async () => {
+    const { service, product, brand } = harness();
+
+    await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: false });
+    await service.listBrands();
+
+    expect(JSON.stringify(product.findMany.mock.calls[0]?.[0].where)).not.toContain('in');
+    expect(brand.findMany.mock.calls[0]?.[0].where).toEqual({ isActive: true });
+  });
+
+  it('narrows the product list to the scope', async () => {
+    const { service, product } = harness();
+
+    await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: false, brandSlugs: SCOPE });
+
+    expect(product.findMany.mock.calls[0]?.[0].where.AND).toContainEqual({
+      brandRef: { slug: { in: SCOPE } },
+    });
+    /* The count runs on the same clause, or the pager promises pages that are
+     * not there. */
+    expect(product.count.mock.calls[0]?.[0].where).toEqual(
+      product.findMany.mock.calls[0]?.[0].where,
+    );
+  });
+
+  it('keeps a brand outside the scope out, even when the URL asks for it by name', async () => {
+    const { service, product } = harness();
+
+    await service.listProducts({
+      page: 1,
+      pageSize: 20,
+      onlyAvailable: false,
+      brandSlug: 'netflix',
+      brandSlugs: SCOPE,
+    });
+
+    /* Both clauses survive and AND together, so the filter can only ever narrow
+     * within the shelf — it cannot reach past it. */
+    const and = product.findMany.mock.calls[0]?.[0].where.AND;
+    expect(and).toContainEqual({ brandRef: { slug: 'netflix' } });
+    expect(and).toContainEqual({ brandRef: { slug: { in: SCOPE } } });
+  });
+
+  it('counts the region facet inside the scope', async () => {
+    const { service, sku } = harness();
+
+    await service.listProducts({ page: 1, pageSize: 20, onlyAvailable: true, brandSlugs: SCOPE });
+
+    /* A region offered only by a brand that is not on the shelf would lead to
+     * an empty page. */
+    expect(sku.findMany.mock.calls[0]?.[0].where.product.AND).toContainEqual({
+      brandRef: { slug: { in: SCOPE } },
+    });
+  });
+
+  it('counts a category by the products the scope leaves in it', async () => {
+    const { service, category } = harness();
+
+    await service.listCategories(SCOPE);
+
+    const scoped = { isActive: true, brandRef: { slug: { in: SCOPE } } };
+    expect(category.findMany.mock.calls[0]?.[0].select._count.select).toEqual({
+      products: { where: scoped },
+      productTags: { where: { product: scoped } },
+    });
+  });
+
+  it('lists only the brands in the scope', async () => {
+    const { service, brand } = harness();
+
+    await service.listBrands(SCOPE);
+
+    expect(brand.findMany.mock.calls[0]?.[0].where).toEqual({
+      isActive: true,
+      slug: { in: SCOPE },
+    });
+  });
+});
+
+/**
  * «نیازمند تکمیل اطلاعات» — a product whose data is incomplete.
  *
  * The brief is explicit that nothing is removed from the catalog for it: the

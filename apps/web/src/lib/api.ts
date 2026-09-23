@@ -315,8 +315,8 @@ function pageQuery(params?: { readonly page?: number; readonly pageSize?: number
 export const api = {
   products: (query = "") => request<ListCatalogProductsResponse>(`/api/catalog/products${query ? `?${query}` : ""}`, undefined, listCatalogProductsResponseSchema),
   product: (slug: string) => request<GetCatalogProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getCatalogProductResponseSchema),
-  categories: () => request<ListCategoriesResponse>("/api/catalog/categories", undefined, listCategoriesResponseSchema),
-  brands: () => request<ListBrandsResponse>("/api/catalog/brands", undefined, listBrandsResponseSchema),
+  categories: (query = "") => request<ListCategoriesResponse>(`/api/catalog/categories${query ? `?${query}` : ""}`, undefined, listCategoriesResponseSchema),
+  brands: (query = "") => request<ListBrandsResponse>(`/api/catalog/brands${query ? `?${query}` : ""}`, undefined, listBrandsResponseSchema),
   services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),

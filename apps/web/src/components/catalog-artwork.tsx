@@ -12,69 +12,9 @@ import {
   PanelsTopLeft,
   type LucideProps,
 } from "lucide-react";
+import { brandKey, hasBrandArt } from "@/lib/brand-art";
 
 type ArtworkIcon = ComponentType<LucideProps>;
-
-/**
- * Brands we have real cover art for.
- *
- * The catalog carries 325 brands and only a few dozen will ever be drawn, so
- * this is an opt-in list: a brand that is not here keeps the generated
- * icon-on-plate mark below. Each entry is a slug, and the file is always
- * `/brand-art/<slug>.webp` — a naming rule rather than a second column, so the
- * two cannot drift apart.
- *
- * Artwork is transparent: the cover supplies the background, the file supplies
- * only the subject. Sources are ~1450px PNGs of about 2.8 MB each; they are
- * trimmed to their opaque bounds, fitted to 800×600 and re-encoded to WebP,
- * which keeps the alpha and brings each one down to around 100 KB. Trimming
- * matters as much as the resize — it is what makes a square render and a 4:3
- * one sit at the same apparent size on the shelf.
- */
-const BRAND_ART: ReadonlySet<string> = new Set([
-  "airbnb",
-  "amazon",
-  "apple",
-  "blizzard",
-  "fortnite",
-  "free-fire",
-  "google-play",
-  "hotels-com",
-  "jawaker",
-  "netflix",
-  "nike",
-  "nintendo",
-  "playstation",
-  "pubg",
-  "razer-gold",
-  "roblox",
-  "shein",
-  "spotify",
-  "steam",
-  "tinder",
-  "twitch",
-  "uber",
-  "xbox",
-  "zara",
-]);
-
-/**
- * The key a brand's artwork, icon and palette are all filed under.
- *
- * Supplier feeds spell one brand several ways — "NetFlix" and "Netflix",
- * "Google play" and "Google Play" — so this follows the API's own `brandSlug`,
- * which is the key the brand filter already joins on. Products whose brand the
- * importer could not resolve have no slug; they fall back to the display name
- * put through the same normalisation, which is how `packages/database`'s
- * `brandSlug` derived the slug in the first place.
- */
-function brandKey(brand: string, brandSlug: string | null | undefined): string {
-  return (brandSlug ?? brand)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/gu, "-")
-    .replace(/^-+|-+$/gu, "");
-}
 
 const SERVICE_ICONS: Record<string, ArtworkIcon> = {
   "ai-tools": Bot,
@@ -106,8 +46,13 @@ export function ProductArtwork({
   const frame = `catalog-art catalog-art-size-${size} product-art ${key}`;
 
   /* The wrapper is the image as far as assistive tech is concerned, so the
-   * artwork itself is hidden rather than announced a second time. */
-  if (BRAND_ART.has(key)) {
+   * artwork itself is hidden rather than announced a second time.
+   *
+   * Artwork is transparent: the cover supplies the background, the file
+   * supplies only the subject. Each is trimmed to its opaque bounds and fitted
+   * to 800×600 — the trim matters as much as the resize, since it is what makes
+   * a square render and a 4:3 one sit at the same apparent size on the shelf. */
+  if (hasBrandArt(key)) {
     return (
       <div className={`${frame} catalog-art-photo`} aria-label={imageAlt(label)} role="img">
         <span className="catalog-art-orbit" aria-hidden="true" />
@@ -124,9 +69,13 @@ export function ProductArtwork({
     );
   }
 
-  /* The fallback plate carries the brand's name, not a guess at its subject: a
-   * per-brand icon map would be three hundred entries of editorialising, and
-   * every brand that earned a specific mark has real art above instead. */
+  /* The fallback plate, for a brand with no art.
+   *
+   * The catalog no longer lists those brands, so this is reached only by
+   * opening a product's page directly — an old link, or one someone saved. It
+   * carries the brand's name rather than a guess at its subject: a per-brand
+   * icon map would be three hundred entries of editorialising, and every brand
+   * that earned a specific mark has real art above instead. */
   return (
     <div className={frame} aria-label={imageAlt(label)} role="img">
       <span className="catalog-art-orbit" aria-hidden="true" />

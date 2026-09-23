@@ -121,6 +121,23 @@ function categoryMembership(slug: string): Prisma.ProductWhereInput {
 export interface CatalogTaxonomyFilters {
   readonly categorySlug?: string | undefined;
   readonly brandSlug?: string | undefined;
+  /**
+   * Restrict every public list to these brands.
+   *
+   * The storefront only shelves brands it has cover art for, and sends the set
+   * it is willing to show. It is a caller's scope, not a property of the data:
+   * the catalog still holds every brand, an admin still sees all of them, and
+   * omitting the parameter still returns everything. Applied to the counts as
+   * well as the rows, so a category tile that says 48 opens on 48 products.
+   */
+  readonly brandSlugs?: readonly string[] | undefined;
+}
+
+/** `VISIBLE_PRODUCT`, narrowed to the brands a caller asked to be scoped to. */
+function visibleProduct(brandSlugs?: readonly string[]): Prisma.ProductWhereInput {
+  return brandSlugs
+    ? { ...VISIBLE_PRODUCT, brandRef: { slug: { in: [...brandSlugs] } } }
+    : VISIBLE_PRODUCT;
 }
 
 const PRODUCT_PUBLIC_SELECT = {
@@ -262,6 +279,10 @@ export class CatalogService {
     if (input.brand) conditions.push({ brand: input.brand });
     if (input.categorySlug) conditions.push(categoryMembership(input.categorySlug));
     if (input.brandSlug) conditions.push({ brandRef: { slug: input.brandSlug } });
+    /* AND-ed with the customer's own brand filter rather than replacing it, so
+     * a brand outside the caller's scope stays out even when asked for by
+     * name — the URL is not a way around the shelf. */
+    if (input.brandSlugs) conditions.push({ brandRef: { slug: { in: [...input.brandSlugs] } } });
     if (input.search) {
       conditions.push({
         OR: [
@@ -326,7 +347,8 @@ export class CatalogService {
    * membership rule the product filter uses, so a tile that says 48 opens on 48
    * products.
    */
-  async listCategories(): Promise<ListCategoriesResponse> {
+  async listCategories(brandSlugs?: readonly string[]): Promise<ListCategoriesResponse> {
+    const visible = visibleProduct(brandSlugs);
     const rows = await this.db.category.findMany({
       where: { isActive: true },
       select: {
@@ -340,8 +362,8 @@ export class CatalogService {
         sortOrder: true,
         _count: {
           select: {
-            products: { where: VISIBLE_PRODUCT },
-            productTags: { where: { product: VISIBLE_PRODUCT } },
+            products: { where: visible },
+            productTags: { where: { product: visible } },
           },
         },
       },
@@ -370,9 +392,9 @@ export class CatalogService {
    * sales figures here to rank by, and inventing some would be worse than the
    * curated order.
    */
-  async listBrands(): Promise<ListBrandsResponse> {
+  async listBrands(brandSlugs?: readonly string[]): Promise<ListBrandsResponse> {
     const rows = await this.db.brand.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(brandSlugs ? { slug: { in: [...brandSlugs] } } : {}) },
       select: {
         id: true,
         slug: true,

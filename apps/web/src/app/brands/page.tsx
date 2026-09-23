@@ -2,6 +2,7 @@ import Link from "next/link";
 import { EmptyState, ErrorState } from "@barat/ui";
 import { ChevronLeft, PackageSearch } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
+import { visibleBrandsQuery } from "@/lib/brand-art";
 import type { Brand } from "@/lib/catalog";
 import { BrandDirectory } from "./brand-directory";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function BrandsPage() {
   let brands: readonly Brand[];
   try {
-    ({ items: brands } = await api.brands());
+    ({ items: brands } = await api.brands(visibleBrandsQuery()));
   } catch (error) {
     return (
       <main className="page container">
