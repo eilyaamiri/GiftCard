@@ -5,8 +5,7 @@ import { ArrowRight, MapPin, Search, Store, Tag, X } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import type { Brand, Category } from "@/lib/catalog";
 import type { CatalogFilters } from "../_lib/catalog-url";
-import { BrandFacets, CategoryFacets } from "./catalog-facets";
-import { RegionPicker } from "./catalog-sidebar";
+import { BrandFacets, CategoryFacets, RegionFacets } from "./catalog-facets";
 
 type Level = "root" | "categories" | "brands" | "region";
 
@@ -65,6 +64,7 @@ export function CatalogBrowser({
     matches([category.nameFa, category.name, category.slug]),
   );
   const shownBrands = brands.filter((brand) => matches([brand.nameFa, brand.name, brand.slug]));
+  const shownRegions = regions.filter((region) => matches([region]));
 
   const title =
     level === "categories"
@@ -140,15 +140,19 @@ export function CatalogBrowser({
             </button>
           </div>
 
-          {level === "categories" || level === "brands" ? (
+          {level === "categories" || level === "brands" || level === "region" ? (
             <div className="catalog-drawer-search">
               <Search size={17} aria-hidden="true" />
               <input
                 type="search"
                 value={term}
                 onChange={(event) => setTerm(event.target.value)}
-                placeholder={level === "brands" ? "جست‌وجوی برند" : "جست‌وجوی دسته‌بندی"}
-                aria-label={level === "brands" ? "جست‌وجوی برند" : "جست‌وجوی دسته‌بندی"}
+                placeholder={
+                  level === "brands" ? "جست‌وجوی برند" : level === "region" ? "جست‌وجوی منطقه" : "جست‌وجوی دسته‌بندی"
+                }
+                aria-label={
+                  level === "brands" ? "جست‌وجوی برند" : level === "region" ? "جست‌وجوی منطقه" : "جست‌وجوی دسته‌بندی"
+                }
               />
             </div>
           ) : null}
@@ -200,8 +204,10 @@ export function CatalogBrowser({
               ) : (
                 <BrandFacets brands={shownBrands} filters={filters} onNavigate={close} />
               )
+            ) : shownRegions.length === 0 ? (
+              <p className="catalog-facet-empty">منطقه‌ای با این نام پیدا نشد.</p>
             ) : (
-              <RegionPicker regions={regions} filters={filters} idPrefix="catalog-drawer" />
+              <RegionFacets regions={shownRegions} filters={filters} onNavigate={close} />
             )}
           </div>
         </div>
