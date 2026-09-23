@@ -119,6 +119,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       <div className="service-detail-copy">
         <div className="eyebrow">درخواست پرداخت</div>
         <h1 className="h2">{service.nameFa}</h1>
+        {service.descriptionFa ? <p className="muted">{service.descriptionFa}</p> : null}
         <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
       </div>
       {service.requiresManualReview ? (
