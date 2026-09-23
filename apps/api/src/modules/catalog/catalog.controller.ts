@@ -69,6 +69,7 @@ const brandScopeQuerySchema = z.object({ brandSlugs: brandSlugsSchema });
 const listServicesQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: z.string().max(120).optional(),
 });
 type ListServicesQuery = z.infer<typeof listServicesQuerySchema>;
 
@@ -136,6 +137,6 @@ export class CatalogController {
   listServices(
     @Query(zodPipe(listServicesQuerySchema)) query: ListServicesQuery,
   ): Promise<ListServicesResponse> {
-    return this.catalog.listServices(query.page, query.pageSize);
+    return this.catalog.listServices(query.page, query.pageSize, query.search);
   }
 }

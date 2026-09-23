@@ -312,12 +312,22 @@ function pageQuery(params?: { readonly page?: number; readonly pageSize?: number
   return query ? `?${query}` : "";
 }
 
+function serviceQuery(params?: { readonly search?: string; readonly page?: number; readonly pageSize?: number }): string {
+  const search = new URLSearchParams();
+  if (params?.search) search.set("search", params.search);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.pageSize) search.set("pageSize", String(params.pageSize));
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
 export const api = {
   products: (query = "") => request<ListCatalogProductsResponse>(`/api/catalog/products${query ? `?${query}` : ""}`, undefined, listCatalogProductsResponseSchema),
   product: (slug: string) => request<GetCatalogProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getCatalogProductResponseSchema),
   categories: (query = "") => request<ListCategoriesResponse>(`/api/catalog/categories${query ? `?${query}` : ""}`, undefined, listCategoriesResponseSchema),
   brands: (query = "") => request<ListBrandsResponse>(`/api/catalog/brands${query ? `?${query}` : ""}`, undefined, listBrandsResponseSchema),
-  services: () => request<ListServicesResponse>("/api/catalog/services", undefined, listServicesResponseSchema),
+  services: (params?: { readonly search?: string; readonly page?: number; readonly pageSize?: number }) =>
+    request<ListServicesResponse>(`/api/catalog/services${serviceQuery(params)}`, undefined, listServicesResponseSchema),
   quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),
   paymentReceiptStatus: (number: string) =>

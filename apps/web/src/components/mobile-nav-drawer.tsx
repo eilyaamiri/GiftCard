@@ -71,14 +71,14 @@ export function MobileNavDrawer({
             </button>
           </div>
 
-          <form action="/gift-cards" method="get" className="mobile-nav-drawer-search" role="search" aria-label="جست‌وجوی سریع">
+          <form action="/search" method="get" className="mobile-nav-drawer-search" role="search" aria-label="جست‌وجوی سریع">
             <Search size={17} aria-hidden="true" />
             <input
               type="search"
               name="q"
               maxLength={120}
-              placeholder="جست‌وجوی گیفت‌کارت یا برند"
-              aria-label="جست‌وجوی گیفت‌کارت یا برند"
+              placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+              aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
             />
             <button type="submit" className="btn btn-accent mobile-nav-drawer-search-submit">جست‌وجو</button>
           </form>

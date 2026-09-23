@@ -100,14 +100,14 @@ export function SiteChrome({
 
           {/* A plain GET form: the query lives in the URL like every other
               catalog filter, so it works before any JavaScript has loaded. */}
-          <form action="/gift-cards" method="get" className="header-search" role="search" aria-label="جست‌وجوی سریع">
+          <form action="/search" method="get" className="header-search" role="search" aria-label="جست‌وجوی سریع">
             <Search size={17} aria-hidden="true" />
             <input
               type="search"
               name="q"
               maxLength={120}
-              placeholder="جست‌وجوی گیفت‌کارت یا برند"
-              aria-label="جست‌وجوی گیفت‌کارت یا برند"
+              placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+              aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
             />
             <button type="submit" className="btn btn-accent header-search-submit">جست‌وجو</button>
           </form>
