@@ -13,6 +13,7 @@ import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
 import { NavDropdown } from "@/components/nav-dropdown";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
+import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 
 /** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
@@ -184,7 +185,15 @@ export function SiteChrome({
                 }))}
               />
               <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
-              <Link href="/services" aria-current={pathname.startsWith("/services") ? "page" : undefined}>پرداخت بین‌المللی</Link>
+              <NavDropdown
+                label="پرداخت بین‌المللی"
+                emptyLabel="سرویسی موجود نیست"
+                items={SERVICE_CATEGORIES.map((category) => ({
+                  key: category.slug,
+                  label: category.labelFa,
+                  href: `/services?category=${encodeURIComponent(category.slug)}`,
+                }))}
+              />
             </nav>
           </div>
         </div>
