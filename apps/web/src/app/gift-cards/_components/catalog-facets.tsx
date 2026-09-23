@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MapPin } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import { CategoryIcon } from "@/components/category-icon";
 import type { Brand, Category } from "@/lib/catalog";
@@ -73,6 +74,44 @@ export function BrandFacets({
               <BrandMark brand={brand} />
               <span className="facet-label">{brand.nameFa}</span>
               <span className="facet-count">{toPersianDigits(brand.productCount)}</span>
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * The region list, in the same row shape as `CategoryFacets` — a region is a
+ * plain string with no logo or count of its own, so it gets a fixed icon
+ * instead of a `BrandMark`.
+ */
+export function RegionFacets({
+  regions,
+  filters,
+  onNavigate,
+}: Readonly<{
+  regions: readonly string[];
+  filters: CatalogFilters;
+  onNavigate?: (() => void) | undefined;
+}>) {
+  return (
+    <ul className="facet-list">
+      {regions.map((region) => {
+        const active = filters.region === region;
+        return (
+          <li key={region}>
+            <Link
+              className={active ? "facet-item is-active" : "facet-item"}
+              href={catalogHref(filters, { region: active ? undefined : region })}
+              aria-current={active ? "true" : undefined}
+              onClick={onNavigate}
+            >
+              <span className="facet-icon" aria-hidden="true">
+                <MapPin size={17} />
+              </span>
+              <span className="facet-label">{region}</span>
             </Link>
           </li>
         );

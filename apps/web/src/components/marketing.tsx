@@ -177,32 +177,40 @@ const HERO_TYPE_CHAR_DELAY_MS = 22;
 const HERO_TYPE_START_DELAY_MS = 550;
 
 /**
- * The hero headline, typed in one character at a time.
+ * The hero headline, typed in one word at a time.
  *
- * Every character is already in the markup — this only staggers each one's
+ * Every word is already in the markup — this only staggers each word's
  * `opacity` via a precomputed `animation-delay`, so the full sentence is there
  * for SEO and for a reader with no JavaScript; only the paint is staggered.
+ * Staggering by word rather than by character matters here: Persian is a
+ * cursive script, and a `<span>` per character breaks the browser's letter
+ * shaping mid-word (joined letters render in their isolated form instead),
+ * which is exactly what happened when this was tried per-character. A word
+ * is never split across elements, so its letters still shape as one run.
  * `aria-label` carries the real sentence so a screen reader gets it whole
  * instead of one span at a time.
  */
 function TypewriterHeading({ text, className }: Readonly<{ text: string; className?: string }>) {
-  const chars = Array.from(text);
+  const words = text.split(" ");
+  let charCount = 0;
+  const parts = words.map((word) => {
+    const delay = HERO_TYPE_START_DELAY_MS + charCount * HERO_TYPE_CHAR_DELAY_MS;
+    charCount += word.length + 1;
+    return { word, delay };
+  });
+  const cursorDelay = HERO_TYPE_START_DELAY_MS + Array.from(text).length * HERO_TYPE_CHAR_DELAY_MS;
   return (
     <h1 className={className} aria-label={text}>
       <span aria-hidden="true">
-        {chars.map((char, index) => (
-          <span
-            key={index}
-            className="hero-typewriter-char"
-            style={{ animationDelay: `${HERO_TYPE_START_DELAY_MS + index * HERO_TYPE_CHAR_DELAY_MS}ms` }}
-          >
-            {char}
+        {parts.map(({ word, delay }, index) => (
+          <span key={index}>
+            <span className="hero-typewriter-word" style={{ animationDelay: `${delay}ms` }}>
+              {word}
+            </span>
+            {index < parts.length - 1 ? " " : null}
           </span>
         ))}
-        <span
-          className="hero-typewriter-cursor"
-          style={{ animationDelay: `${HERO_TYPE_START_DELAY_MS + chars.length * HERO_TYPE_CHAR_DELAY_MS}ms` }}
-        />
+        <span className="hero-typewriter-cursor" style={{ animationDelay: `${cursorDelay}ms` }} />
       </span>
     </h1>
   );
