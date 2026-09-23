@@ -465,7 +465,7 @@ a { color:inherit; text-decoration:none; }
  * `.catalog-art-photo` gives every one of them the same navy well. */
 .product-art.airbnb { --art-accent:#EB3854; }
 .product-art.amazon { --art-accent:#EE701B; }
-.product-art.apple { --art-accent:#9CB9E2; }
+.product-art.apple { --art-accent:#2783E3; }
 .product-art.blizzard { --art-accent:#239AE6; }
 .product-art.fortnite { --art-accent:#6F1AEF; }
 .product-art.free-fire { --art-accent:#F86B11; }
