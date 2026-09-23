@@ -115,3 +115,9 @@ export const supportRequestSchema = z.object({
   message: z.string().trim().min(3).max(2000),
 });
 export type SupportRequest = z.infer<typeof supportRequestSchema>;
+
+export const addFavoriteRequestSchema = z.object({
+  itemType: z.enum(['PRODUCT', 'SERVICE']),
+  itemSlug: z.string().trim().min(1).max(160),
+});
+export type AddFavoriteRequest = z.infer<typeof addFavoriteRequestSchema>;

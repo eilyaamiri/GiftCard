@@ -9,6 +9,7 @@ import { BankDetailsService } from './bank-details.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 import { CUSTOMERS_DATABASE } from './customers.tokens';
+import { FavoritesService } from './favorites.service';
 import { NotificationsService } from './notifications.service';
 import { SupportChannelsController } from './support-channels.controller';
 import {
@@ -40,6 +41,7 @@ import { SupportService } from './support.service';
     AccountService,
     BankDetailsService,
     CustomersService,
+    FavoritesService,
     NotificationsService,
     SupportChannelsService,
     SupportService,
