@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Search, Store, Tag, X } from "lucide-react";
+import { ArrowRight, MapPin, Search, Store, Tag, X } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import type { Brand, Category } from "@/lib/catalog";
 import type { CatalogFilters } from "../_lib/catalog-url";
 import { BrandFacets, CategoryFacets } from "./catalog-facets";
+import { RegionPicker } from "./catalog-sidebar";
 
-type Level = "root" | "categories" | "brands";
+type Level = "root" | "categories" | "brands" | "region";
 
 /**
  * Browsing the catalog on a phone.
@@ -26,10 +27,12 @@ type Level = "root" | "categories" | "brands";
 export function CatalogBrowser({
   categories,
   brands,
+  regions,
   filters,
 }: Readonly<{
   categories: readonly Category[];
   brands: readonly Brand[];
+  regions: readonly string[];
   filters: CatalogFilters;
 }>) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -64,7 +67,13 @@ export function CatalogBrowser({
   const shownBrands = brands.filter((brand) => matches([brand.nameFa, brand.name, brand.slug]));
 
   const title =
-    level === "categories" ? "دسته‌بندی‌ها" : level === "brands" ? "برندها" : "مرور کاتالوگ";
+    level === "categories"
+      ? "دسته‌بندی‌ها"
+      : level === "brands"
+        ? "برندها"
+        : level === "region"
+          ? "منطقه"
+          : "مرور کاتالوگ";
 
   return (
     <div className="catalog-paths">
@@ -84,6 +93,15 @@ export function CatalogBrowser({
         <span className="catalog-path-copy">
           <strong>برندها</strong>
           <small>{toPersianDigits(brands.length)} برند</small>
+        </span>
+      </button>
+      <button type="button" className="catalog-path" onClick={() => open("region")}>
+        <span className="catalog-path-icon" aria-hidden="true">
+          <MapPin size={19} />
+        </span>
+        <span className="catalog-path-copy">
+          <strong>منطقه</strong>
+          <small>{toPersianDigits(regions.length)} منطقه</small>
         </span>
       </button>
 
@@ -122,7 +140,7 @@ export function CatalogBrowser({
             </button>
           </div>
 
-          {level === "root" ? null : (
+          {level === "categories" || level === "brands" ? (
             <div className="catalog-drawer-search">
               <Search size={17} aria-hidden="true" />
               <input
@@ -133,7 +151,7 @@ export function CatalogBrowser({
                 aria-label={level === "brands" ? "جست‌وجوی برند" : "جست‌وجوی دسته‌بندی"}
               />
             </div>
-          )}
+          ) : null}
 
           <div className="catalog-drawer-body">
             {level === "root" ? (
@@ -156,6 +174,15 @@ export function CatalogBrowser({
                     <span className="facet-count">{toPersianDigits(brands.length)}</span>
                   </button>
                 </li>
+                <li>
+                  <button type="button" className="facet-item" onClick={() => open("region")}>
+                    <span className="facet-icon" aria-hidden="true">
+                      <MapPin size={17} />
+                    </span>
+                    <span className="facet-label">منطقه</span>
+                    <span className="facet-count">{toPersianDigits(regions.length)}</span>
+                  </button>
+                </li>
               </ul>
             ) : level === "categories" ? (
               shownCategories.length === 0 ? (
@@ -167,10 +194,14 @@ export function CatalogBrowser({
                   onNavigate={close}
                 />
               )
-            ) : shownBrands.length === 0 ? (
-              <p className="catalog-facet-empty">برندی با این نام پیدا نشد.</p>
+            ) : level === "brands" ? (
+              shownBrands.length === 0 ? (
+                <p className="catalog-facet-empty">برندی با این نام پیدا نشد.</p>
+              ) : (
+                <BrandFacets brands={shownBrands} filters={filters} onNavigate={close} />
+              )
             ) : (
-              <BrandFacets brands={shownBrands} filters={filters} onNavigate={close} />
+              <RegionPicker regions={regions} filters={filters} idPrefix="catalog-drawer" />
             )}
           </div>
         </div>
