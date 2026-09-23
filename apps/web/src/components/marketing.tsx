@@ -1,22 +1,39 @@
 import Link from "next/link";
 import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-react";
+import type { InternationalServiceDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { visibleBrandsQuery } from "@/lib/brand-art";
 import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CategoryIcon } from "@/components/category-icon";
+import { FaqSection } from "@/components/faq";
+import { ServiceCard } from "@/components/service-card";
 
-const FEATURED_COUNT = 8;
 /**
- * The category the landing-page strip is curated from. Matched by name, not
- * slug — the slug this category is seeded under differs by environment.
+ * Every strip on the landing page is the same width — four cards — so the page
+ * reads as a stack of equal shelves rather than one long wall of catalog. A
+ * category that cannot fill a shelf does not get one.
+ */
+const ROW_SIZE = 4;
+/** Category shelves shown below the curated one. */
+const MAX_CATEGORY_ROWS = 4;
+/**
+ * How many categories we are willing to fetch to find those shelves. The
+ * published `productCount` counts everything in the category; eligibility
+ * (orderable, not under review) is only knowable per product, so a few
+ * candidates are expected to fall short and we ask for more than we need.
+ */
+const CATEGORY_CANDIDATES = MAX_CATEGORY_ROWS + 3;
+/**
+ * The category the curated strip is built from. Matched by name, not slug —
+ * the slug this category is seeded under differs by environment.
  */
 const FEATURED_CATEGORY_NAME_FA = "عمومی و پرکاربرد";
 
 /**
  * The category row under the hero.
  *
- * Same graceful-degradation shape as `catalogProducts`: a catalog hiccup
+ * Same graceful-degradation shape as `categoryProducts`: a catalog hiccup
  * hides the row rather than breaking the landing page.
  */
 async function homeCategories(): Promise<readonly Category[]> {
@@ -49,28 +66,114 @@ async function categoryProducts(categorySlug: string): Promise<readonly CatalogP
   }
 }
 
+/** The international-payment strip. Degrades like every other row here. */
+async function homeServices(): Promise<readonly InternationalServiceDto[]> {
+  try {
+    const { items } = await api.services();
+    return items.filter((service) => service.isActive).slice(0, ROW_SIZE);
+  } catch (error) {
+    if (error instanceof ApiClientError) return [];
+    throw error;
+  }
+}
+
 /**
- * The cards on the landing page.
- *
- * Scoped to «عمومی و پرکاربرد» and to what a customer can actually buy today
- * — the same `orderable` rule `CatalogProductCard` renders by — so the first
- * thing a visitor sees is never a disabled "فعلاً قابل سفارش نیست" card.
- * Within that pool, «نمایش در انتخاب سریع» is a flag an operator sets per
- * product, so the strip is curated from the panel rather than being whatever
- * the catalog happens to return first.
+ * What a customer can actually buy today — the same `orderable` rule
+ * `CatalogProductCard` renders by — so the first thing a visitor sees is never
+ * a disabled "فعلاً قابل سفارش نیست" card. «نمایش در انتخاب سریع» is a flag an
+ * operator sets per product, so each shelf is curated from the panel rather
+ * than being whatever the catalog happens to return first.
  */
-function featuredProducts(products: readonly CatalogProduct[]): readonly CatalogProduct[] {
-  const eligible = products.filter((product) => !product.needsReview && product.regions.length > 0);
+function shelfProducts(
+  products: readonly CatalogProduct[],
+  taken: ReadonlySet<string>,
+): readonly CatalogProduct[] {
+  const eligible = products.filter(
+    (product) => !product.needsReview && product.regions.length > 0 && !taken.has(product.id),
+  );
   const quickPicks = eligible.filter((product) => product.isQuickPick);
   const rest = eligible.filter((product) => !product.isQuickPick);
-  return [...quickPicks, ...rest].slice(0, FEATURED_COUNT);
+  return [...quickPicks, ...rest].slice(0, ROW_SIZE);
+}
+
+type Shelf = {
+  readonly key: string;
+  readonly eyebrow: string;
+  readonly title: string;
+  readonly href: string;
+  readonly products: readonly CatalogProduct[];
+};
+
+/**
+ * The shelves, in the order the page shows them: the curated one first, then
+ * whichever categories can fill a full row, in the order an operator sorted
+ * them. A product appears once across the whole page — a card repeated two
+ * shelves apart looks like a bug, not a recommendation.
+ */
+async function homeShelves(categories: readonly Category[]): Promise<readonly Shelf[]> {
+  const featured = categories.find((category) => category.nameFa === FEATURED_CATEGORY_NAME_FA);
+  const candidates = categories
+    .filter((category) => category.slug !== featured?.slug && category.productCount >= ROW_SIZE)
+    .slice(0, CATEGORY_CANDIDATES);
+
+  const [featuredItems, ...candidateItems] = await Promise.all([
+    featured === undefined ? Promise.resolve([] as readonly CatalogProduct[]) : categoryProducts(featured.slug),
+    ...candidates.map((category) => categoryProducts(category.slug)),
+  ]);
+
+  const taken = new Set<string>();
+  const shelves: Shelf[] = [];
+
+  const push = (shelf: Omit<Shelf, "products">, items: readonly CatalogProduct[]): boolean => {
+    const products = shelfProducts(items, taken);
+    if (products.length < ROW_SIZE) return false;
+    for (const product of products) taken.add(product.id);
+    shelves.push({ ...shelf, products });
+    return true;
+  };
+
+  push({ key: "featured", eyebrow: "انتخاب‌های محبوب", title: "شروع‌های مطمئن", href: "/gift-cards" }, featuredItems);
+
+  let categoryRows = 0;
+  for (const [index, category] of candidates.entries()) {
+    if (categoryRows >= MAX_CATEGORY_ROWS) break;
+    const shown = push(
+      {
+        key: category.id,
+        eyebrow: "دسته‌بندی",
+        title: category.nameFa,
+        href: `/gift-cards?category=${encodeURIComponent(category.slug)}`,
+      },
+      candidateItems[index] ?? [],
+    );
+    if (shown) categoryRows += 1;
+  }
+
+  return shelves;
+}
+
+/** A section head with its own way through to the full list. */
+function ShelfHead({
+  eyebrow,
+  title,
+  href,
+}: Readonly<{ eyebrow: string; title: string; href: string }>) {
+  return (
+    <div className="section-head">
+      <div>
+        <div className="eyebrow">{eyebrow}</div>
+        <h2 className="h2">
+          <Link href={href} className="section-head-link">{title}</Link>
+        </h2>
+      </div>
+      <Link href={href} className="btn btn-ghost">دیدن همه <ArrowLeft size={16} /></Link>
+    </div>
+  );
 }
 
 export async function HomePage() {
   const categories = await homeCategories();
-  const featuredCategorySlug = categories.find((category) => category.nameFa === FEATURED_CATEGORY_NAME_FA)?.slug;
-  const categoryItems = featuredCategorySlug === undefined ? [] : await categoryProducts(featuredCategorySlug);
-  const products = featuredProducts(categoryItems);
+  const [shelves, services] = await Promise.all([homeShelves(categories), homeServices()]);
   return (
     <>
       <main>
@@ -81,22 +184,13 @@ export async function HomePage() {
               <h1 className="h1">چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات.</h1>
               <p className="hero-copy">گیفت‌کارت بخرید یا هزینه سرویس‌های بین‌المللی را با خیال راحت پرداخت کنید. قیمت شفاف، پرداخت امن و پشتیبانی واقعی.</p>
               <div className="hero-actions">
-                <Link className="btn btn-teal" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
+                <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
                 <Link className="btn btn-outline" href="/services">پرداخت یک سرویس</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>
                 <span><LockKeyhole size={14} /> پرداخت امن</span>
                 <span><Zap size={14} /> پشتیبانی سریع</span>
-              </div>
-            </div>
-            <div className="signal" aria-label="نمونه پیش‌فاکتور">
-              <div className="signal-card">
-                <div className="signal-label">نحوه محاسبه قیمت</div>
-                <div className="signal-price">شفاف</div>
-                <div className="signal-line"><span>ارزش گیفت‌کارت</span><span>بر اساس نرخ لحظه‌ای</span></div>
-                <div className="signal-line"><span>کارمزد برات</span><span>پیش از پرداخت نمایش داده می‌شود</span></div>
-                <div className="signal-total"><span>مبلغ نهایی</span><span>فقط پس از تأیید شما</span></div>
               </div>
             </div>
           </div>
@@ -119,20 +213,26 @@ export async function HomePage() {
             </div>
           </section>
         ) : null}
-        {products.length > 0 ? (
-          <section className="container section">
-            <div className="section-head">
-              <div>
-                <div className="eyebrow">انتخاب‌های محبوب</div>
-                <h2 className="h2">شروع‌های مطمئن</h2>
+        {/* One stack, not six unrelated sections — the shelves share a tighter
+            rhythm with each other than a section does with the page. */}
+        <div className="shelf-stack">
+          {shelves.map((shelf) => (
+            <section key={shelf.key} className="container section">
+              <ShelfHead eyebrow={shelf.eyebrow} title={shelf.title} href={shelf.href} />
+              <div className="grid product-grid">
+                {shelf.products.map((product) => <CatalogProductCard key={product.id} product={product} />)}
               </div>
-              <Link href="/gift-cards" className="btn btn-ghost">دیدن همه <ArrowLeft size={16} /></Link>
-            </div>
-            <div className="grid product-grid">
-              {products.map((product) => <CatalogProductCard key={product.id} product={product} />)}
-            </div>
-          </section>
-        ) : null}
+            </section>
+          ))}
+          {services.length > 0 ? (
+            <section className="container section">
+              <ShelfHead eyebrow="پرداخت بین‌المللی" title="هزینه سرویس‌های خارجی" href="/services" />
+              <div className="grid product-grid">
+                {services.map((service) => <ServiceCard key={service.slug} service={service} />)}
+              </div>
+            </section>
+          ) : null}
+        </div>
         <section className="container section">
           <div className="section-head">
             <div>
@@ -177,6 +277,9 @@ export async function HomePage() {
             </div>
           </div>
         </section>
+        {/* The last thing before the footer, because it answers the question a
+            visitor is left holding once the page has finished selling. */}
+        <FaqSection />
       </main>
     </>
   );

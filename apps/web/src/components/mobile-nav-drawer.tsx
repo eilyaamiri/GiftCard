@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Menu, Search, X } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 
 /**
@@ -79,7 +80,7 @@ export function MobileNavDrawer({
               placeholder="جست‌وجوی گیفت‌کارت یا برند"
               aria-label="جست‌وجوی گیفت‌کارت یا برند"
             />
-            <button type="submit" className="btn btn-teal mobile-nav-drawer-search-submit">جست‌وجو</button>
+            <button type="submit" className="btn btn-accent mobile-nav-drawer-search-submit">جست‌وجو</button>
           </form>
 
           <nav className="mobile-nav-drawer-nav" aria-label="ناوبری اصلی">
@@ -125,6 +126,14 @@ export function MobileNavDrawer({
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>
             <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
           </nav>
+
+          {/* The header's theme control is hidden at this width, so the drawer
+              is where a phone reaches it — with the labels shown, since there
+              is room for them here. */}
+          <div className="mobile-nav-drawer-theme">
+            <span className="mobile-nav-drawer-theme-title">حالت نمایش</span>
+            <ThemeToggle withLabels />
+          </div>
         </div>
       </dialog>
     </>

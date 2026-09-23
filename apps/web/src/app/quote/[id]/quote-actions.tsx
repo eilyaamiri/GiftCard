@@ -62,7 +62,7 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
           اعتبار قیمت
         </span>
         {expired ? (
-          <span className="chip" style={{ background: "#FCE9E9", color: "#D94A4A", borderColor: "#D94A4A", cursor: "default" }}>
+          <span className="chip" style={{ background: "var(--danger-bg)", color: "var(--danger)", borderColor: "var(--danger-line)", cursor: "default" }}>
             مهلت قیمت تمام شد
           </span>
         ) : (

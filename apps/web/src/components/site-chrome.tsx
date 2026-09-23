@@ -11,6 +11,7 @@ import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
 import { NavDropdown } from "@/components/nav-dropdown";
+import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 
@@ -108,10 +109,12 @@ export function SiteChrome({
               placeholder="جست‌وجوی گیفت‌کارت یا برند"
               aria-label="جست‌وجوی گیفت‌کارت یا برند"
             />
-            <button type="submit" className="btn btn-teal header-search-submit">جست‌وجو</button>
+            <button type="submit" className="btn btn-accent header-search-submit">جست‌وجو</button>
           </form>
 
           <div className="header-end">
+            <ThemeToggle />
+
             {supportChannels.length > 0 ? (
               <button
                 type="button"
@@ -189,27 +192,20 @@ export function SiteChrome({
 
       {children}
 
+      {/* Three titled columns. The phone used to be a bare peer of the sitemap
+        * and the copyright, which put the one number a customer might actually
+        * dial in whatever gap the flex line had left — floating mid-footer,
+        * under no heading and attached to nothing. It now heads its own
+        * «تماس با ما» column, and the copyright drops to its own rule below. */}
       <footer className="footer">
         <div className="container footer-inner">
-          <div>
+          <div className="footer-brand">
             <div className="logo"><span className="logo-mark">ب</span>برات</div>
             <p>ارزش جهانی، به زبان ریال.</p>
           </div>
-          {/* The number an admin entered, or the generic line when none is
-            * published — never an empty "call us" with nothing to call. */}
-          {phone ? (
-            <a className="footer-phone" href={phone.href}>
-              <Phone size={16} aria-hidden="true" />
-              <span className="footer-phone-copy">
-                <strong dir="ltr">{phone.number}</strong>
-                {phone.description ? <small>{phone.description}</small> : null}
-              </span>
-            </a>
-          ) : (
-            <div className="footer-support"><Headphones size={16} /> پشتیبانی همه‌روزه · پاسخ‌گویی سریع</div>
-          )}
-          <nav className="footer-sitemap" aria-label="نقشه سایت">
-            <div className="footer-sitemap-title">نقشه سایت</div>
+
+          <nav className="footer-col" aria-label="نقشه سایت">
+            <div className="footer-col-title">نقشه سایت</div>
             <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
             <Link href="/services">پرداخت بین‌المللی</Link>
             <Link href="/brands">برندها</Link>
@@ -217,7 +213,25 @@ export function SiteChrome({
             <Link href="/help">راهنما</Link>
             <Link href={customer ? "/account" : "/login"}>{customer ? "پنل کاربری" : "ورود"}</Link>
           </nav>
-          <div>© ۱۴۰۵ برات</div>
+
+          <div className="footer-col footer-contact">
+            <div className="footer-col-title">تماس با ما</div>
+            {/* The number an admin entered, or the generic line when none is
+              * published — never an empty "call us" with nothing to call. */}
+            {phone ? (
+              <a className="footer-phone" href={phone.href}>
+                <Phone size={16} aria-hidden="true" />
+                <span className="footer-phone-copy">
+                  <strong dir="ltr">{phone.number}</strong>
+                  {phone.description ? <small>{phone.description}</small> : null}
+                </span>
+              </a>
+            ) : null}
+            <div className="footer-support"><Headphones size={16} /> پشتیبانی همه‌روزه · پاسخ‌گویی سریع</div>
+          </div>
+        </div>
+        <div className="container footer-legal">
+          <span>© ۱۴۰۵ برات</span>
         </div>
       </footer>
 

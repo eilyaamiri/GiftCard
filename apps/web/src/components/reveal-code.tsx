@@ -105,7 +105,7 @@ export function RevealCode({
     <div style={{ marginBlockStart: 12 }}>
       {/* `aria-live` so a screen reader announces the code when it arrives; the
         * button that produced it keeps focus, so nothing is stolen. */}
-      <div className="card pad" style={{ background: "var(--soft)" }} aria-live="polite">
+      <div className="card pad" style={{ background: "var(--background-secondary)" }} aria-live="polite">
         {revealed.code !== null ? (
           <div className="summary-line">
             <span>کد کارت</span>
