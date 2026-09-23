@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
-import { THEME_STORAGE_KEY, type ThemeChoice } from "@/lib/theme";
+import { THEME_AUTO_MEDIA_QUERY, THEME_STORAGE_KEY, type ThemeChoice } from "@/lib/theme";
 
 const OPTIONS = [
   { value: "auto", label: "خودکار", icon: Monitor },
@@ -22,8 +22,8 @@ const THEME_CHANGED = "barat:theme-choice";
  * The day/night control.
  *
  * Three states shown at once rather than one button that cycles: with a cycle
- * you cannot tell "dark because I asked" from "dark because it is night here",
- * and those behave differently at sunrise.
+ * you cannot tell "dark because I asked" from "dark because this is the phone
+ * default", and those behave differently once you also open it on a desktop.
  *
  * The server always renders "خودکار" selected, because the stored choice lives
  * in `localStorage` and the server cannot see it. That is only the *pressed*
@@ -55,14 +55,16 @@ export function ThemeToggle({
     /* Before the stored choice has been read, the inline script's answer is the
      * right one — re-applying a default "auto" here would undo it. */
     if (!ready) return;
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const media = window.matchMedia(THEME_AUTO_MEDIA_QUERY);
     const apply = () => {
       document.documentElement.dataset.theme =
         choice === "auto" ? (media.matches ? "dark" : "light") : choice;
     };
     apply();
     if (choice !== "auto") return;
-    /* Auto means auto: the page follows the system past the moment it loaded. */
+    /* Auto means auto: the page follows the viewport past the moment it
+     * loaded — resize across 767px (rotate a tablet, resize a window) and the
+     * theme follows it. */
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
   }, [choice, ready]);
