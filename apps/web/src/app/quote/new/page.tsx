@@ -73,7 +73,7 @@ export default function NewQuotePage({ searchParams }: { searchParams: Promise<Q
       <div className="card pad" style={{ marginTop: 18, textAlign: "center" }}>
         {error === null ? (
           <>
-            <Loader2 className="animate-spin" size={40} style={{ color: "var(--teal)", marginInline: "auto", marginBlockEnd: 16 }} aria-hidden="true" />
+            <Loader2 className="animate-spin" size={40} style={{ color: "var(--text-link)", marginInline: "auto", marginBlockEnd: 16 }} aria-hidden="true" />
             <h1 className="h2">در حال دریافت قیمت روز</h1>
             <p className="muted">قیمت بر اساس نرخ لحظه‌ای ارز محاسبه می‌شود و مدت محدودی معتبر است.</p>
           </>

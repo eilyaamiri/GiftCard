@@ -64,13 +64,13 @@ function ResultContent() {
       <div className="card pad" style={{ padding: 32, textAlign: "center" }}>
         {checking && payment === null ? (
           <>
-            <Loader2 className="animate-spin" size={44} style={{ color: "var(--teal)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />
+            <Loader2 className="animate-spin" size={44} style={{ color: "var(--text-link)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />
             <h1 className="h2">در حال بررسی نتیجه پرداخت</h1>
             <p className="muted">لطفاً این صفحه را نبندید.</p>
           </>
         ) : (
           <>
-            {settled ? <CheckCircle2 size={44} style={{ color: "var(--green)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : failed ? <XCircle size={44} style={{ color: "#D94A4A", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : <HelpCircle size={44} style={{ color: "var(--amber)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />}
+            {settled ? <CheckCircle2 size={44} style={{ color: "var(--green)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : failed ? <XCircle size={44} style={{ color: "var(--danger)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : <HelpCircle size={44} style={{ color: "var(--amber)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />}
             <h1 className="h2">{settled ? "پرداخت شما تأیید شد" : failed ? "پرداخت انجام نشد" : "نتیجهٔ پرداخت هنوز قطعی نشده است"}</h1>
             {payment !== null ? (
               <Badge tone={paymentStatusView(payment.status).tone} style={{ marginBlockEnd: 12 }}>

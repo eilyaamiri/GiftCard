@@ -31,15 +31,15 @@ export default async function AccountPage() {
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 14 }}>
         <div className="card pad">
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>سفارش‌ها</p>
-          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--navy)" }}>{toPersianDigits(orders.meta.total)}</p>
+          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--text-primary)" }}>{toPersianDigits(orders.meta.total)}</p>
         </div>
         <div className="card pad">
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>پرداخت‌ها</p>
-          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--navy)" }}>{toPersianDigits(payments.meta.total)}</p>
+          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--text-primary)" }}>{toPersianDigits(payments.meta.total)}</p>
         </div>
         <div className="card pad">
           <p className="muted" style={{ margin: 0, fontSize: 13 }}>پیگیری‌های باز</p>
-          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--navy)" }}>{toPersianDigits(openTickets)}</p>
+          <p style={{ fontSize: 28, fontWeight: 900, margin: "6px 0 0", color: "var(--text-primary)" }}>{toPersianDigits(openTickets)}</p>
         </div>
       </div>
 

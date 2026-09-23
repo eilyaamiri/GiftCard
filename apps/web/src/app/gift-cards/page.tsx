@@ -121,7 +121,7 @@ export default async function GiftCardsPage({
           placeholder="نام گیفت‌کارت یا برند را بنویسید"
           aria-label="جست‌وجو در گیفت‌کارت‌ها"
         />
-        <button type="submit" className="btn btn-teal">
+        <button type="submit" className="btn btn-accent">
           جست‌وجو
         </button>
       </form>
