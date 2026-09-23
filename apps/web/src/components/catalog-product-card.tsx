@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Ltr } from "@barat/ui";
 import { ProductArtwork } from "@/components/catalog-artwork";
+import { FavoriteButton } from "@/components/favorite-button";
 import type { CatalogProduct } from "@/lib/catalog";
 
 /** Beyond three, the region line wraps and stops being scannable. */
@@ -36,7 +37,12 @@ export function CatalogProductCard({
        * directly — commissioned cover art where we have it, and the generated
        * icon-on-plate mark everywhere else, keeps the grid visually consistent
        * regardless of what any one supplier sent. */}
-      <ProductArtwork brand={product.brand} brandSlug={product.brandSlug} label={product.titleFa} />
+      <ProductArtwork
+        brand={product.brand}
+        brandSlug={product.brandSlug}
+        label={product.titleFa}
+        overlay={<FavoriteButton itemType="PRODUCT" itemSlug={product.slug} label={product.titleFa} />}
+      />
       <div className="product-body">
         <p className="catalog-card-brand">{brand}</p>
         <h3>{product.titleFa}</h3>

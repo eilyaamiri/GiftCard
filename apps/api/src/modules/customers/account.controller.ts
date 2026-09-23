@@ -6,14 +6,17 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query } from '@
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 
+import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import {
+  addFavoriteRequestSchema,
   listPageRequestSchema,
   saveBankAccountRequestSchema,
   supportReplySchema,
   supportRequestSchema,
   updateAccountEmailRequestSchema,
   updateProfileRequestSchema,
+  type AddFavoriteRequest,
   type ListPageRequest,
   type SaveBankAccountRequest,
   type SupportReply,
@@ -26,9 +29,11 @@ import { CurrentCustomer, RequestMetadata } from '../identity/rbac/current-actor
 import { CustomerScoped } from '../identity/rbac/roles.decorator';
 import { AccountService } from './account.service';
 import { BankDetailsService } from './bank-details.service';
+import { FavoritesService } from './favorites.service';
 import { NotificationsService } from './notifications.service';
 import { SupportService, type SupportTicketDto } from './support.service';
 import type {
+  AccountFavoriteDto,
   AccountNotificationFeed,
   AccountOrderDto,
   AccountPaymentDto,
@@ -56,6 +61,7 @@ export class AccountController {
     private readonly support: SupportService,
     private readonly bankDetails: BankDetailsService,
     private readonly notifications: NotificationsService,
+    private readonly favorites: FavoritesService,
   ) {}
 
   @Get('notifications')
@@ -196,5 +202,33 @@ export class AccountController {
     @RequestMetadata() actor: IdentityActor,
   ): Promise<SupportTicketDto> {
     return this.support.create(customerId, body, actor);
+  }
+
+  @Get('favorites')
+  @ApiOperation({ summary: "The customer's starred gift cards and services" })
+  async favoriteItems(@CurrentCustomer() customerId: string): Promise<readonly AccountFavoriteDto[]> {
+    return this.favorites.list(customerId);
+  }
+
+  @Post('favorites')
+  @ApiOperation({ summary: 'Star a gift card or international service' })
+  async addFavorite(
+    @CurrentCustomer() customerId: string,
+    @Body(zodPipe(addFavoriteRequestSchema)) body: AddFavoriteRequest,
+  ): Promise<AccountFavoriteDto> {
+    return this.favorites.add(customerId, body);
+  }
+
+  @Delete('favorites/:itemType/:itemSlug')
+  @ApiOperation({ summary: 'Unstar a gift card or international service' })
+  async removeFavorite(
+    @CurrentCustomer() customerId: string,
+    @Param('itemType') itemType: string,
+    @Param('itemSlug') itemSlug: string,
+  ): Promise<{ removed: boolean }> {
+    if (itemType !== 'PRODUCT' && itemType !== 'SERVICE') {
+      throw DomainErrors.validation([{ path: 'itemType', message: 'Invalid item type' }]);
+    }
+    return this.favorites.remove(customerId, itemType, itemSlug);
   }
 }

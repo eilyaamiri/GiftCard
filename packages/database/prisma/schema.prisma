@@ -360,6 +360,7 @@ model Customer {
   payments          Payment[]
   workItems         WorkItem[]
   supportMessages   SupportMessage[]
+  favorites         CustomerFavorite[]
 
   @@index([status, createdAt])
   @@index([createdAt])
@@ -547,6 +548,32 @@ model CustomerFlag {
 
   @@unique([customerId, key])
   @@index([key, createdAt])
+}
+
+/// A gift card product or international service the customer starred.
+///
+/// Stored by slug rather than a foreign key into `Product`/`InternationalService`:
+/// one favorite can point at either table, and neither table is scoped to this
+/// module, so a slug the storefront already treats as the public identifier is
+/// what travels here. A slug whose product was deleted just drops silently out
+/// of the hydrated list rather than needing a cleanup job.
+model CustomerFavorite {
+  id         String       @id @default(cuid())
+  customerId String
+  itemType   FavoriteItemType
+  itemSlug   String
+
+  createdAt DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, itemType, itemSlug])
+  @@index([customerId, createdAt])
+}
+
+enum FavoriteItemType {
+  PRODUCT
+  SERVICE
 }
 
 // ===========================================================================

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import {
   Bot,
   ClipboardCheck,
@@ -36,11 +36,13 @@ export function ProductArtwork({
   brandSlug,
   label,
   size = "card",
+  overlay,
 }: Readonly<{
   brand: string;
   brandSlug?: string | null | undefined;
   label: string;
   size?: "card" | "detail";
+  overlay?: ReactNode;
 }>) {
   const key = brandKey(brand, brandSlug);
   const frame = `catalog-art catalog-art-size-${size} product-art ${key}`;
@@ -65,6 +67,7 @@ export function ProductArtwork({
           loading="lazy"
           decoding="async"
         />
+        {overlay}
       </div>
     );
   }
@@ -83,6 +86,7 @@ export function ProductArtwork({
         <Gift size={size === "detail" ? 46 : 36} strokeWidth={1.7} />
         <strong dir="ltr">{brand}</strong>
       </span>
+      {overlay}
     </div>
   );
 }
@@ -92,11 +96,13 @@ export function ServiceArtwork({
   label,
   size = "card",
   slug,
+  overlay,
 }: Readonly<{
   category: string;
   label: string;
   size?: "card" | "detail";
   slug: string;
+  overlay?: ReactNode;
 }>) {
   const normalizedCategory = category.trim().toLowerCase();
   const normalizedSlug = slug.trim().toLowerCase();
@@ -116,6 +122,7 @@ export function ServiceArtwork({
         <CreditCard size={15} />
         <span>پرداخت امن</span>
       </span>
+      {overlay}
     </div>
   );
 }

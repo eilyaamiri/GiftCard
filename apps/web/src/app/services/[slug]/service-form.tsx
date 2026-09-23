@@ -8,6 +8,7 @@ import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ServiceArtwork } from "@/components/catalog-artwork";
+import { FavoriteButton } from "@/components/favorite-button";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -115,6 +116,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
         label={service.nameFa}
         size="detail"
         slug={service.slug}
+        overlay={<FavoriteButton itemType="SERVICE" itemSlug={service.slug} label={service.nameFa} />}
       />
       <div className="service-detail-copy">
         <div className="eyebrow">درخواست پرداخت</div>

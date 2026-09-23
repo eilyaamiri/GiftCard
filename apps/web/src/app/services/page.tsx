@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 /** Every service in one category, specific ones first and the generic fallback last. */
 function groupByCategory(
   items: readonly InternationalServiceDto[],
-): { slug: string; labelFa: string; descriptionFa: string | null; items: InternationalServiceDto[] }[] {
+): { slug: string; labelFa: string; items: InternationalServiceDto[] }[] {
   return SERVICE_CATEGORIES.map((category) => {
     const inCategory = items.filter((service) => service.category === category.slug);
     const generic = inCategory.find((service) => GENERIC_SERVICE_SLUGS.includes(service.slug));
@@ -19,7 +19,6 @@ function groupByCategory(
     return {
       slug: category.slug,
       labelFa: category.labelFa,
-      descriptionFa: generic?.descriptionFa ?? null,
       items: generic ? [...specific, generic] : specific,
     };
   }).filter((group) => group.items.length > 0);
@@ -121,7 +120,6 @@ export default async function ServicesPage({
               key={group.slug}
               slug={group.slug}
               labelFa={group.labelFa}
-              descriptionFa={group.descriptionFa}
               count={group.items.length}
             />
           ))}

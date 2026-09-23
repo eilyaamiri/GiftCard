@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LayoutDashboard, LifeBuoy, ReceiptText, Settings2, ShoppingBag } from "lucide-react";
+import { Heart, LayoutDashboard, LifeBuoy, ReceiptText, Settings2, ShoppingBag } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 const groups = [
@@ -11,6 +11,7 @@ const groups = [
       { href: "/account", label: "نمای کلی", icon: LayoutDashboard },
       { href: "/account/orders", label: "سفارش‌های من", icon: ShoppingBag },
       { href: "/account/payments", label: "پرداخت‌ها", icon: ReceiptText },
+      { href: "/account/favorites", label: "علاقه‌مندی‌ها", icon: Heart },
     ],
   },
   {

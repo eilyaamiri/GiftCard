@@ -108,6 +108,29 @@ export interface AccountNotificationFeed {
   readonly generatedAt: string;
 }
 
+/* ------------------------------------------------------------------ favorites */
+
+export type FavoriteItemType = 'PRODUCT' | 'SERVICE';
+
+/**
+ * A starred gift card or international service.
+ *
+ * Carries whatever `ProductArtwork`/`ServiceArtwork` need to render on the
+ * favorites list without a second round trip: `brand`/`brandSlug` for a
+ * product, `category` for a service. Only the pair that matches `itemType` is
+ * ever non-null.
+ */
+export interface AccountFavoriteDto {
+  readonly itemType: FavoriteItemType;
+  readonly itemSlug: string;
+  readonly titleFa: string;
+  readonly href: string;
+  readonly brand: string | null;
+  readonly brandSlug: string | null;
+  readonly category: string | null;
+  readonly createdAt: string;
+}
+
 export interface PagedResult<TItem> {
   readonly items: readonly TItem[];
   readonly meta: {

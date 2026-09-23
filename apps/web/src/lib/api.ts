@@ -291,6 +291,27 @@ export const accountNotificationFeedSchema = z.object({
 });
 export type AccountNotificationFeed = z.infer<typeof accountNotificationFeedSchema>;
 
+export const FAVORITE_ITEM_TYPES = ["PRODUCT", "SERVICE"] as const;
+export type FavoriteItemType = (typeof FAVORITE_ITEM_TYPES)[number];
+
+export const accountFavoriteSchema = z.object({
+  itemType: z.enum(FAVORITE_ITEM_TYPES),
+  itemSlug: z.string().min(1),
+  titleFa: z.string().min(1),
+  href: z.string().min(1),
+  brand: z.string().nullable(),
+  brandSlug: z.string().nullable(),
+  category: z.string().nullable(),
+  createdAt: isoDateTimeSchema,
+});
+export type AccountFavorite = z.infer<typeof accountFavoriteSchema>;
+
+export const addFavoriteSchema = z.object({
+  itemType: z.enum(FAVORITE_ITEM_TYPES),
+  itemSlug: z.string().min(1).max(160),
+});
+export type AddFavorite = z.infer<typeof addFavoriteSchema>;
+
 const accountOrdersSchema = pagedSchema(accountOrderSchema);
 const accountPaymentsSchema = pagedSchema(accountPaymentSchema);
 const accountRefundsSchema = pagedSchema(accountRefundSchema);
@@ -369,6 +390,15 @@ export const api = {
   createSupportRequest: (payload: CreateSupportRequest) => request<SupportTicket>("/api/account/support", { method: "POST", body: JSON.stringify(payload) }, supportTicketSchema),
   supportRequest: (ticketId: string) => request<SupportTicket>(`/api/account/support/${encodeURIComponent(ticketId)}`, undefined, supportTicketSchema),
   replySupportRequest: (ticketId: string, message: string) => request<SupportTicket>(`/api/account/support/${encodeURIComponent(ticketId)}/messages`, { method: "POST", body: JSON.stringify({ message }) }, supportTicketSchema),
+
+  accountFavorites: () => request<readonly AccountFavorite[]>("/api/account/favorites", undefined, z.array(accountFavoriteSchema)),
+  addFavorite: (payload: AddFavorite) => request<AccountFavorite>("/api/account/favorites", { method: "POST", body: JSON.stringify(payload) }, accountFavoriteSchema),
+  removeFavorite: (itemType: FavoriteItemType, itemSlug: string) =>
+    request<{ removed: boolean }>(
+      `/api/account/favorites/${encodeURIComponent(itemType)}/${encodeURIComponent(itemSlug)}`,
+      { method: "DELETE" },
+      z.object({ removed: z.boolean() }),
+    ),
 
   get: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, undefined, schema),
   /** `headers` exists for the money path: POST /api/orders is rejected outright without an `Idempotency-Key`. */
