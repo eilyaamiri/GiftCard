@@ -3,11 +3,17 @@ import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
 import { CatalogModule } from '../catalog/catalog.module';
+import { CrossRateService } from '../fx/cross-rate.service';
 import { FxAggregatorService } from '../fx/fx-aggregator.service';
 import { FxModule } from '../fx/fx.module';
 import { PricingRuleService } from '../pricing/pricing-rule.service';
 import { PricingService } from '../pricing/pricing.service';
-import { QUOTES_DATABASE, QUOTE_FX_AGGREGATOR, QUOTE_PRICING_SERVICE } from './quote.ports';
+import {
+  QUOTES_DATABASE,
+  QUOTE_CROSS_RATE_SERVICE,
+  QUOTE_FX_AGGREGATOR,
+  QUOTE_PRICING_SERVICE,
+} from './quote.ports';
 import { QuotesController } from './quotes.controller';
 import { QuotesService } from './quotes.service';
 
@@ -32,6 +38,7 @@ import { QuotesService } from './quotes.service';
     PricingRuleService,
     { provide: QUOTE_PRICING_SERVICE, useExisting: PricingService },
     { provide: QUOTE_FX_AGGREGATOR, useExisting: FxAggregatorService },
+    { provide: QUOTE_CROSS_RATE_SERVICE, useExisting: CrossRateService },
     QuotesService,
   ],
   exports: [QuotesService],

@@ -5,6 +5,7 @@ import type {
 } from '@barat/contracts';
 import type { PrismaClient } from '@barat/database';
 
+import type { CrossRateSnapshot } from '../fx/cross-rate.types';
 import type { PricingBreakdown, PricingInput, PricingRule } from '../pricing/pricing.types';
 
 /* ============================================================================
@@ -33,6 +34,20 @@ export interface QuotesDatabase extends QuotesDatabaseCore {
 export const QUOTE_FX_AGGREGATOR = Symbol('QUOTE_FX_AGGREGATOR');
 export interface QuoteFxAggregator {
   getRateSnapshot(pair: 'USD_IRR'): Promise<FxRateSnapshot>;
+}
+
+/**
+ * The first leg of a non-dollar price.
+ *
+ * `USD_IRR` is the only pair the market venue quotes, but the catalog is not
+ * denominated in dollars: a card can be worth GBP 25 or JPY 10,000. This port
+ * turns that face value into dollars so the pricing engine — which knows one
+ * currency and must stay that way — still receives the only input it
+ * understands. The conversion happens here, before the engine, never inside it.
+ */
+export const QUOTE_CROSS_RATE_SERVICE = Symbol('QUOTE_CROSS_RATE_SERVICE');
+export interface QuoteCrossRateService {
+  getSnapshot(currency: string): Promise<CrossRateSnapshot>;
 }
 
 export const QUOTE_PRICING_SERVICE = Symbol('QUOTE_PRICING_SERVICE');

@@ -27,6 +27,7 @@ vi.mock('@barat/database', () => ({
 import { open } from '../../common/crypto/aead-envelope';
 import type { AuditService } from '../audit/audit.service';
 import type { CatalogService } from '../catalog/catalog.service';
+import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-rate.types';
 import type { PricingRuleService } from '../pricing/pricing-rule.service';
 import { PricingService } from '../pricing/pricing.service';
 import type { QuotesDatabase } from './quote.ports';
@@ -80,6 +81,35 @@ const SKU_TARGET = {
   effectiveCost: SUPPLIER_COST_USD,
 };
 
+/**
+ * The same card as `SKU_TARGET` but denominated in pounds, which is the shape
+ * the false out-of-stock and the mispricing both turned on: the face value is
+ * GBP while the supplier still invoices us in dollars.
+ */
+const GBP_SKU_TARGET = {
+  ...SKU_TARGET,
+  sku: {
+    ...SKU_TARGET.sku,
+    id: 'sku-gbp-1',
+    code: 'APPLE-GB-25',
+    region: 'GB',
+    currency: 'GBP',
+    faceValue: new Decimal('25'),
+    denominationLabel: '£25',
+  },
+  /* What Reloadly actually bills for a £25 card — dollars, and not 25 of them. */
+  costCurrency: 'USD',
+  listedCost: '33.44',
+  effectiveCost: '33.44',
+};
+
+/** Live quotes from 2026-09-23; one dollar buys this many units. */
+const CROSS_TABLE: Readonly<Record<string, string>> = {
+  GBP: '0.74756',
+  EUR: '0.84896',
+  JPY: '157.39',
+};
+
 const GLOBAL_RULE = {
   id: 'rule-global-1',
   name: 'global v1',
@@ -123,6 +153,42 @@ function fxSnapshot(midRate = '920000'): FxRateSnapshot {
     ageSeconds: 30,
     isStale: false,
   } as FxRateSnapshot;
+}
+
+function crossRate(
+  currency: string,
+  overrides: Partial<CrossRateSnapshot> = {},
+): CrossRateSnapshot {
+  if (currency === 'USD') {
+    return {
+      currency: 'USD',
+      unitsPerUsd: '1',
+      provider: 'identity',
+      source: 'IDENTITY',
+      publishedOn: null,
+      receivedAt: '2026-08-30T09:00:00.000Z',
+      ageSeconds: 0,
+      isStale: false,
+      isIdentity: true,
+      ...overrides,
+    };
+  }
+  const unitsPerUsd = CROSS_TABLE[currency];
+  if (unitsPerUsd === undefined) {
+    throw new CrossRateUnavailableError(currency, 'UNSUPPORTED_CURRENCY');
+  }
+  return {
+    currency,
+    unitsPerUsd,
+    provider: 'frankfurter',
+    source: 'API',
+    publishedOn: '2026-08-30',
+    receivedAt: '2026-08-30T09:00:00.000Z',
+    ageSeconds: 3_600,
+    isStale: false,
+    isIdentity: false,
+    ...overrides,
+  };
 }
 
 function createRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuoteRequest {
@@ -300,13 +366,15 @@ interface Harness {
   readonly record: ReturnType<typeof vi.fn>;
   readonly computeQuote: ReturnType<typeof vi.fn>;
   readonly getRateSnapshot: ReturnType<typeof vi.fn>;
+  readonly getCrossRate: ReturnType<typeof vi.fn>;
+  readonly getSkuQuoteTarget: ReturnType<typeof vi.fn>;
   readonly getServiceForQuote: ReturnType<typeof vi.fn>;
   readonly rules: { value: unknown[] };
 }
 
 const ACTOR: QuoteActor = { customerId: 'customer-1', commerceSessionId: null };
 
-function harness(): Harness {
+function harness(options: { readonly skuTarget?: unknown } = {}): Harness {
   const db = new FakeQuoteDatabase();
   const engine = new PricingService();
   const computeQuote = vi.fn(engine.computeQuote.bind(engine));
@@ -316,11 +384,13 @@ function harness(): Harness {
   };
 
   const getRateSnapshot = vi.fn(async () => fxSnapshot());
+  const getCrossRate = vi.fn(async (currency: string) => crossRate(currency));
   const rules = { value: [GLOBAL_RULE] as unknown[] };
   const pricingRules = { list: async () => rules.value } as unknown as PricingRuleService;
   const getServiceForQuote = vi.fn();
+  const getSkuQuoteTarget = vi.fn(async () => options.skuTarget ?? SKU_TARGET);
   const catalog = {
-    getSkuQuoteTarget: vi.fn(async () => SKU_TARGET),
+    getSkuQuoteTarget,
     getServiceForQuote,
   } as unknown as CatalogService;
 
@@ -332,6 +402,7 @@ function harness(): Harness {
     pricingRules,
     pricing as never,
     { getRateSnapshot } as never,
+    { getSnapshot: getCrossRate } as never,
     { record } as unknown as AuditService,
     /* A fresh buffer per call, like the real config: the service zeroes the key
      * it is handed once the password envelope exists. */
@@ -344,6 +415,8 @@ function harness(): Harness {
     record,
     computeQuote,
     getRateSnapshot,
+    getCrossRate,
+    getSkuQuoteTarget,
     getServiceForQuote,
     rules,
   };
@@ -693,6 +766,188 @@ describe('QuotesService.createQuote', () => {
     await expect(context.service.createQuote(createRequest(), ACTOR)).rejects.toMatchObject({
       code: 'CONFLICT',
     });
+  });
+});
+
+/* ============================================================================
+ * Cards that are not priced in dollars
+ *
+ * The catalog carries face values in GBP, EUR and JPY while suppliers still
+ * invoice in dollars. Two separate defects lived here: the face currency was
+ * being used to filter supplier offers, which reported stocked cards as
+ * unavailable, and — had an offer been found — a £25 face value would have been
+ * priced as though it were $25.
+ * ==========================================================================*/
+
+describe('QuotesService.createQuote — non-USD face values', () => {
+  let context: Harness;
+
+  beforeEach(() => {
+    context = harness({ skuTarget: GBP_SKU_TARGET });
+  });
+
+  function gbpRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuoteRequest {
+    return createRequest({ skuId: 'sku-gbp-1', currency: 'GBP', ...overrides });
+  }
+
+  it('looks up supplier offers by the invoice currency, not the face currency', async () => {
+    await context.service.createQuote(gbpRequest(), ACTOR);
+
+    /*
+     * The bug in one line. Asking the catalog for a GBP-priced offer on a card
+     * nobody invoices in pounds returns nothing, and the customer is told a
+     * fully stocked card is out of stock.
+     */
+    expect(context.getSkuQuoteTarget).toHaveBeenCalledWith('sku-gbp-1', 'USD');
+  });
+
+  it('converts the face value to dollars before pricing it', async () => {
+    /*
+     * A £25 card we buy for $33.44, at GBP 0.74756 per dollar and a 920,000 mid
+     * rate with this rule's 2.0% spread + buffer (effective 938,400):
+     *
+     *   charge base   = 25 / 0.74756 = $33.442132 x 938,400 = 31,382,096
+     *   supplier cost = $33.44                    x 938,400 = 31,380,096
+     *
+     * Pricing the face value as though it were $25 — which is what happened
+     * before the conversion existed — puts the charge base at 23,460,000, some
+     * eight million rial BELOW what the card costs us.
+     */
+    await context.service.createQuote(gbpRequest(), ACTOR);
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+
+    expect(snapshot['chargeBaseUsd']).toBe('33.442132');
+    expect(snapshot['supplierCostUsd']).toBe('33.440000');
+    expect(snapshot['customerAmountIrr']).toBe('31382096');
+    expect(Number(snapshot['customerAmountIrr'])).toBeGreaterThan(
+      Number(snapshot['supplierCostIrr']),
+    );
+  });
+
+  it('asks for both legs: the face currency and the invoice currency', async () => {
+    await context.service.createQuote(gbpRequest(), ACTOR);
+
+    expect(context.getCrossRate).toHaveBeenCalledWith('GBP');
+    expect(context.getCrossRate).toHaveBeenCalledWith('USD');
+  });
+
+  it('shows the customer the face currency, not the dollars in between', async () => {
+    const response = await context.service.createQuote(gbpRequest({ quantity: 2 }), ACTOR);
+    const row = context.db.only();
+
+    /* The proforma reads «۵۰ پوند». A customer holding a card marked £25 has no
+     * way to check a dollar figure, and no reason to be shown one. */
+    expect(response.breakdown.supplierCostForeign).toBe('50');
+    expect(response.breakdown.supplierCostCurrency).toBe('GBP');
+    expect(row['currency']).toBe('GBP');
+    expect((row['snapshot'] as Record<string, unknown>)['customerForeignCurrency']).toBe('GBP');
+  });
+
+  it('takes the currency from the catalog even when the request omits it', async () => {
+    await context.service.createQuote(
+      createRequest({ skuId: 'sku-gbp-1', currency: undefined }),
+      ACTOR,
+    );
+
+    /* It used to default to `'USD'`, which relabelled a £25 card as a $25 one
+     * on the customer's own invoice. */
+    expect(context.db.only()['currency']).toBe('GBP');
+  });
+
+  it('records both rates so the price can be re-derived from the snapshot alone', async () => {
+    await context.service.createQuote(gbpRequest(), ACTOR);
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    const rates = snapshot['crossRates'] as Record<string, Record<string, unknown>>;
+
+    expect(rates['face']).toMatchObject({
+      currency: 'GBP',
+      unitsPerUsd: '0.74756',
+      provider: 'frankfurter',
+      publishedOn: '2026-08-30',
+    });
+    expect(rates['cost']).toMatchObject({ currency: 'USD', isIdentity: true });
+  });
+
+  it('refuses to price against a stale cross rate', async () => {
+    context.getCrossRate.mockImplementation(async (currency: string) =>
+      crossRate(currency, currency === 'GBP' ? { isStale: true, ageSeconds: 90_000 } : {}),
+    );
+
+    /* Same policy as the rial leg: a price built on a rate we no longer stand
+     * behind is worse than no price. */
+    await expect(context.service.createQuote(gbpRequest(), ACTOR)).rejects.toMatchObject({
+      code: 'FX_RATE_STALE',
+    });
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('refuses a currency the feed does not carry', async () => {
+    context.getCrossRate.mockImplementation(async (currency: string) => {
+      if (currency === 'GBP') {
+        throw new CrossRateUnavailableError('GBP', 'UNSUPPORTED_CURRENCY');
+      }
+      return crossRate(currency);
+    });
+
+    await expect(context.service.createQuote(gbpRequest(), ACTOR)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('produces a contract-valid response for a non-USD card', async () => {
+    const response = await context.service.createQuote(gbpRequest(), ACTOR);
+    expect(() => createQuoteResponseSchema.parse(response)).not.toThrow();
+  });
+
+  it('carries the face currency through acceptance unchanged', async () => {
+    const created = await context.service.createQuote(gbpRequest(), ACTOR);
+
+    const accepted = await context.service.acceptQuote(
+      {
+        quoteId: created.quote.id,
+        idempotencyKey: 'idem-accept-gbp-0123456789',
+        acknowledgedAmountIrr: created.quote.finalAmountIrr,
+      } as never,
+      ACTOR,
+    );
+
+    expect(() => acceptQuoteResponseSchema.parse(accepted)).not.toThrow();
+    expect(accepted.quote.status).toBe('ACCEPTED');
+    expect(accepted.quote.currency).toBe('GBP');
+    /* Acceptance never re-prices, so the rate it was quoted at is the rate it
+     * is bought at — including the cross leg. */
+    expect(accepted.quote.finalAmountIrr).toBe(created.quote.finalAmountIrr);
+  });
+
+  it('keeps a JPY card honest, where an inverted rate would show', async () => {
+    const jpy = harness({
+      skuTarget: {
+        ...GBP_SKU_TARGET,
+        sku: {
+          ...GBP_SKU_TARGET.sku,
+          id: 'sku-jpy-1',
+          currency: 'JPY',
+          faceValue: new Decimal('10000'),
+          denominationLabel: '¥10,000',
+        },
+        listedCost: '60',
+        effectiveCost: '60',
+      },
+    });
+
+    await jpy.service.createQuote(
+      createRequest({ skuId: 'sku-jpy-1', currency: 'JPY' }),
+      ACTOR,
+    );
+    const snapshot = jpy.db.only()['snapshot'] as Record<string, unknown>;
+
+    /* 10,000 / 157.39 = $63.536438. Inverting the rate to six places first and
+     * multiplying instead gives $63.53, which is 6,000 rial of margin lost on
+     * one card for no reason other than arithmetic. */
+    expect(snapshot['chargeBaseUsd']).toBe('63.536438');
+    expect(snapshot['customerForeignAmount']).toBe('10000');
+    expect(snapshot['customerForeignCurrency']).toBe('JPY');
   });
 });
 

@@ -140,6 +140,23 @@ describe('OrdersService.createOrder', () => {
     });
   });
 
+  it('bills a non-dollar quote in rial like any other', async () => {
+    /* The face currency reaches the order only through the quote it points at.
+     * A £25 card is still paid for in rial, at the total the quote already
+     * fixed, so nothing on this row may pick up the pound. Asserted because
+     * the alternative — a GBP order total — would be a number no gateway in
+     * Iran can take payment against. */
+    const { service, db } = harness({ ...acceptedQuote, currency: 'GBP' });
+
+    await service.createOrder(request(), actor);
+
+    expect(db.order.create.mock.calls[0]?.[0].data).toMatchObject({
+      currency: 'IRR',
+      totalAmountIrr: QUOTE_AMOUNT,
+      quoteId: 'quote-1',
+    });
+  });
+
   it('refuses and audits when the acknowledged amount differs from the quote', async () => {
     const { service, db, record } = harness(acceptedQuote);
 

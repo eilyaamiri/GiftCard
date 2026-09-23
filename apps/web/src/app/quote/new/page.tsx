@@ -35,7 +35,14 @@ export default function NewQuotePage({ searchParams }: { searchParams: Promise<Q
   /* The foreign amount comes off the URL, so it is validated against the shared
    * decimal-string schema before it can reach a pricing request. */
   const requestedAmountForeign = positiveDecimalStringSchema.safeParse(single(params["amount"])).data;
-  const currency = single(params["currency"]) ?? "USD";
+  /* Read, never defaulted. The contract requires a currency on the request and
+   * the server checks it against the catalog entry, so a missing one cannot be
+   * filled in with "USD": on a card denominated in pounds that is a claim this
+   * page has no basis for, and the only link that reaches here — the re-quote
+   * button — always carries the quote's own currency. Absent means the URL was
+   * hand-made, and asking for a price without knowing the currency is refused
+   * below rather than guessed. */
+  const currency = single(params["currency"]);
 
   const [error, setError] = useState<string | null>(null);
   /* React 19 Strict Mode runs effects twice in development. Quoting is not free
@@ -44,7 +51,7 @@ export default function NewQuotePage({ searchParams }: { searchParams: Promise<Q
 
   const request = useCallback(async () => {
     setError(null);
-    if (Boolean(skuId) === Boolean(serviceId)) {
+    if (Boolean(skuId) === Boolean(serviceId) || currency === undefined) {
       setError("درخواست قیمت نامعتبر است. لطفاً از صفحهٔ محصول دوباره اقدام کنید.");
       return;
     }

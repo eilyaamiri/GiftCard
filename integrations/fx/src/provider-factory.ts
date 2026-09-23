@@ -1,4 +1,7 @@
+import type { CrossRateProvider } from './cross-rate-provider.interface';
 import type { FxRateProvider } from './fx-rate-provider.interface';
+import { FrankfurterCrossRateProvider } from './providers/frankfurter-cross-rate.provider';
+import { MockCrossRateProvider, type MockCrossRateProviderOptions } from './providers/mock-cross-rate.provider';
 import { MockFxRateProvider, type MockFxRateProviderOptions } from './providers/mock-fx-rate.provider';
 import { NobitexFxRateProvider } from './providers/nobitex-fx-rate.provider';
 import { PrimaryFxRateProvider } from './providers/primary-fx-rate.provider';
@@ -48,6 +51,36 @@ export function createPrimaryFxRateProvider(options: FxProviderFactoryOptions): 
   }
   return new PrimaryFxRateProvider({
     ...(options.endpoint === undefined ? {} : { endpoint: options.endpoint }),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  });
+}
+
+export type CrossRateProviderKind = 'frankfurter' | 'mock';
+
+export interface CrossRateProviderFactoryOptions {
+  readonly kind: CrossRateProviderKind;
+  readonly timeoutMs?: number;
+  /** Only read when `kind` is `frankfurter`; the adapter has a working default. */
+  readonly frankfurterBaseUrl?: string;
+  /** Only read when `kind` is `mock`. */
+  readonly mock?: Omit<MockCrossRateProviderOptions, 'name'>;
+}
+
+/**
+ * The cross-rate composition seam, separate from the pair one above because the
+ * two answer different questions and fail independently: a market venue can be
+ * down while the reference feed is fine, and a deployment may well want the real
+ * reference rate alongside a mocked rial rate.
+ */
+export function createCrossRateProvider(
+  options: CrossRateProviderFactoryOptions,
+): CrossRateProvider {
+  if (options.kind === 'mock') {
+    return new MockCrossRateProvider({ ...options.mock, name: 'mock-cross' });
+  }
+  return new FrankfurterCrossRateProvider({
+    name: 'frankfurter',
+    ...(options.frankfurterBaseUrl === undefined ? {} : { baseUrl: options.frankfurterBaseUrl }),
     ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
   });
 }

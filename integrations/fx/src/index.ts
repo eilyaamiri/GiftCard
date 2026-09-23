@@ -6,13 +6,19 @@
  * imported from a domain module (AGENTS.md rules 5-7, enforced by ESLint).
  */
 
+export * from './cross-rate-provider.interface';
 export * from './fx-rate-provider.interface';
 export {
+  createCrossRateProvider,
   createPrimaryFxRateProvider,
   createSecondaryFxRateProvider,
+  type CrossRateProviderFactoryOptions,
+  type CrossRateProviderKind,
   type FxProviderFactoryOptions,
   type FxProviderKind,
 } from './provider-factory';
+export type { FrankfurterCrossRateProviderOptions } from './providers/frankfurter-cross-rate.provider';
 export type { HttpFxRateProviderOptions } from './providers/http-fx-rate.provider';
+export type { MockCrossRateProviderOptions } from './providers/mock-cross-rate.provider';
 export type { MockFxRateProviderOptions } from './providers/mock-fx-rate.provider';
 export type { NobitexFxRateProviderOptions } from './providers/nobitex-fx-rate.provider';
