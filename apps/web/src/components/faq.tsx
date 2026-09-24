@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronDown, MessageCircleQuestion } from "lucide-react";
-import { FAQ_ENTRIES, type FaqEntry } from "@/lib/faq";
+import type { FaqEntry } from "@/lib/faq";
 
 /**
  * The closing section of a page: the questions someone is still holding when
@@ -42,12 +42,12 @@ function FaqItem({ entry, group }: Readonly<{ entry: FaqEntry; group: string }>)
  * the support desk.
  */
 export function FaqSection({
-  entries = FAQ_ENTRIES,
+  entries,
   group = "barat-faq",
   eyebrow = "پیش از خرید",
   action = { href: "/help", label: "هنوز سؤالی دارید؟" },
 }: Readonly<{
-  entries?: readonly FaqEntry[];
+  entries: readonly FaqEntry[];
   group?: string;
   eyebrow?: string;
   action?: { readonly href: string; readonly label: string };
