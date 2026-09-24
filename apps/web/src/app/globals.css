@@ -2,6 +2,11 @@
 @import "@barat/config/tailwind/theme.css";
 @import "@barat/ui/styles.css";
 
+/* Tailwind's automatic source detection starts at this file's directory, so it
+ * never sees `@barat/ui` — the shared components' utility classes (padding,
+ * radius, appearance-none, etc.) were silently missing from the bundle. */
+@source "../../../../packages/ui/src";
+
 /* ============================================================================
  * Palette
  *
@@ -634,7 +639,11 @@ a { color:inherit; text-decoration:none; }
 .services-category-section h2 { color:var(--text-primary); font-size:21px; font-weight:900; margin:0 0 8px; }
 .field { display:grid; gap:7px; margin-bottom:16px; }
 .field label { font-size:13px; font-weight:800; color:var(--text-primary); }
-.field input,.field select,.field textarea { min-height:48px; width:100%; border:1px solid var(--border-primary); border-radius:10px; padding:10px 13px; background:var(--surface-input); color:var(--text-primary); }
+/* `select` is intentionally excluded: the shared `@barat/ui` Select component fully
+ * styles its own wrapper + native select via Tailwind, including the end padding
+ * reserved for its chevron icon — this rule's padding used to override that and
+ * squeeze the option text into the icon. */
+.field input,.field textarea { min-height:48px; width:100%; border:1px solid var(--border-primary); border-radius:10px; padding:10px 13px; background:var(--surface-input); color:var(--text-primary); }
 .field textarea { min-height:105px; resize:vertical; }
 .split { display:grid; grid-template-columns:1fr 350px; gap:24px; align-items:start; }
 .pad { padding:24px; }
