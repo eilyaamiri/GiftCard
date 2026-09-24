@@ -131,6 +131,7 @@ export function MobileNavDrawer({
 
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>
             <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
+            <Link href="/help" className="mobile-nav-drawer-link">راهنما</Link>
           </nav>
 
           {/* The header's theme control is hidden at this width, so the drawer
