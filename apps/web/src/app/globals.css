@@ -639,12 +639,11 @@ a { color:inherit; text-decoration:none; }
 .services-category-section h2 { color:var(--text-primary); font-size:21px; font-weight:900; margin:0 0 8px; }
 .field { display:grid; gap:7px; margin-bottom:16px; }
 .field label { font-size:13px; font-weight:800; color:var(--text-primary); }
-/* `select` is intentionally excluded: the shared `@barat/ui` Select component fully
- * styles its own wrapper + native select via Tailwind, including the end padding
- * reserved for its chevron icon — this rule's padding used to override that and
- * squeeze the option text into the icon. */
-.field input,.field textarea { min-height:48px; width:100%; border:1px solid var(--border-primary); border-radius:10px; padding:10px 13px; background:var(--surface-input); color:var(--text-primary); }
-.field textarea { min-height:105px; resize:vertical; }
+/* No box-model rule for input/select/textarea here: every one of them under `.field`
+ * is a `@barat/ui` Input/Select/Textarea, which fully styles its own border, radius,
+ * padding and background via Tailwind. `Input` in particular wraps its native
+ * <input> in a styled div, so a rule like `.field input { border; padding; ... }`
+ * lands on the inner element too and draws a second, nested box around it. */
 .split { display:grid; grid-template-columns:1fr 350px; gap:24px; align-items:start; }
 .pad { padding:24px; }
 .summary-line { display:flex; justify-content:space-between; gap:12px; color:var(--text-secondary); font-size:14px; padding:11px 0; border-bottom:1px solid var(--border-primary); }
