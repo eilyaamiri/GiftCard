@@ -3,18 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Menu, Search, X } from "lucide-react";
+import { ChevronDown, Menu, X } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 
 /**
- * The header's search bar and nav links, collapsed into a slide-in drawer
- * below 768px — the width where `.header-search` and `.header-navbar`
- * themselves go `display:none`. A native `<dialog>` for the same reasons as
- * `AccountMobileDrawer`: the focus trap, the inert background and Escape all
- * come for free instead of being hand-rolled.
+ * The header's nav links, collapsed into a slide-in drawer below 768px — the
+ * width where `.header-navbar` itself goes `display:none`. Search moves to
+ * its own row under the header at this width instead of living in here. A
+ * native `<dialog>` for the same reasons as `AccountMobileDrawer`: the focus
+ * trap, the inert background and Escape all come for free instead of being
+ * hand-rolled.
  */
 export function MobileNavDrawer({
   categories,
@@ -71,18 +72,6 @@ export function MobileNavDrawer({
               <X size={20} aria-hidden="true" />
             </button>
           </div>
-
-          <form action="/search" method="get" className="mobile-nav-drawer-search" role="search" aria-label="جست‌وجوی سریع">
-            <Search size={17} aria-hidden="true" />
-            <input
-              type="search"
-              name="q"
-              maxLength={120}
-              placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
-              aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
-            />
-            <button type="submit" className="btn btn-accent mobile-nav-drawer-search-submit">جست‌وجو</button>
-          </form>
 
           <nav className="mobile-nav-drawer-nav" aria-label="ناوبری اصلی">
             <details className="mobile-nav-drawer-group">

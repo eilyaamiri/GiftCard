@@ -144,6 +144,15 @@
   --art-ground:var(--brand-green);
   --art-well:linear-gradient(152deg,#002B28 0%,#08403A 56%,#001D1B 100%);
   --art-halo:.5;
+
+  /* The hero and footer grounds, and the mix the six generated service covers
+   * fold their own hue into. Dark by default because that is the ground both
+   * themes used before the light theme grew its own paper backdrop. */
+  --hero-bg:var(--surface-deep);
+  --footer-bg:var(--surface-deep);
+  --art-category-mix-base:var(--brand-green);
+  --art-plate-bg:color-mix(in srgb,var(--art-accent) 24%,rgba(255,255,255,.1));
+  --art-symbol-bg:color-mix(in srgb,var(--art-accent) 34%,rgba(255,255,255,.08));
 }
 
 [data-theme="dark"] {
@@ -153,6 +162,25 @@
   --art-ground:#063632;
   --art-well:linear-gradient(152deg,#063632 0%,#0D4F47 56%,#002B28 100%);
   --art-halo:.44;
+}
+
+/* Light theme only: the hero and footer move off the deep green onto the
+ * page's own paper/grey, and the card well brightens to match — the deep
+ * green ground stays reserved for the account rail and auth visual, which
+ * this rule does not touch.
+ *
+ * `:root` alone would also match the dark-themed document (the root element
+ * is still the root), so this has to actively exclude `[data-theme="dark"]`
+ * rather than rely on source order to lose to it. */
+:root:not([data-theme="dark"]) {
+  --hero-bg:var(--background-primary);
+  --footer-bg:var(--background-secondary);
+  --art-ground:var(--background-secondary);
+  --art-well:linear-gradient(152deg,#FFFFFF 0%,#F4F5F4 56%,#E9EBEA 100%);
+  --art-halo:.22;
+  --art-category-mix-base:var(--background-secondary);
+  --art-plate-bg:color-mix(in srgb,var(--art-accent) 80%,#FFFFFF);
+  --art-symbol-bg:color-mix(in srgb,var(--art-accent) 78%,#FFFFFF);
 }
 
 /* --- Status ----------------------------------------------------------------
@@ -226,7 +254,27 @@
 /* The grounds that are night in both themes. Rather than each rule inside them
  * asking for a special colour, the ground re-points the text scale once and
  * everything below it — links, headings, muted copy, dividers — follows. */
-.hero,.footer,.account-sidebar,.auth-visual,.account-mobile-drawer {
+.account-sidebar,.auth-visual,.account-mobile-drawer {
+  --text-primary:#FFFFFF;
+  --text-secondary:#C4CFCC;
+  --text-tertiary:#8E9D99;
+  --text-link:var(--accent-on-deep);
+  --text-inverted:var(--brand-green);
+  --border-primary:rgba(255,255,255,.12);
+  --border-secondary:rgba(255,255,255,.08);
+  --background-contrast:rgba(255,255,255,.1);
+  --background-secondary:rgba(255,255,255,.06);
+  --surface-card:var(--surface-deep-2);
+  --surface-input:rgba(255,255,255,.08);
+  --interactive-primary:#FFFFFF;
+  --interactive-primary-hover:#E7E9E7;
+  --interactive-primary-active:#D5D8D6;
+}
+
+/* The hero and footer only get the always-night text scale in dark theme —
+ * in light theme they fall through to the plain `:root` scale, which is
+ * already near-black. */
+[data-theme="dark"] .hero,[data-theme="dark"] .footer {
   --text-primary:#FFFFFF;
   --text-secondary:#C4CFCC;
   --text-tertiary:#8E9D99;
@@ -274,10 +322,11 @@ a { color:inherit; text-decoration:none; }
  * space instead, via its own margin, so it is the one pushed to the far side. */
 .header-search { flex:0 1 460px; min-width:0; max-width:460px; display:flex; align-items:center; gap:8px; padding:5px 6px 5px 14px; background:var(--surface-input); border:1px solid var(--border-primary); border-radius:12px; transition:border-color .18s ease,box-shadow .18s ease; }
 .header-search:focus-within { border-color:var(--interactive-accent); background:var(--surface-card); box-shadow:0 8px 20px color-mix(in srgb,var(--interactive-accent) 14%,transparent); }
-.header-search > svg { flex:0 0 auto; color:var(--text-secondary); }
 .header-search input { flex:1; min-width:0; min-height:34px; padding:0; color:var(--text-primary); background:transparent; border:0; font-size:13px; }
 .header-search input:focus-visible { outline:none; }
-.header-search-submit { min-height:34px; padding:6px 16px; font-size:13px; }
+.header-search-submit { flex:0 0 auto; width:34px; height:34px; display:grid; place-items:center; color:var(--text-secondary); background:transparent; border:0; border-radius:9px; cursor:pointer; }
+.header-search-submit:hover,.header-search-submit:focus-visible { color:var(--interactive-accent); outline:2px solid color-mix(in srgb,var(--interactive-accent) 24%,transparent); outline-offset:2px; }
+.header-search-mobile { display:none; }
 .header-navbar { border-top:1px solid var(--border-primary); background:var(--surface-card); }
 .header-navbar-inner { min-height:46px; display:flex; align-items:center; justify-content:center; }
 .logo { display:flex; align-items:center; gap:10px; color:var(--text-primary); font-weight:900; font-size:22px; letter-spacing:-.04em; }
@@ -375,8 +424,8 @@ a { color:inherit; text-decoration:none; }
 .hero .btn-accent svg,.btn-ghost svg { transition:transform .2s ease; }
 .hero .btn-accent:hover svg,.btn-ghost:hover svg { transform:translateX(-3px); }
 .btn:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,a:focus-visible { outline:3px solid color-mix(in srgb,var(--interactive-accent) 42%,transparent); outline-offset:2px; }
-.hero { overflow:hidden; color:var(--text-primary); background:var(--surface-deep); position:relative; }
-.hero:before { content:""; position:absolute; width:540px; height:540px; border:1px solid color-mix(in srgb,var(--accent-on-deep) 24%,transparent); border-radius:50%; left:-180px; top:-180px; box-shadow:0 0 0 50px rgba(255,255,255,.035),0 0 0 100px rgba(255,255,255,.02); animation:hero-rings-in .9s cubic-bezier(.2,.8,.2,1) both; }
+.hero { overflow:hidden; color:var(--text-primary); background:var(--hero-bg); position:relative; }
+.hero:before { content:""; position:absolute; width:540px; height:540px; border:1px solid color-mix(in srgb,var(--accent-on-deep) 24%,transparent); border-radius:50%; left:-180px; top:-180px; box-shadow:0 0 0 50px color-mix(in srgb,var(--text-primary) 3.5%,transparent),0 0 0 100px color-mix(in srgb,var(--text-primary) 2%,transparent); animation:hero-rings-in .9s cubic-bezier(.2,.8,.2,1) both; }
 /* One centred column. The sample invoice that used to sit in the right-hand
  * column is gone, and a two-column grid with one column empty is not a layout —
  * so the headline takes the full width and the rings behind it become the
@@ -389,8 +438,8 @@ a { color:inherit; text-decoration:none; }
  * payment block, and stretching a 44px link to the height of its tallest
  * neighbour is what left the earlier buttons half empty. */
 .hero-actions { display:flex; align-items:center; justify-content:center; gap:12px; margin-top:28px; flex-wrap:wrap; }
-.hero .btn-outline { background:transparent; border-color:rgba(255,255,255,.34); color:var(--text-primary); }
-.hero .btn-outline:hover { border-color:rgba(255,255,255,.6); background:var(--background-contrast); }
+.hero .btn-outline { background:transparent; border-color:color-mix(in srgb,var(--text-primary) 34%,transparent); color:var(--text-primary); }
+.hero .btn-outline:hover { border-color:color-mix(in srgb,var(--text-primary) 60%,transparent); background:var(--background-contrast); }
 .trust-row { display:flex; justify-content:center; gap:22px; flex-wrap:wrap; margin-top:32px; color:var(--text-secondary); font-size:12px; }
 .value-grid { grid-template-columns:repeat(3,1fr); }
 .value { padding:23px; }
@@ -421,7 +470,7 @@ a { color:inherit; text-decoration:none; }
 .product:is(:hover,:focus-visible) .catalog-art-plate { transform:translate(-50%,-50%) rotate(-1deg) scale(1.04); }
 .product:is(:hover,:focus-visible) .catalog-art-orbit { transform:rotate(14deg) scale(1.08); opacity:.82; }
 .catalog-art { --art-base:var(--art-ground); --art-accent:var(--accent-on-deep); position:relative; isolation:isolate; overflow:hidden; color:var(--text-on-accent); background:var(--art-base); }
-.catalog-art-plate { position:absolute; z-index:2; top:50%; left:50%; width:min(62%,210px); aspect-ratio:1.58; display:flex; flex-direction:column; justify-content:space-between; padding:14px; border:1px solid rgba(255,255,255,.34); border-radius:16px; background:color-mix(in srgb,var(--art-accent) 24%,rgba(255,255,255,.1)); box-shadow:0 18px 35px rgba(0,14,12,.24); transform:translate(-50%,-50%) rotate(-4deg); transition:transform .42s cubic-bezier(.2,.8,.2,1),box-shadow .3s ease; backdrop-filter:blur(9px); }
+.catalog-art-plate { position:absolute; z-index:2; top:50%; left:50%; width:min(62%,210px); aspect-ratio:1.58; display:flex; flex-direction:column; justify-content:space-between; padding:14px; border:1px solid rgba(255,255,255,.34); border-radius:16px; background:var(--art-plate-bg); box-shadow:0 18px 35px rgba(0,14,12,.24); transform:translate(-50%,-50%) rotate(-4deg); transition:transform .42s cubic-bezier(.2,.8,.2,1),box-shadow .3s ease; backdrop-filter:blur(9px); }
 .catalog-art-plate svg { filter:drop-shadow(0 5px 12px rgba(0,14,12,.2)); }
 .catalog-art-plate strong { align-self:flex-end; max-width:100%; overflow:hidden; font-size:14px; font-weight:800; letter-spacing:.01em; text-overflow:ellipsis; white-space:nowrap; }
 .catalog-art-orbit { position:absolute; z-index:-1; width:72%; aspect-ratio:1; left:-19%; top:-55%; border:1px solid rgba(255,255,255,.32); border:1px solid color-mix(in srgb,var(--art-accent) 72%,white); border-radius:50%; box-shadow:0 0 0 24px rgba(255,255,255,.05),0 0 0 52px rgba(255,255,255,.03); box-shadow:0 0 0 24px color-mix(in srgb,var(--art-accent) 11%,transparent),0 0 0 52px color-mix(in srgb,var(--art-accent) 7%,transparent); opacity:.65; transform-origin:center; transition:transform .55s cubic-bezier(.2,.8,.2,1),opacity .3s ease; }
@@ -498,13 +547,13 @@ a { color:inherit; text-decoration:none; }
  * one material. The symbol on top keeps the full-strength hue, which is where
  * the distinction actually needs to land. */
 .service-art { --art-base:var(--art-ground); --art-accent:var(--accent-on-deep); }
-.service-art.ai-tools { --art-base:color-mix(in srgb,#262050 34%,var(--brand-green)); --art-accent:#9187F1; }
-.service-art.cloud { --art-base:color-mix(in srgb,#163F63 34%,var(--brand-green)); --art-accent:#55B8E8; }
-.service-art.domain-hosting { --art-base:color-mix(in srgb,#173D3B 34%,var(--brand-green)); --art-accent:#49C6B8; }
-.service-art.courses { --art-base:color-mix(in srgb,#56351F 34%,var(--brand-green)); --art-accent:#E8A751; }
-.service-art.exam-fees { --art-base:color-mix(in srgb,#493148 34%,var(--brand-green)); --art-accent:#D789C2; }
-.service-art.saas { --art-base:color-mix(in srgb,#253763 34%,var(--brand-green)); --art-accent:#6A9BE8; }
-.service-art-symbol { position:absolute; z-index:2; top:50%; left:50%; width:84px; height:84px; display:grid; place-items:center; color:var(--text-on-accent); border:1px solid rgba(255,255,255,.3); border-radius:24px; background:color-mix(in srgb,var(--art-accent) 34%,rgba(255,255,255,.08)); box-shadow:0 16px 30px rgba(0,14,12,.22); transform:translate(-50%,-50%) rotate(-4deg); transition:transform .42s cubic-bezier(.2,.8,.2,1),box-shadow .3s ease; }
+.service-art.ai-tools { --art-base:color-mix(in srgb,#262050 34%,var(--art-category-mix-base)); --art-accent:#9187F1; }
+.service-art.cloud { --art-base:color-mix(in srgb,#163F63 34%,var(--art-category-mix-base)); --art-accent:#55B8E8; }
+.service-art.domain-hosting { --art-base:color-mix(in srgb,#173D3B 34%,var(--art-category-mix-base)); --art-accent:#49C6B8; }
+.service-art.courses { --art-base:color-mix(in srgb,#56351F 34%,var(--art-category-mix-base)); --art-accent:#E8A751; }
+.service-art.exam-fees { --art-base:color-mix(in srgb,#493148 34%,var(--art-category-mix-base)); --art-accent:#D789C2; }
+.service-art.saas { --art-base:color-mix(in srgb,#253763 34%,var(--art-category-mix-base)); --art-accent:#6A9BE8; }
+.service-art-symbol { position:absolute; z-index:2; top:50%; left:50%; width:84px; height:84px; display:grid; place-items:center; color:var(--text-on-accent); border:1px solid rgba(255,255,255,.3); border-radius:24px; background:var(--art-symbol-bg); box-shadow:0 16px 30px rgba(0,14,12,.22); transform:translate(-50%,-50%) rotate(-4deg); transition:transform .42s cubic-bezier(.2,.8,.2,1),box-shadow .3s ease; }
 .service-art-payment { position:absolute; z-index:3; right:13px; bottom:12px; display:inline-flex; align-items:center; gap:6px; padding:6px 9px; color:var(--text-on-accent); border:1px solid rgba(255,255,255,.25); border-radius:999px; background:rgba(0,14,12,.32); font-size:9px; font-weight:700; backdrop-filter:blur(7px); }
 .favorite-button { position:absolute; z-index:4; top:10px; right:10px; width:32px; height:32px; display:grid; place-items:center; color:var(--text-on-accent); border:1px solid rgba(255,255,255,.28); border-radius:999px; background:rgba(0,14,12,.32); backdrop-filter:blur(7px); cursor:pointer; transition:transform .18s cubic-bezier(.2,.8,.2,1),background .18s ease,color .18s ease; }
 .favorite-button:hover { transform:scale(1.08); background:rgba(0,14,12,.48); }
@@ -620,7 +669,7 @@ a { color:inherit; text-decoration:none; }
  * the phone number lands under a «تماس با ما» heading instead of wherever the
  * flex line's leftover space happened to put it. The legal line sits below the
  * whole grid, on its own rule. */
-.footer { background:var(--surface-deep); color:var(--text-secondary); padding:44px 0 0; font-size:13px; }
+.footer { background:var(--footer-bg); color:var(--text-secondary); padding:44px 0 0; font-size:13px; }
 .footer-inner { display:flex; flex-wrap:wrap; align-items:flex-start; justify-content:space-between; gap:30px 44px; }
 .footer .logo { color:var(--text-primary); }
 .footer-brand { flex:1 1 240px; max-width:340px; }
@@ -629,7 +678,7 @@ a { color:inherit; text-decoration:none; }
 .footer-col-title { color:var(--text-primary); font-size:12px; font-weight:800; }
 .footer-col a:hover,.footer-col a:focus-visible { color:var(--text-link); }
 .footer-contact { gap:14px; }
-.footer-legal { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:34px; padding-block:18px; border-top:1px solid rgba(255,255,255,.1); font-size:12px; }
+.footer-legal { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-top:34px; padding-block:18px; border-top:1px solid color-mix(in srgb,var(--text-primary) 10%,transparent); font-size:12px; }
 .mobile-menu { display:none; }
 .mobile-nav-drawer-trigger { display:none; }
 .mobile-brand { display:contents; }
@@ -666,6 +715,12 @@ a { color:inherit; text-decoration:none; }
   .header-topbar > .logo { display:none; }
   .mobile-brand { display:flex; align-items:center; gap:8px; }
   .mobile-brand-word { display:inline; color:var(--text-primary); font-weight:900; font-size:17px; letter-spacing:-.03em; }
+  .header-search-mobile { display:flex; align-items:center; gap:6px; margin-bottom:12px; padding:6px 6px 6px 14px; background:var(--surface-input); border:1px solid var(--border-primary); border-radius:12px; }
+  .header-search-mobile:focus-within { border-color:var(--interactive-accent); background:var(--surface-card); }
+  .header-search-mobile input { flex:1; min-width:0; min-height:30px; padding:0; color:var(--text-primary); background:transparent; border:0; font-size:13px; }
+  .header-search-mobile input:focus-visible { outline:none; }
+  .header-search-mobile-submit { flex:0 0 auto; width:30px; height:30px; display:grid; place-items:center; color:var(--text-secondary); background:transparent; border:0; border-radius:9px; cursor:pointer; }
+  .header-search-mobile-submit:hover,.header-search-mobile-submit:focus-visible { color:var(--interactive-accent); outline:2px solid color-mix(in srgb,var(--interactive-accent) 24%,transparent); outline-offset:2px; }
   .mobile-nav-drawer-trigger { width:40px; height:40px; flex:0 0 40px; display:grid; place-items:center; color:var(--text-primary); background:var(--surface-card); border:1px solid var(--border-primary); border-radius:11px; cursor:pointer; }
   .mobile-nav-drawer-trigger:hover,.mobile-nav-drawer-trigger:focus-visible { color:var(--text-primary); border-color:color-mix(in srgb,var(--interactive-primary) 55%,var(--border-primary)); background:var(--background-secondary); outline:2px solid color-mix(in srgb,var(--interactive-accent) 24%,transparent); outline-offset:2px; }
   .mobile-nav-drawer { position:fixed; inset:0; width:min(84vw,320px); max-width:none; height:100dvh; max-height:none; margin:0 0 0 auto; padding:0; overflow:visible; background:transparent; border:0; direction:rtl; }
@@ -676,12 +731,6 @@ a { color:inherit; text-decoration:none; }
   .mobile-nav-drawer-brand { flex:1; display:flex; align-items:center; gap:10px; color:var(--text-primary); font-weight:900; font-size:18px; }
   .mobile-nav-drawer-close { width:38px; height:38px; flex:0 0 38px; display:grid; place-items:center; color:var(--text-secondary); background:var(--background-secondary); border:1px solid var(--border-primary); border-radius:10px; cursor:pointer; }
   .mobile-nav-drawer-close:hover,.mobile-nav-drawer-close:focus-visible { color:var(--text-primary); border-color:color-mix(in srgb,var(--interactive-primary) 55%,var(--border-primary)); outline:2px solid color-mix(in srgb,var(--interactive-accent) 24%,transparent); outline-offset:2px; }
-  .mobile-nav-drawer-search { display:flex; align-items:center; gap:8px; margin-top:14px; padding:5px 6px 5px 12px; background:var(--surface-input); border:1px solid var(--border-primary); border-radius:12px; }
-  .mobile-nav-drawer-search:focus-within { border-color:var(--interactive-accent); background:var(--surface-card); }
-  .mobile-nav-drawer-search > svg { flex:0 0 auto; color:var(--text-secondary); }
-  .mobile-nav-drawer-search input { flex:1; min-width:0; min-height:38px; padding:0; color:var(--text-primary); background:transparent; border:0; font-size:13px; }
-  .mobile-nav-drawer-search input:focus-visible { outline:none; }
-  .mobile-nav-drawer-search-submit { min-height:38px; padding:6px 14px; font-size:13px; }
   .mobile-nav-drawer-nav { min-height:0; display:flex; flex-direction:column; gap:4px; margin-top:14px; overflow-y:auto; padding-bottom:8px; }
   .mobile-nav-drawer-group { border-bottom:1px solid var(--border-primary); padding-bottom:6px; }
   .mobile-nav-drawer-group summary { display:flex; align-items:center; justify-content:space-between; min-height:46px; padding:0 4px; color:var(--text-primary); font-size:14px; font-weight:800; cursor:pointer; list-style:none; }
