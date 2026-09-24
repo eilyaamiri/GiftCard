@@ -1,18 +1,20 @@
 "use client";
 
 import { useState } from "react";
+import { FaqPanel } from "./faq-panel";
 import { FeatureFlagsPanel } from "./feature-flags-panel";
 import { QueuesPanel } from "./queues-panel";
 import { StaffPanel } from "./staff-panel";
 import { SupportChannelsPanel } from "./support-channels-panel";
 import type {
+  SettingsFaq,
   SettingsFeatureFlag,
   SettingsQueue,
   SettingsStaff,
   SettingsSupportChannel,
 } from "./settings-schema";
 
-type Tab = "flags" | "staff" | "queues" | "support";
+type Tab = "flags" | "staff" | "queues" | "support" | "faq";
 
 /**
  * Each tab writes through `/api/admin/settings/*`, which re-checks the ADMIN
@@ -24,6 +26,7 @@ export function SettingsTabs({
   staff,
   queues,
   supportChannels,
+  faqs,
   currentStaffId,
   loadError,
 }: {
@@ -31,6 +34,7 @@ export function SettingsTabs({
   staff: readonly SettingsStaff[];
   queues: readonly SettingsQueue[];
   supportChannels: readonly SettingsSupportChannel[];
+  faqs: readonly SettingsFaq[];
   currentStaffId: string;
   loadError: string | null;
 }) {
@@ -83,6 +87,15 @@ export function SettingsTabs({
         >
           تنظیمات پشتیبانی
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "faq"}
+          className={`tab-btn${tab === "faq" ? " active" : ""}`}
+          onClick={() => setTab("faq")}
+        >
+          سؤال‌های متداول
+        </button>
       </div>
 
       <div className="card panel">
@@ -90,6 +103,7 @@ export function SettingsTabs({
         {tab === "staff" ? <StaffPanel initialStaff={staff} currentStaffId={currentStaffId} /> : null}
         {tab === "queues" ? <QueuesPanel initialQueues={queues} staff={staff} /> : null}
         {tab === "support" ? <SupportChannelsPanel initialChannels={supportChannels} /> : null}
+        {tab === "faq" ? <FaqPanel initialFaqs={faqs} /> : null}
       </div>
     </div>
   );

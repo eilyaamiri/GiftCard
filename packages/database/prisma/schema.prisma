@@ -614,6 +614,7 @@ model StaffUser {
   fxRatesCreated              FxRate[]                   @relation("FxRateCreator")
   featureFlagsUpdated         FeatureFlag[]              @relation("FeatureFlagUpdater")
   supportChannelsUpdated      SupportChannel[]           @relation("SupportChannelUpdater")
+  faqsUpdated                 Faq[]                      @relation("FaqUpdater")
   supportTicketsOwned         SupportTicket[]            @relation("SupportTicketOwner")
   supportMessagesAuthored     SupportMessage[]           @relation("SupportMessageStaffAuthor")
   supportOwnershipFrom        SupportOwnershipEvent[]    @relation("SupportOwnershipPrevious")
@@ -1836,6 +1837,30 @@ model SupportChannel {
   updatedAt DateTime @updatedAt
 
   updatedBy StaffUser? @relation("SupportChannelUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+
+  @@index([isEnabled, sortOrder])
+}
+
+/// A question-and-answer pair shown on the storefront's FAQ section, editable
+/// by an admin. Unlike `SupportChannel` this set is open-ended — an admin can
+/// add or remove entries, not just edit a fixed list — so rows are created
+/// and deleted through the panel rather than seeded by migration.
+model Faq {
+  id String @id @default(cuid())
+
+  question String
+  answer   String
+
+  isEnabled Boolean @default(true)
+  /// Ascending display order in the FAQ list.
+  sortOrder Int @default(0)
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  updatedBy StaffUser? @relation("FaqUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
 
   @@index([isEnabled, sortOrder])
 }

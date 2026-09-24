@@ -8,6 +8,7 @@ import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CategoryIcon } from "@/components/category-icon";
 import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
+import { getFaqs } from "@/lib/faq";
 
 /**
  * Every strip on the landing page is the same width — four cards — so the page
@@ -218,7 +219,11 @@ function TypewriterHeading({ text, className }: Readonly<{ text: string; classNa
 
 export async function HomePage() {
   const categories = await homeCategories();
-  const [shelves, services] = await Promise.all([homeShelves(categories), homeServices()]);
+  const [shelves, services, faqs] = await Promise.all([
+    homeShelves(categories),
+    homeServices(),
+    getFaqs(),
+  ]);
   return (
     <>
       <main>
@@ -324,7 +329,7 @@ export async function HomePage() {
         </section>
         {/* The last thing before the footer, because it answers the question a
             visitor is left holding once the page has finished selling. */}
-        <FaqSection />
+        <FaqSection entries={faqs} />
       </main>
     </>
   );

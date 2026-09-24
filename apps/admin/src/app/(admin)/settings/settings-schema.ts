@@ -100,4 +100,18 @@ export const settingsSupportChannelMutationSchema = z.object({
   channel: settingsSupportChannelSchema,
 });
 
+export const settingsFaqSchema = z.object({
+  id: z.string().min(1),
+  question: z.string(),
+  answer: z.string(),
+  isEnabled: z.boolean(),
+  sortOrder: z.number().int().min(0),
+  updatedAt: isoDateTimeSchema,
+});
+export type SettingsFaq = z.infer<typeof settingsFaqSchema>;
+
+export const settingsFaqListSchema = z.object({ items: z.array(settingsFaqSchema) });
+export const settingsFaqMutationSchema = z.object({ faq: settingsFaqSchema });
+export const settingsFaqDeleteSchema = z.object({ id: z.string().min(1) });
+
 export const SETTINGS_REASON_MIN_LENGTH = 8;
