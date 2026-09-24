@@ -102,7 +102,6 @@ export function SiteChrome({
           {/* A plain GET form: the query lives in the URL like every other
               catalog filter, so it works before any JavaScript has loaded. */}
           <form action="/search" method="get" className="header-search" role="search" aria-label="جست‌وجوی سریع">
-            <Search size={17} aria-hidden="true" />
             <input
               type="search"
               name="q"
@@ -110,7 +109,9 @@ export function SiteChrome({
               placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
               aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
             />
-            <button type="submit" className="btn btn-accent header-search-submit">جست‌وجو</button>
+            <button type="submit" className="header-search-submit" aria-label="جست‌وجو">
+              <Search size={17} aria-hidden="true" />
+            </button>
           </form>
 
           <div className="header-end">
@@ -148,6 +149,22 @@ export function SiteChrome({
             )}
           </div>
         </div>
+
+        {/* The desktop bar above collapses at 768px; below that width this is
+            the only search entry point, sitting on its own row right under
+            the topbar instead of behind the drawer trigger. */}
+        <form action="/search" method="get" className="container header-search-mobile" role="search" aria-label="جست‌وجوی سریع">
+          <input
+            type="search"
+            name="q"
+            maxLength={120}
+            placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+            aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+          />
+          <button type="submit" className="header-search-mobile-submit" aria-label="جست‌وجو">
+            <Search size={18} aria-hidden="true" />
+          </button>
+        </form>
 
         <div className="header-navbar">
           <div className="container header-navbar-inner">
