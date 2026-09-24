@@ -46,17 +46,17 @@ export default async function OrdersPage({ searchParams }: { searchParams: Promi
           {orders.items.map((order) => {
             const view = orderStatusView(order.status);
             return (
-              <Link key={order.id} href={`/orders/${order.orderNumber}`} className="card pad" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <div>
-                  <p style={{ margin: 0, fontWeight: 800 }}>{order.itemTitleFa}</p>
-                  <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
-                    <Ltr>{order.orderNumber}</Ltr> · {formatJalaliDate(order.createdAt, "d MMMM yyyy")}
-                  </p>
-                </div>
-                <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <Link key={order.id} href={`/orders/${order.orderNumber}`} className="card pad" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 800 }}>{order.itemTitleFa}</p>
+                    <p className="muted" style={{ margin: "4px 0 0", fontSize: 12 }}>
+                      <Ltr>{order.orderNumber}</Ltr> · {formatJalaliDate(order.createdAt, "d MMMM yyyy")}
+                    </p>
+                  </div>
                   <Ltr className="price">{tomanFromIrr(order.totalAmountIrr)}</Ltr>
-                  <Badge tone={view.tone}>{view.label}</Badge>
                 </div>
+                <Badge tone={view.tone} style={{ alignSelf: "flex-start" }}>{view.label}</Badge>
               </Link>
             );
           })}
