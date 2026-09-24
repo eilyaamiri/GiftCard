@@ -869,7 +869,7 @@ a { color:inherit; text-decoration:none; }
 .account-panel-search { position:relative; min-width:0; width:min(280px,27vw); direction:rtl; }
 .account-search-field { width:100%; height:40px; display:flex; align-items:center; gap:8px; padding:0 12px; color:var(--text-secondary); background:var(--surface-input); border:1px solid transparent; border-radius:11px; }
 .account-search-field:focus-within { border-color:color-mix(in srgb,var(--interactive-primary) 55%,var(--border-primary)); background:var(--surface-card); }
-.account-search-field input { min-width:0; width:100%; height:auto; padding:0; color:var(--text-primary); background:transparent; border:0; outline:0; font-size:12px; }
+.account-search-field input { min-width:0; width:100%; height:auto; padding:0; color:var(--text-primary); background:transparent; border:0; outline:0; font-size:16px; }
 .account-search-results { position:absolute; z-index:35; top:calc(100% + 8px); right:0; width:min(280px,calc(100vw - 32px)); display:grid; gap:3px; padding:8px; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:13px; box-shadow:var(--shadow-md); }
 .account-panel-search:not(:focus-within) .account-search-results { display:none; }
 .account-search-result { min-height:38px; display:flex; align-items:center; gap:9px; padding:0 9px; color:var(--text-primary); border-radius:8px; font-size:11px; font-weight:800; }
