@@ -717,7 +717,7 @@ a { color:inherit; text-decoration:none; }
   .mobile-brand-word { display:inline; color:var(--text-primary); font-weight:900; font-size:17px; letter-spacing:-.03em; }
   .header-search-mobile { display:flex; align-items:center; gap:6px; margin-bottom:12px; padding:6px 6px 6px 14px; background:var(--surface-input); border:1px solid var(--border-primary); border-radius:12px; }
   .header-search-mobile:focus-within { border-color:var(--interactive-accent); background:var(--surface-card); }
-  .header-search-mobile input { flex:1; min-width:0; min-height:30px; padding:0; color:var(--text-primary); background:transparent; border:0; font-size:13px; }
+  .header-search-mobile input { flex:1; min-width:0; min-height:30px; padding:0; color:var(--text-primary); background:transparent; border:0; font-size:16px; }
   .header-search-mobile input:focus-visible { outline:none; }
   .header-search-mobile-submit { flex:0 0 auto; width:30px; height:30px; display:grid; place-items:center; color:var(--text-secondary); background:transparent; border:0; border-radius:9px; cursor:pointer; }
   .header-search-mobile-submit:hover,.header-search-mobile-submit:focus-visible { color:var(--interactive-accent); outline:2px solid color-mix(in srgb,var(--interactive-accent) 24%,transparent); outline-offset:2px; }
