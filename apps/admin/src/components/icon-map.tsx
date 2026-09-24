@@ -21,6 +21,7 @@ import {
   HelpCircle,
   RotateCcw,
   LifeBuoy,
+  BookOpen,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ export const ICONS: Record<string, LucideIcon> = {
   "help-circle": HelpCircle,
   "rotate-ccw": RotateCcw,
   "life-buoy": LifeBuoy,
+  "book-open": BookOpen,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

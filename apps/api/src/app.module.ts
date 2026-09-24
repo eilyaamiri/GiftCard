@@ -49,6 +49,7 @@ import { WorkItemsModule } from './modules/workitems/workitems.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { GiftCardRequestsModule } from './modules/gift-card-requests/gift-card-requests.module';
+import { KbModule } from './modules/kb/kb.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { GiftCardRequestsModule } from './modules/gift-card-requests/gift-card-r
     FulfillmentModule,
     SuppliersModule,
     GiftCardRequestsModule,
+    KbModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

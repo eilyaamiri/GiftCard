@@ -211,6 +211,7 @@ export function SiteChrome({
                   href: `/services?category=${encodeURIComponent(category.slug)}`,
                 }))}
               />
+              <Link href="/help" aria-current={pathname.startsWith("/help") ? "page" : undefined}>راهنما</Link>
             </nav>
           </div>
         </div>

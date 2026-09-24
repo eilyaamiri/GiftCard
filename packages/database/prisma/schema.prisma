@@ -615,6 +615,8 @@ model StaffUser {
   featureFlagsUpdated         FeatureFlag[]              @relation("FeatureFlagUpdater")
   supportChannelsUpdated      SupportChannel[]           @relation("SupportChannelUpdater")
   faqsUpdated                 Faq[]                      @relation("FaqUpdater")
+  kbCategoriesUpdated         KbCategory[]               @relation("KbCategoryUpdater")
+  kbArticlesUpdated           KbArticle[]                @relation("KbArticleUpdater")
   supportTicketsOwned         SupportTicket[]            @relation("SupportTicketOwner")
   supportMessagesAuthored     SupportMessage[]           @relation("SupportMessageStaffAuthor")
   supportOwnershipFrom        SupportOwnershipEvent[]    @relation("SupportOwnershipPrevious")
@@ -1863,4 +1865,67 @@ model Faq {
   updatedBy StaffUser? @relation("FaqUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
 
   @@index([isEnabled, sortOrder])
+}
+
+/// A category in the storefront's knowledge base (`/help`), grouping a set of
+/// `KbArticle` rows under one icon/name/description shown on the KB landing
+/// page's category grid.
+model KbCategory {
+  id String @id @default(cuid())
+
+  /// URL segment under `/help/[categorySlug]`. Unique across the table since
+  /// it alone must resolve a category, independent of anything else.
+  slug        String @unique
+  name        String
+  description String @default("")
+  /// A key into the storefront's icon map, e.g. `book-open`.
+  icon String @default("book-open")
+
+  isEnabled Boolean @default(true)
+  /// Ascending display order in the category grid.
+  sortOrder Int @default(0)
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  updatedBy StaffUser?  @relation("KbCategoryUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+  articles  KbArticle[]
+
+  @@index([isEnabled, sortOrder])
+}
+
+/// One knowledge-base article, always scoped to a `KbCategory`. `content` is
+/// Markdown, rendered by the storefront rather than stored as HTML so nothing
+/// here can inject markup into the page.
+model KbArticle {
+  id         String @id @default(cuid())
+  categoryId String
+
+  /// URL segment under `/help/[categorySlug]/[articleSlug]`. Only unique
+  /// within its category — two categories may each have their own `basics`.
+  slug    String
+  title   String
+  /// Short teaser shown in search results and promoted-article lists.
+  excerpt String @default("")
+  content String
+
+  isEnabled Boolean @default(true)
+  /// Surfaced in the KB landing page's promoted-articles strip.
+  isPromoted Boolean @default(false)
+  /// Ascending display order within its category.
+  sortOrder Int @default(0)
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category  KbCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  updatedBy StaffUser? @relation("KbArticleUpdater", fields: [updatedByStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([categoryId, slug])
+  @@index([isEnabled, sortOrder])
+  @@index([isPromoted])
 }

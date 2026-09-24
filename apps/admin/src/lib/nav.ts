@@ -75,6 +75,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/work-queue", label: "صف کارها", icon: "list-checks", roles: QUEUE_VIEW_ROLES },
       { href: "/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy", roles: SUPPORT_TICKET_ROLES },
       { href: "/gift-card-requests", label: "درخواست‌های کد گیفت‌کارت", icon: "gift", roles: QUEUE_VIEW_ROLES },
+      { href: "/knowledge-base", label: "پایگاه دانش", icon: "book-open", roles: ["ADMIN"] },
       { href: "/sla", label: "SLA و کیفیت", icon: "line-chart", roles: QUEUE_VIEW_ROLES },
       { href: "/reports", label: "گزارش‌ها", icon: "line-chart", roles: REPORT_ROLES },
       { href: "/audit", label: "گزارش رخدادها", icon: "shield-check", roles: AUDIT_ROLES },
