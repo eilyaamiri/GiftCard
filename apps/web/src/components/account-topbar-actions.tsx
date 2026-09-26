@@ -330,6 +330,7 @@ export function AccountTopbarActions({
                     key={item.href}
                     href={item.href}
                     className="account-search-result"
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => setSearchQuery('')}
                   >
                     <ResultIcon size={16} />

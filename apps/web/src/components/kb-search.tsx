@@ -51,6 +51,7 @@ export function KbSearch({ entries }: Readonly<{ entries: readonly FlattenedKbAr
                 key={article.id}
                 href={`/help/${category.slug}/${article.slug}`}
                 className="kb-search-result"
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => setQuery("")}
               >
                 <span className="kb-search-result-title">{article.title}</span>
