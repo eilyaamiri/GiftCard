@@ -767,6 +767,12 @@ export class QuotesService {
      * top-ups without touching the rate every gift card is priced from — and
      * the 5% figure lives in the rule, not in a constant here, so it can be
      * changed without a deployment.
+     *
+     * A `TOP_UP_GAME` rule with no target is the fallback for every game, and
+     * is tried before GLOBAL. Without that step a game with no rule of its own
+     * — every game a sync imports — would silently take the gift-card margin
+     * instead of the top-up one; that is how Telegram went live at 3% in
+     * production while the approved 5% rule sat unmatched beside it.
      */
     const candidates =
       target.kind === 'sku'
@@ -778,6 +784,7 @@ export class QuotesService {
         : target.kind === 'topup'
           ? ([
               ['TOP_UP_GAME', target.topUp.game.id],
+              ['TOP_UP_GAME', null],
               ['GLOBAL', null],
             ] as const)
           : ([

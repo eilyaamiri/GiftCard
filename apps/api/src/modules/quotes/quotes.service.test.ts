@@ -271,6 +271,19 @@ const TOP_UP_RULE = {
   targetMarginBps: 500,
 };
 
+/**
+ * The seed's `TOP_UP_GAME` rule: no target, so it prices every game that has no
+ * rule of its own. A distinct margin keeps it tell-apart from both neighbours.
+ */
+const TOP_UP_FALLBACK_RULE = {
+  ...GLOBAL_RULE,
+  id: 'rule-topup-fallback',
+  name: 'top-up fallback 5%',
+  scope: 'TOP_UP_GAME',
+  targetId: null,
+  targetMarginBps: 450,
+};
+
 /** An international service with no configured fields of its own. */
 function serviceForQuote(): Record<string, unknown> {
   return {
@@ -1190,6 +1203,53 @@ describe('QuotesService.createQuote — direct top-up', () => {
     await context.service.createQuote(topUpRequest(), ACTOR);
 
     expect(context.db.only()['pricingRuleId']).toBe('rule-topup-1');
+  });
+
+  it('falls back to the untargeted TOP_UP_GAME rule before the global one', async () => {
+    const context = harness();
+    /* No rule names this game. Before the fallback step existed, this is the
+     * quote that silently took the gift-card margin in production. */
+    context.rules.value = [GLOBAL_RULE, TOP_UP_FALLBACK_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-topup-fallback');
+  });
+
+  it('prefers a rule for this game over the untargeted top-up rule', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_FALLBACK_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-topup-1');
+  });
+
+  it('ignores a rule that targets a different game', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_FALLBACK_RULE, { ...TOP_UP_RULE, targetId: 'another-game' }];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-topup-fallback');
+  });
+
+  it('prices with the global rule when no TOP_UP_GAME rule exists at all', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-global-1');
+  });
+
+  it('never applies the untargeted top-up rule to a gift card', async () => {
+    const context = harness();
+    context.rules.value = [TOP_UP_FALLBACK_RULE, GLOBAL_RULE];
+
+    await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-global-1');
   });
 
   it('stores the offer id, which is what keeps the order out of the queue', async () => {
