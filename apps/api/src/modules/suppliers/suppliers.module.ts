@@ -8,17 +8,19 @@ import { WorkItemsModule } from '../workitems/workitems.module';
 import { FULFILLMENT_TRIGGER } from '../workitems/workitems.types';
 import { AutoFulfillmentService } from './auto-fulfillment.service';
 import { PrismaSupplierStore } from './prisma-supplier.store';
-import { PrismaTopUpStore } from './prisma-topup.store';
+import { PrismaTopUpCatalogStore, PrismaTopUpStore } from './prisma-topup.store';
 import { buildSupplierProviders } from './supplier-providers.factory';
 import { readProviderSkuMap } from './suppliers.env';
 import { SuppliersController } from './suppliers.controller';
 import { SuppliersService } from './suppliers.service';
+import { TopUpCatalogSyncService } from './topup-catalog.sync';
 import { TopUpFulfillmentService } from './topup-fulfillment.service';
 import { TopUpSchedulerService } from './topup-scheduler.service';
 import {
   PROVIDER_SKU_MAP,
   SUPPLIER_PRICE_LOOKUP,
   SUPPLIER_STORE,
+  TOP_UP_CATALOG_STORE,
   TOP_UP_STORE,
   type SupplierPriceLookup,
 } from './suppliers.types';
@@ -68,6 +70,8 @@ import {
       },
     },
     { provide: TOP_UP_STORE, useClass: PrismaTopUpStore },
+    { provide: TOP_UP_CATALOG_STORE, useClass: PrismaTopUpCatalogStore },
+    TopUpCatalogSyncService,
     SuppliersService,
     AutoFulfillmentService,
     TopUpFulfillmentService,
@@ -77,10 +81,12 @@ import {
   exports: [
     SuppliersService,
     AutoFulfillmentService,
+    TopUpCatalogSyncService,
     FULFILLMENT_TRIGGER,
     SUPPLIER_PROVIDERS,
     SUPPLIER_PRICE_LOOKUP,
     SUPPLIER_STORE,
+    TOP_UP_CATALOG_STORE,
     TOP_UP_STORE,
   ],
 })

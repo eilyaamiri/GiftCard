@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { prisma, type Prisma } from '@barat/database';
 
+import type { TopUpCatalogStore, TopUpSyncableSupplier } from './suppliers.types';
 import {
   isStalePurchasingClaim,
   TOP_UP_PURCHASE_RECOVERY_GRACE_MS,
@@ -396,3 +397,110 @@ function isUniqueConstraint(error: unknown): boolean {
   );
 }
 
+/**
+ * Catalogue shape for top-ups, kept apart from {@link PrismaTopUpStore}.
+ *
+ * Two reasons, and the second is the load-bearing one:
+ *
+ *   - The two answer different questions. `PrismaTopUpStore` reads the trace of
+ *     a single order; this reads and writes the catalogue as a whole. Merging
+ *     them would hand every fulfillment caller a write path to the storefront.
+ *   - `isActive` must never be written by a sync. Keeping the write in one small
+ *     class with one narrow method makes that auditable by reading one file
+ *     rather than by trusting every caller.
+ */
+@Injectable()
+export class PrismaTopUpCatalogStore implements TopUpCatalogStore {
+  private readonly db: typeof prisma;
+
+  constructor() {
+    this.db = prisma;
+  }
+
+  async listSyncableSuppliers(): Promise<readonly TopUpSyncableSupplier[]> {
+    const suppliers = await this.db.supplier.findMany({
+      where: { isActive: true, topUpGames: { some: {} } },
+      select: {
+        id: true,
+        code: true,
+        topUpGames: {
+          select: {
+            id: true,
+            providerCategoryId: true,
+            offers: { select: { id: true, providerOfferId: true } },
+          },
+        },
+      },
+    });
+
+    return suppliers.map((supplier) => ({
+      id: supplier.id,
+      code: supplier.code,
+      games: supplier.topUpGames.map((game) => ({
+        id: game.id,
+        providerCategoryId: game.providerCategoryId,
+        providerOfferIds: game.offers.map((offer) => offer.providerOfferId),
+      })),
+      /* Flattened: a sync reconciles against the venue's offer ids, and which
+       * game a given offer hangs off is already in `games[].providerOfferIds`. */
+      offers: supplier.topUpGames.flatMap((game) =>
+        game.offers.map((offer) => ({ id: offer.id, providerOfferId: offer.providerOfferId })),
+      ),
+    }));
+  }
+
+  async applyAvailability(input: {
+    readonly supplierId: string;
+    readonly listedGameIds: readonly string[];
+    readonly delistedGameIds: readonly string[];
+    readonly listedOfferIds: readonly string[];
+    readonly delistedOfferIds: readonly string[];
+    readonly syncedAt: Date;
+    readonly listingEnabled?: boolean;
+  }): Promise<void> {
+    const listed = input.listingEnabled ?? true;
+
+    await this.db.$transaction(async (tx) => {
+      /*
+       * Delisting runs first and unconditionally: a row the venue no longer
+       * offers must leave the storefront even if the run that would relist it
+       * fails afterwards. The reverse order would leave a sold-out product on
+       * sale for as long as the second write took.
+       *
+       * `isActive` is absent from every update below, on purpose. A delisted
+       * row keeps whatever the operator chose, so relisting does not silently
+       * put a product back on sale — an operator still decides that.
+       */
+      if (input.delistedGameIds.length > 0) {
+        await tx.topUpGame.updateMany({
+          where: { id: { in: [...input.delistedGameIds] }, supplierId: input.supplierId },
+          data: { isListed: false, lastSyncedAt: input.syncedAt },
+        });
+      }
+      if (input.delistedOfferIds.length > 0) {
+        await tx.topUpOffer.updateMany({
+          where: {
+            id: { in: [...input.delistedOfferIds] },
+            game: { supplierId: input.supplierId },
+          },
+          data: { isListed: false, lastSyncedAt: input.syncedAt },
+        });
+      }
+      if (input.listedGameIds.length > 0) {
+        await tx.topUpGame.updateMany({
+          where: { id: { in: [...input.listedGameIds] }, supplierId: input.supplierId },
+          data: { isListed: listed, lastSyncedAt: input.syncedAt },
+        });
+      }
+      if (input.listedOfferIds.length > 0) {
+        await tx.topUpOffer.updateMany({
+          where: {
+            id: { in: [...input.listedOfferIds] },
+            game: { supplierId: input.supplierId },
+          },
+          data: { isListed: listed, lastSyncedAt: input.syncedAt },
+        });
+      }
+    });
+  }
+}

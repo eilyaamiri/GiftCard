@@ -7,6 +7,8 @@ import type { SupplierAvailability, SupplierDeliveryAsset, SupplierPrice } from 
 export const SUPPLIER_STORE = Symbol.for('barat.supplier-store');
 /** Persistence for the automated top-up path. Separate from `SUPPLIER_STORE`. */
 export const TOP_UP_STORE = Symbol.for('barat.topup-store');
+/** Catalogue *shape* for top-ups. Separate from `TOP_UP_STORE`: see below. */
+export const TOP_UP_CATALOG_STORE = Symbol.for('barat.topup-catalog-store');
 /** `supplierCode:skuId` -> provider SKU. See the gap note in `suppliers.env.ts`. */
 export const PROVIDER_SKU_MAP = Symbol.for('barat.supplier-provider-sku-map');
 /** Provider-neutral live price lookup used by quote creation. */
@@ -308,4 +310,65 @@ export interface TopUpStore {
     to: string;
     failureReason?: string | null;
   }): Promise<boolean>;
+}
+
+/* ============================================================================
+ * Top-up catalogue shape
+ * ==========================================================================*/
+
+/** A game and the venue offer ids that belong to it. */
+export interface TopUpCatalogGame {
+  readonly id: string;
+  readonly providerCategoryId: string;
+  readonly providerOfferIds: readonly string[];
+}
+
+export interface TopUpCatalogOffer {
+  readonly id: string;
+  /** The venue's own id, which is what a sync matches on. Never a price. */
+  readonly providerOfferId: string;
+}
+
+export interface TopUpSyncableSupplier {
+  readonly id: string;
+  readonly code: string;
+  readonly games: readonly TopUpCatalogGame[];
+  readonly offers: readonly TopUpCatalogOffer[];
+}
+
+/**
+ * Catalogue *shape*, which is a different question from `TopUpStore`.
+ *
+ * `TopUpStore` reads the trace of one order and never writes a catalogue row;
+ * widening it to carry a sync would hand every fulfillment caller a write path
+ * to the storefront. This port exists for the sync alone, so an in-memory fake
+ * can assert what a sync did without a database.
+ *
+ * There is deliberately no `costAmount` anywhere in this port. Availability is
+ * the only thing a sync owns — see `topup-catalog.sync.ts` for why.
+ */
+export interface TopUpCatalogStore {
+  /** Suppliers that are enabled and have games to reconcile. */
+  listSyncableSuppliers(): Promise<readonly TopUpSyncableSupplier[]>;
+  /**
+   * Applies one supplier's availability in a single transaction.
+   *
+   * `isActive` is not a parameter and must not be written: it is the operator's
+   * curation switch, and a sync that set it would put an unreviewed product on
+   * sale the moment a venue added it.
+   */
+  applyAvailability(input: {
+    readonly supplierId: string;
+    readonly listedGameIds: readonly string[];
+    readonly delistedGameIds: readonly string[];
+    readonly listedOfferIds: readonly string[];
+    readonly delistedOfferIds: readonly string[];
+    readonly syncedAt: Date;
+    /**
+     * When true, games and offers the venue still lists are kept hidden —
+     * `isListed` is written false instead of true. Used to stage a catalogue
+     * without advertising it. Defaults to false.
+     */
+    readonly listingEnabled?: boolean;
+  }): Promise<void>;
 }
