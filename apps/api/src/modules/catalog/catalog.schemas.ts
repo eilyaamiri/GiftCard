@@ -108,6 +108,7 @@ export type AdminProductListInput = Omit<z.infer<typeof adminProductListSchema>,
 export type AdminSkuListInput = z.infer<typeof adminSkuListSchema>;
 export type AdminSupplierOfferListInput = z.infer<typeof adminSupplierOfferListSchema>;
 export type AdminServiceFieldListInput = z.infer<typeof adminServiceFieldListSchema>;
+export type AdminTopUpGameListInput = z.infer<typeof adminTopUpGameListSchema>;
 
 /* ------------------------------------------------------------- taxonomy */
 
@@ -337,6 +338,56 @@ export const createSupplierOfferSchema = z.object({
 });
 export const updateSupplierOfferSchema = patchSchema(supplierOfferMutableShape);
 
+/* ------------------------------------------------------- direct top-up */
+
+/**
+ * The direct top-up catalogue, curated here and nowhere else.
+ *
+ * A top-up game is sellable only when the game, its supplier and the specific
+ * offer are all active — so this is the screen that decides whether `/telegram`
+ * shows anything at all. Two fields are deliberately absent from both shapes
+ * below, and each absence is a rule rather than an omission:
+ *
+ *   - `isListed` belongs to the venue sync. An operator who could hand-set it
+ *     would be able to put a product on sale that the supplier has withdrawn,
+ *     and the customer would meet the failure at quote time instead of here.
+ *   - `costAmount` is never stored for a top-up. The customer's price is a live
+ *     read of the venue's rate at quote time; a stored cost would look
+ *     authoritative in this table while being stale the moment the rate moves.
+ */
+export const adminTopUpGameListSchema = adminCatalogListSchema.extend({
+  supplierId: idSchema.optional(),
+});
+
+/** `slug` and `providerCategoryId` identify the game upstream and are not editable. */
+const topUpGameMutableShape = {
+  nameFa: z.string().trim().min(1).max(240),
+  brandName: z.string().trim().min(1).max(240).nullable(),
+  descriptionFa: z.string().max(4_000).nullable(),
+  providerNote: z.string().max(4_000).nullable(),
+  imageUrl: z.url().max(2_000).nullable(),
+  isActive: z.boolean().default(false),
+  sortOrder: z.number().int().min(0).default(0),
+};
+export const updateTopUpGameSchema = patchSchema(topUpGameMutableShape);
+
+/**
+ * An offer carries almost nothing an operator may change: its identity is the
+ * venue's own offer id and its price is live. Name and curation, nothing more.
+ */
+const topUpOfferMutableShape = {
+  nameFa: z.string().trim().min(1).max(240).nullable(),
+  isActive: z.boolean().default(false),
+  sortOrder: z.number().int().min(0).default(0),
+};
+export const updateTopUpOfferSchema = patchSchema(topUpOfferMutableShape);
+
+/** The same convenience the gift-card catalogue already offers. */
+export const bulkSetTopUpGameActiveSchema = z.object({
+  gameIds: z.array(idSchema).min(1).max(200),
+  isActive: z.boolean(),
+});
+
 /* ------------------------------------------------- international service */
 
 export const serviceFieldInputSchema = z.object({
@@ -412,6 +463,9 @@ export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;
 export type UpdateSupplierInput = z.infer<typeof updateSupplierSchema>;
 export type CreateSupplierOfferInput = z.infer<typeof createSupplierOfferSchema>;
 export type UpdateSupplierOfferInput = z.infer<typeof updateSupplierOfferSchema>;
+export type UpdateTopUpGameInput = z.infer<typeof updateTopUpGameSchema>;
+export type UpdateTopUpOfferInput = z.infer<typeof updateTopUpOfferSchema>;
+export type BulkSetTopUpGameActiveInput = z.infer<typeof bulkSetTopUpGameActiveSchema>;
 export type CreateInternationalServiceInput = z.infer<typeof createInternationalServiceSchema>;
 export type UpdateInternationalServiceInput = z.infer<typeof updateInternationalServiceSchema>;
 export type CreateServiceFieldInput = z.infer<typeof createServiceFieldSchema>;
