@@ -1,9 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { prisma, type Prisma } from '@barat/database';
 
-import type { TopUpCatalogStore, TopUpSyncableSupplier } from './suppliers.types';
+import type {
+  NewTopUpOffer,
+  TopUpCatalogImportStore,
+  TopUpCatalogStore,
+  TopUpImportSnapshot,
+  TopUpSyncableSupplier,
+} from './suppliers.types';
 import {
   isStalePurchasingClaim,
+  TopUpImportRaceError,
   TOP_UP_PURCHASE_RECOVERY_GRACE_MS,
   type DueTopUp,
   type TopUpFulfillmentStatus,
@@ -506,5 +513,153 @@ export class PrismaTopUpCatalogStore implements TopUpCatalogStore {
         });
       }
     });
+  }
+}
+
+/**
+ * Persistence for the catalogue import, and only for it.
+ *
+ * Create-only. Nothing here updates a game, a field or an offer that already
+ * exists, and `isActive` is written exclusively on rows being created:
+ *
+ *   - the supplier, when missing, is created inactive — an import must never
+ *     be the act that turns a venue on;
+ *   - every new game is created inactive, so it reaches the storefront only
+ *     after an operator reviews it;
+ *   - a new game's offers are created active, so activating the game is one
+ *     decision rather than forty;
+ *   - a new offer on a game that already exists is created inactive, because
+ *     that game may already be on sale and the operator has not seen the offer.
+ *
+ * `costAmount` is the column's placeholder zero, as in the seed: the price is
+ * read live at quote time and a stored number would only look authoritative.
+ */
+@Injectable()
+export class PrismaTopUpCatalogImportStore implements TopUpCatalogImportStore {
+  private readonly db: typeof prisma;
+
+  constructor() {
+    this.db = prisma;
+  }
+
+  async snapshot(supplierCode: string): Promise<TopUpImportSnapshot> {
+    const [supplier, slugs] = await Promise.all([
+      this.db.supplier.findUnique({
+        where: { code: supplierCode },
+        select: {
+          id: true,
+          isActive: true,
+          topUpGames: {
+            select: {
+              id: true,
+              providerCategoryId: true,
+              offers: { select: { providerOfferId: true } },
+            },
+          },
+        },
+      }),
+      this.db.topUpGame.findMany({ select: { slug: true } }),
+    ]);
+
+    return {
+      supplier: supplier === null ? null : { id: supplier.id, isActive: supplier.isActive },
+      games: (supplier?.topUpGames ?? []).map((game) => ({
+        id: game.id,
+        providerCategoryId: game.providerCategoryId,
+        providerOfferIds: game.offers.map((offer) => offer.providerOfferId),
+      })),
+      takenSlugs: slugs.map((row) => row.slug),
+    };
+  }
+
+  async applyImport(input: Parameters<TopUpCatalogImportStore['applyImport']>[0]): Promise<void> {
+    const offerRow = (offer: NewTopUpOffer) => ({
+      providerOfferId: offer.providerOfferId,
+      name: offer.name,
+      costAmount: '0',
+      costCurrency: 'USD',
+      isActive: offer.isActive,
+      sortOrder: offer.sortOrder,
+      lastSyncedAt: input.importedAt,
+    });
+
+    try {
+      await this.db.$transaction(async (tx) => {
+        /* `update: {}` — an existing supplier keeps every column, `isActive` included. */
+        const supplier = await tx.supplier.upsert({
+          where: { code: input.supplier.code },
+          create: {
+            code: input.supplier.code,
+            name: input.supplier.name,
+            integrationMode: 'API',
+            defaultCurrency: input.supplier.defaultCurrency,
+            isActive: false,
+          },
+          update: {},
+          select: { id: true },
+        });
+
+        for (const game of input.newGames) {
+          await tx.topUpGame.create({
+            data: {
+              supplierId: supplier.id,
+              providerCategoryId: game.providerCategoryId,
+              slug: game.slug,
+              name: game.name,
+              brandName: game.name,
+              region: game.region,
+              imageUrl: game.imageUrl,
+              providerNote: game.providerNote,
+              requiresCredentials: game.requiresCredentials,
+              isActive: false,
+              sortOrder: game.sortOrder,
+              lastSyncedAt: input.importedAt,
+              fields: {
+                create: game.fields.map((field) => ({
+                  key: field.key,
+                  label: field.label,
+                  labelFa: field.labelFa,
+                  fieldType: field.fieldType,
+                  isRequired: field.isRequired,
+                  validationRegex: field.validationRegex,
+                  sortOrder: field.sortOrder,
+                  ...(field.options === null
+                    ? {}
+                    : {
+                        options: field.options.map((option) => ({
+                          label: option.label,
+                          value: option.value,
+                        })) as Prisma.InputJsonValue,
+                      }),
+                })),
+              },
+              offers: { create: game.offers.map(offerRow) },
+            },
+          });
+        }
+
+        for (const group of input.newOffers) {
+          if (group.offers.length === 0) {
+            continue;
+          }
+          /* Scoped to this supplier, so a stale snapshot cannot attach offers elsewhere. */
+          const game = await tx.topUpGame.findFirst({
+            where: { id: group.gameId, supplierId: supplier.id },
+            select: { id: true },
+          });
+          if (game === null) {
+            throw new TopUpImportRaceError();
+          }
+          await tx.topUpOffer.createMany({
+            data: group.offers.map((offer) => ({ gameId: game.id, ...offerRow(offer) })),
+          });
+        }
+      });
+    } catch (error) {
+      if (isUniqueConstraint(error)) {
+        throw new TopUpImportRaceError({ cause: error });
+      }
+      throw error;
+    }
   }
 }

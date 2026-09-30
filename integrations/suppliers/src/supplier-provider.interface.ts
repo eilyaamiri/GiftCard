@@ -46,6 +46,49 @@ export interface SupplierCatalogItem {
   readonly itemKind?: 'GAME' | 'OFFER';
 }
 
+/**
+ * One input a direct top-up venue asks the customer for, as the venue declares
+ * it. `key` is sent back verbatim in `accountFields` at purchase time.
+ */
+export interface SupplierTopUpField {
+  readonly key: string;
+  readonly label: string;
+  readonly type: 'TEXT' | 'SELECT';
+  readonly required: boolean;
+  /** Only for `SELECT`: the values the venue accepts. */
+  readonly options?: readonly { readonly label: string; readonly value: string }[];
+  /** The venue's own validation pattern, copied as-is. */
+  readonly pattern?: string;
+  /**
+   * The venue wants a secret here — a password, a login code, an OTP. We never
+   * collect those, so a game with any such field is never sold.
+   */
+  readonly credential: boolean;
+}
+
+export interface SupplierTopUpOffer {
+  readonly offerId: string;
+  readonly name: string;
+  /** The venue's current price, or null when it could not be read. Informational: quotes re-read it live. */
+  readonly cost: SupplierMoney | null;
+}
+
+/**
+ * A game as a direct top-up venue lists it: what the customer must type, and
+ * the packages on sale. `requiresCredentials` is true when any field is a
+ * credential, and such a game must never reach a storefront.
+ */
+export interface SupplierTopUpGame {
+  readonly categoryId: string;
+  readonly name: string;
+  readonly region: string;
+  readonly note: string | null;
+  readonly imageUrl: string | null;
+  readonly fields: readonly SupplierTopUpField[];
+  readonly offers: readonly SupplierTopUpOffer[];
+  readonly requiresCredentials: boolean;
+}
+
 export interface SupplierPrice {
   readonly providerSku: string;
   readonly cost: SupplierMoney;
@@ -159,4 +202,14 @@ export interface SupplierProvider {
    * it is treated as "not applicable", never as "funded".
    */
   getBalance?(): Promise<SupplierBalance>;
+
+  /**
+   * The venue's direct top-up catalogue, grouped by game with each game's
+   * account fields. Read-only.
+   *
+   * Optional: only a venue that sells game top-ups has one. It exists so a
+   * catalogue import can create games and their field definitions, which the
+   * flat `getCatalog` cannot express.
+   */
+  getTopUpCatalog?(): Promise<readonly SupplierTopUpGame[]>;
 }
