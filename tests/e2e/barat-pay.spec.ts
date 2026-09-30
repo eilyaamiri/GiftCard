@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test("customer can navigate the public storefront", async ({ page }) => {
   await page.goto("/");
@@ -231,15 +231,17 @@ test.describe("new-order button on the account orders page", () => {
 
 test.describe("mobile bottom navigation", () => {
   /* 320px is the narrowest phone the storefront supports; the bar has to hold
-   * four tabs there without pushing the page sideways. */
+   * five tabs there without pushing the page sideways. */
   test.use({ viewport: { width: 320, height: 720 }, isMobile: true });
 
-  test("offers exactly the four tabs, and never the desktop nav", async ({ page }) => {
+  test("offers exactly the five tabs, and never the desktop nav", async ({ page }) => {
     await page.goto("/");
 
     const bar = page.getByRole("navigation", { name: "منوی موبایل" });
     await expect(bar).toBeVisible();
+    await expect(bar.getByRole("listitem")).toHaveCount(5);
     await expect(bar.getByRole("link", { name: "خانه" })).toBeVisible();
+    await expect(bar.getByRole("link", { name: "شارژ بازی" })).toBeVisible();
     await expect(bar.getByRole("link", { name: "سفارش‌ها" })).toBeVisible();
     await expect(bar.getByRole("button", { name: "تماس با ما" })).toBeVisible();
     await expect(bar.getByRole("link", { name: "حساب کاربری" })).toBeVisible();
@@ -728,5 +730,227 @@ test.describe("mobile RTL storefront", () => {
 
     await expect(page.getByRole("banner").getByRole("link", { name: "ورود" })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+});
+
+/* ============================================================================
+ * Game top-ups
+ *
+ * A section of its own, apart from gift cards: the customer names an account
+ * and the venue credits it directly, so there is no code to hand over. The
+ * mock catalogue carries every account shape we sell — a player id alone, a
+ * player id plus a typed server id, a player id plus a server from a list —
+ * and a Telegram entry that must never surface here.
+ * ==========================================================================*/
+
+/** The quote request the form sends, captured before the page moves on. */
+async function submitForQuote(page: Page): Promise<Record<string, unknown>> {
+  const request = page.waitForRequest(
+    (candidate) => candidate.method() === "POST" && new URL(candidate.url()).pathname.endsWith("/api/quotes"),
+  );
+  await page.getByRole("button", { name: "دیدن قیمت و ادامه" }).click();
+  const body = (await request).postDataJSON() as Record<string, unknown>;
+  await expect(page).toHaveURL(/\/quote\/quote-e2e-001$/u);
+  return body;
+}
+
+/** The server prices the offer: nothing that looks like an amount may leave the browser. */
+function expectNoAmount(body: Record<string, unknown>) {
+  for (const key of Object.keys(body)) {
+    expect(key).not.toMatch(/amount|price|irr|toman|cost/iu);
+  }
+}
+
+test.describe("game top-ups", () => {
+  test.use({ viewport: { width: 1280, height: 900 } });
+
+  test("lists every game on sale, never Telegram, and search narrows the list", async ({ page }) => {
+    await page.goto("/games");
+
+    await expect(page.getByRole("heading", { name: "شارژ بازی، مستقیم روی حساب خودتان", level: 1 })).toBeVisible();
+    const grid = page.locator(".gt-grid");
+    await expect(grid.getByRole("link")).toHaveCount(3);
+    await expect(grid.locator('a[href="/games/pubg-mobile"]')).toContainText("پابجی موبایل");
+    await expect(grid.locator('a[href="/games/mobile-legends"]')).toContainText("موبایل لجندز");
+    /* No Persian name: the venue's own stands in. */
+    await expect(grid.locator('a[href="/games/genshin-impact"]')).toContainText("Genshin Impact");
+    await expect(page.locator('a[href="/games/telegram-stars"]')).toHaveCount(0);
+
+    const search = page.getByRole("searchbox", { name: "جست‌وجوی نام بازی" });
+    const expectOnly = async (href: string) => {
+      await expect(grid.getByRole("link")).toHaveCount(1);
+      await expect(grid.getByRole("link")).toHaveAttribute("href", href);
+    };
+    await search.fill("پابجی");
+    await expectOnly("/games/pubg-mobile");
+    /* The venue's English name and brand match too. */
+    await search.fill("legends");
+    await expectOnly("/games/mobile-legends");
+    await search.fill("hoyoverse");
+    await expectOnly("/games/genshin-impact");
+
+    await search.fill("zzz");
+    await expect(page.getByText("بازی‌ای با این نام پیدا نشد")).toBeVisible();
+  });
+
+  test("the header links the games section apart from gift cards", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("navigation", { name: "منوی اصلی" }).getByRole("link", { name: "شارژ بازی" }).click();
+    await expect(page).toHaveURL(/\/games$/u);
+    await expect(
+      page.getByRole("navigation", { name: "منوی اصلی" }).getByRole("link", { name: "شارژ بازی" }),
+    ).toHaveAttribute("aria-current", "page");
+  });
+
+  test("the homepage shelf offers the games, and never Telegram", async ({ page }) => {
+    await page.goto("/");
+
+    const shelf = page.locator("section", { has: page.getByRole("heading", { name: "شارژ بازی روی حساب خودتان" }) });
+    await expect(shelf.locator('a[href="/games/pubg-mobile"]')).toBeVisible();
+    await expect(shelf.locator('a[href="/games/telegram-stars"]')).toHaveCount(0);
+  });
+
+  test("the gaming gift-card category points to direct top-ups, and no other category does", async ({ page }) => {
+    await page.goto("/gift-cards?category=gaming");
+
+    const hint = page.locator(".catalog-topup-hint");
+    await expect(hint).toContainText("بدون کد");
+    await hint.getByRole("link", { name: "شارژ مستقیم بازی" }).click();
+    await expect(page).toHaveURL(/\/games$/u);
+
+    await page.goto("/gift-cards?category=shopping");
+    await expect(page.locator(".catalog-topup-hint")).toHaveCount(0);
+  });
+
+  test("a player-id game: list → game page → quote", async ({ page }) => {
+    await page.goto("/games");
+    await page.locator('.gt-grid a[href="/games/pubg-mobile"]').click();
+    await expect(page).toHaveURL(/\/games\/pubg-mobile$/u);
+    await expect(page.getByRole("heading", { name: "شارژ مستقیم پابجی موبایل", level: 1 })).toBeVisible();
+
+    /* The withdrawn package is not offered; one account field, and never a password. */
+    await expect(page.getByTestId("game-offer-offer-pubg-60")).toBeVisible();
+    await expect(page.getByTestId("game-offer-offer-pubg-660")).toHaveCount(0);
+    await expect(page.locator('[id^="topup-field-"]')).toHaveCount(1);
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByText("رمز عبور حساب بازی هیچ‌وقت از شما خواسته نمی‌شود")).toBeVisible();
+    await expect(page.getByText("فقط اگر شارژ با مشکل روبه‌رو شود، سفارش برای پیگیری ثبت می‌شود")).toBeVisible();
+
+    /* Nothing chosen, nothing typed: both are said, and no quote is asked for. */
+    let quoteRequests = 0;
+    page.on("request", (request) => {
+      if (request.method() === "POST" && new URL(request.url()).pathname.endsWith("/api/quotes")) quoteRequests += 1;
+    });
+    await page.getByRole("button", { name: "دیدن قیمت و ادامه" }).click();
+    await expect(page.getByText("یک بسته را انتخاب کنید")).toBeVisible();
+    await expect(page.getByText("این فیلد الزامی است")).toBeVisible();
+
+    /* The venue's pattern is checked before the round trip. */
+    await page.getByTestId("game-offer-offer-pubg-325").click();
+    await page.locator("#topup-field-player_id").fill("12");
+    await page.getByRole("button", { name: "دیدن قیمت و ادامه" }).click();
+    await expect(page.getByText("قالب وارد شده درست نیست")).toBeVisible();
+    expect(quoteRequests).toBe(0);
+
+    /* Typed on a Persian keyboard, sent as the same player id. */
+    await page.locator("#topup-field-player_id").fill("۵۱۲۳۴۵۶۷");
+    const body = await submitForQuote(page);
+
+    expect(body["topUpOfferId"]).toBe("offer-pubg-325");
+    expect(body["topUpAccountFields"]).toEqual({ player_id: "51234567" });
+    expect(body["quantity"]).toBe(1);
+    expectNoAmount(body);
+  });
+
+  test("a player id plus a typed server id", async ({ page }) => {
+    await page.goto("/games/mobile-legends");
+
+    /* The only package is chosen already. */
+    await expect(page.getByTestId("game-offer-offer-mlbb-86").locator("input")).toBeChecked();
+    /* The player id comes first, whatever order the catalogue listed them in. */
+    const ids = await page.locator('[id^="topup-field-"]').evaluateAll((nodes) => nodes.map((node) => node.id));
+    expect(ids).toEqual(["topup-field-user_id", "topup-field-zone_id"]);
+
+    await page.locator("#topup-field-user_id").fill("123456789");
+    await page.locator("#topup-field-zone_id").fill("12");
+    await page.getByRole("button", { name: "دیدن قیمت و ادامه" }).click();
+    await expect(page.getByText("قالب وارد شده درست نیست")).toBeVisible();
+
+    await page.locator("#topup-field-zone_id").fill(" 2001 ");
+    const body = await submitForQuote(page);
+
+    expect(body["topUpOfferId"]).toBe("offer-mlbb-86");
+    expect(body["topUpAccountFields"]).toEqual({ user_id: "123456789", zone_id: "2001" });
+    expectNoAmount(body);
+  });
+
+  test("a player id plus a server picked from the venue's list", async ({ page }) => {
+    await page.goto("/games/genshin-impact");
+
+    const server = page.locator("#topup-field-server");
+    await expect(server).toHaveJSProperty("tagName", "SELECT");
+    await page.locator("#topup-field-uid").fill("800123456");
+    await page.getByRole("button", { name: "دیدن قیمت و ادامه" }).click();
+    await expect(page.getByText("این فیلد الزامی است")).toBeVisible();
+
+    await server.selectOption("os_euro");
+    const body = await submitForQuote(page);
+
+    expect(body["topUpOfferId"]).toBe("offer-genshin-60");
+    expect(body["topUpAccountFields"]).toEqual({ uid: "800123456", server: "os_euro" });
+    expectNoAmount(body);
+  });
+
+  test("Telegram reached through the games URL is sent to its own page", async ({ page }) => {
+    await page.goto("/games/telegram-stars");
+
+    await expect(page).toHaveURL(/\/telegram$/u);
+  });
+
+  test("a game that is not on sale is a 404", async ({ page }) => {
+    const response = await page.goto("/games/fortnite-v-bucks");
+
+    expect(response?.status()).toBe(404);
+  });
+});
+
+test.describe("game top-ups on a phone", () => {
+  test.use({ viewport: { width: 375, height: 812 }, isMobile: true });
+
+  test("the bottom bar has a tab of its own for games, lit on every games page", async ({ page }) => {
+    await page.goto("/");
+
+    const bar = page.getByRole("navigation", { name: "منوی موبایل" });
+    await bar.getByRole("link", { name: "شارژ بازی" }).click();
+    await expect(page).toHaveURL(/\/games$/u);
+    await expect(bar.getByRole("link", { name: "شارژ بازی" })).toHaveAttribute("aria-current", "page");
+    await expect(bar.getByRole("link", { name: "خانه" })).not.toHaveAttribute("aria-current", "page");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+
+    await page.locator('.gt-grid a[href="/games/pubg-mobile"]').click();
+    await expect(page).toHaveURL(/\/games\/pubg-mobile$/u);
+    await expect(bar.getByRole("link", { name: "شارژ بازی" })).toHaveAttribute("aria-current", "page");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBeTruthy();
+  });
+
+  test("the drawer lists direct game top-ups", async ({ page }) => {
+    await page.goto("/");
+
+    await page.getByRole("button", { name: "باز کردن منو" }).click();
+    await page.getByRole("dialog", { name: "منوی ناوبری" }).getByRole("link", { name: "شارژ مستقیم بازی" }).click();
+    await expect(page).toHaveURL(/\/games$/u);
+  });
+
+  test("a whole order on a phone: list → game page → quote", async ({ page }) => {
+    await page.goto("/games");
+    await page.locator('.gt-grid a[href="/games/mobile-legends"]').click();
+
+    await page.locator("#topup-field-user_id").fill("123456789");
+    await page.locator("#topup-field-zone_id").fill("2001");
+    /* The click refuses a button the fixed bottom bar covers, so reaching the
+     * quote is itself the proof that the bar leaves the form usable. */
+    const body = await submitForQuote(page);
+    expect(body["topUpAccountFields"]).toEqual({ user_id: "123456789", zone_id: "2001" });
   });
 });

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { EmptyState, ErrorState, toPersianDigits } from "@barat/ui";
-import { ChevronLeft, PackageSearch, Search, SearchX } from "lucide-react";
+import { ChevronLeft, Gamepad2, PackageSearch, Search, SearchX } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString, type Brand, type Category } from "@/lib/catalog";
 import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
@@ -105,6 +105,19 @@ export default async function GiftCardsPage({
           activeBrand?.descriptionFa ??
           "کارت‌های دیجیتال جهان را بر اساس دسته‌بندی، برند یا منطقه پیدا کنید. قیمت نهایی پیش از پرداخت به شما نشان داده می‌شود."}
       </p>
+
+      {/* Gaming gift cards and direct game top-ups are different products: a
+          card hands over a code, a top-up credits the player's account. A
+          customer who came here for the second is pointed to its own section. */}
+      {activeCategory?.slug === "gaming" ? (
+        <p className="alert catalog-topup-hint">
+          <Gamepad2 size={15} aria-hidden="true" />
+          <span>
+            می‌خواهید بدون کد، مستقیم حساب بازی‌تان شارژ شود؟{" "}
+            <Link href="/games">شارژ مستقیم بازی</Link>
+          </span>
+        </p>
+      ) : null}
 
       {/* A plain GET form: the search lives in the URL like every other filter,
           so it survives a reload and needs no JavaScript to work. */}

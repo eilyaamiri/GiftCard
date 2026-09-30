@@ -241,6 +241,7 @@ export async function HomePage() {
                 <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
                 <Link className="btn btn-outline" href="/services">پرداخت یک سرویس</Link>
                 <Link className="btn btn-ghost" href="/telegram">استارز و پرمیوم تلگرام</Link>
+                <Link className="btn btn-ghost" href="/games">شارژ مستقیم بازی</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>
