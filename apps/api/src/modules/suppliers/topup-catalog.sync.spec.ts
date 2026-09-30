@@ -42,20 +42,32 @@ const OFFER_STARS_100 = 'offer-stars-100';
 const OFFER_PREMIUM_3M = 'offer-premium-3m';
 
 /**
- * One item in the venue's answer.
+ * One item in the venue's answer, keyed by its full provider SKU.
  *
- * Provider SKUs double as our offer ids here, which is the whole basis of the
- * match. The remaining fields are the minimum `SupplierCatalogItem` demands and
- * are never read by the sync — it deliberately has no opinion on a name, a price
- * or an asset type, because none of those is availability.
+ * The remaining fields are the minimum `SupplierCatalogItem` demands and are
+ * never read by the sync — it deliberately has no opinion on a name, a price or
+ * an asset type, because none of those is availability.
  */
-const sku = (id: string): SupplierCatalogItem => ({
-  providerSku: id,
-  name: id,
+const item = (providerSku: string): SupplierCatalogItem => ({
+  providerSku,
+  name: providerSku,
   region: 'GLOBAL',
   faceValue: { amount: '1', currency: 'USD' },
   assetType: 'DIRECT_TOPUP',
 });
+
+/**
+ * What an un-namespaced venue calls our offer: `{category}:{offer}`, the shape
+ * `topUpProviderSku` composes for every supplier but the Telegram one. The venue
+ * never answers with a bare offer id, so no fixture here does either.
+ */
+const CATEGORY_BY_OFFER: Readonly<Record<string, string>> = {
+  [OFFER_STARS_50]: 'stars',
+  [OFFER_STARS_100]: 'stars',
+  [OFFER_PREMIUM_3M]: 'premium',
+};
+const sku = (offerId: string): SupplierCatalogItem =>
+  item(`${CATEGORY_BY_OFFER[offerId] ?? 'stars'}:${offerId}`);
 
 function games(): readonly TopUpCatalogGame[] {
   return [
@@ -66,9 +78,9 @@ function games(): readonly TopUpCatalogGame[] {
 
 function offers(): readonly TopUpCatalogOffer[] {
   return [
-    { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50 },
-    { id: OFFER_STARS_100, providerOfferId: OFFER_STARS_100 },
-    { id: OFFER_PREMIUM_3M, providerOfferId: OFFER_PREMIUM_3M },
+    { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50, providerCategoryId: 'stars' },
+    { id: OFFER_STARS_100, providerOfferId: OFFER_STARS_100, providerCategoryId: 'stars' },
+    { id: OFFER_PREMIUM_3M, providerOfferId: OFFER_PREMIUM_3M, providerCategoryId: 'premium' },
   ];
 }
 
@@ -118,6 +130,7 @@ function harness(
 describe('planAvailability', () => {
   it('lists what the venue returned and delists what it did not', () => {
     const plan = planAvailability({
+      supplierCode: SUPPLIER_CODE,
       catalog: [sku(OFFER_STARS_50), sku(OFFER_PREMIUM_3M)],
       games: games(),
       offers: offers(),
@@ -132,6 +145,7 @@ describe('planAvailability', () => {
 
   it('delists a game whose every offer is gone, not just the offers', () => {
     const plan = planAvailability({
+      supplierCode: SUPPLIER_CODE,
       catalog: [sku(OFFER_STARS_50), sku(OFFER_STARS_100)],
       games: games(),
       offers: offers(),
@@ -144,30 +158,116 @@ describe('planAvailability', () => {
 
   it('reports a venue SKU we hold no offer for instead of silently ignoring it', () => {
     const plan = planAvailability({
+      supplierCode: SUPPLIER_CODE,
       catalog: [sku(OFFER_STARS_50), sku('offer-stars-1000-upstream')],
       games: games(),
       offers: offers(),
     });
 
-    expect(plan.unknownSkus).toEqual(['offer-stars-1000-upstream']);
+    expect(plan.unknownSkus).toEqual(['stars:offer-stars-1000-upstream']);
     expect(plan.listedOffers).toEqual([OFFER_STARS_50]);
   });
 
-  it('matches on the venue offer id, never on a price — two offers may share one', () => {
+  it('matches on the venue SKU, never on a price — two offers may share one', () => {
     /* Both live offers are the same identity as far as this function is
      * concerned; only the arena they came from decides. A price-keyed match
      * would put these two in a map and lose one of them. */
     const plan = planAvailability({
+      supplierCode: SUPPLIER_CODE,
       catalog: [sku(OFFER_STARS_50)],
       games: [{ id: GAME_STARS, providerCategoryId: 'stars', providerOfferIds: [OFFER_STARS_50] }],
       offers: [
-        { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50 },
-        { id: OFFER_STARS_100, providerOfferId: OFFER_STARS_100 },
+        { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50, providerCategoryId: 'stars' },
+        { id: OFFER_STARS_100, providerOfferId: OFFER_STARS_100, providerCategoryId: 'stars' },
       ],
     });
 
     expect(plan.listedOffers).toEqual([OFFER_STARS_50]);
     expect(plan.delistedOffers).toEqual([OFFER_STARS_100]);
+  });
+});
+
+describe('planAvailability — the namespaced Telegram catalogue', () => {
+  /*
+   * The production shape. FazerCards' Telegram adapter answers in
+   * `telegram:{stars|premium}:{offer}`, while our rows hold the bare venue
+   * offer id (`50`, `3`). A sync that compared the two directly recognised
+   * nothing: every offer and both games were delisted, and every SKU the venue
+   * sells was reported as unknown. These cases pin the composition to the one
+   * `topUpProviderSku` uses when it asks the same venue for a price.
+   */
+  const TELEGRAM = 'fazercards-telegram';
+  const telegramGames = (): readonly TopUpCatalogGame[] => [
+    { id: GAME_STARS, providerCategoryId: 'stars', providerOfferIds: ['50', '100'] },
+    { id: GAME_PREMIUM, providerCategoryId: 'premium', providerOfferIds: ['3'] },
+  ];
+  const telegramOffers = (): readonly TopUpCatalogOffer[] => [
+    { id: 'tg-stars-50', providerOfferId: '50', providerCategoryId: 'stars' },
+    { id: 'tg-stars-100', providerOfferId: '100', providerCategoryId: 'stars' },
+    { id: 'tg-premium-3', providerOfferId: '3', providerCategoryId: 'premium' },
+  ];
+
+  it('recognises every offer the venue still sells instead of mass-delisting', () => {
+    const plan = planAvailability({
+      supplierCode: TELEGRAM,
+      catalog: [item('telegram:stars:50'), item('telegram:stars:100'), item('telegram:premium:3')],
+      games: telegramGames(),
+      offers: telegramOffers(),
+    });
+
+    expect(plan.listedOffers).toEqual(['tg-stars-50', 'tg-stars-100', 'tg-premium-3']);
+    expect(plan.delistedOffers).toEqual([]);
+    expect(plan.listedGames).toEqual([GAME_STARS, GAME_PREMIUM]);
+    expect(plan.delistedGames).toEqual([]);
+    expect(plan.unknownSkus).toEqual([]);
+  });
+
+  it('still delists the one package the venue withdrew, and reports a new one', () => {
+    const plan = planAvailability({
+      supplierCode: TELEGRAM,
+      catalog: [item('telegram:stars:50'), item('telegram:premium:3'), item('telegram:stars:5000')],
+      games: telegramGames(),
+      offers: telegramOffers(),
+    });
+
+    expect(plan.delistedOffers).toEqual(['tg-stars-100']);
+    expect(plan.listedOffers).toEqual(['tg-stars-50', 'tg-premium-3']);
+    expect(plan.unknownSkus).toEqual(['telegram:stars:5000']);
+  });
+
+  it('does not let an offer id shared by two games list the wrong one', () => {
+    /* `3` is a Premium duration and could as well be a Stars package id. The
+     * category is part of the identity, so the venue listing Premium's `3`
+     * says nothing about a Stars offer that happens to share the number. */
+    const plan = planAvailability({
+      supplierCode: TELEGRAM,
+      catalog: [item('telegram:premium:3')],
+      games: [
+        { id: GAME_STARS, providerCategoryId: 'stars', providerOfferIds: ['3'] },
+        { id: GAME_PREMIUM, providerCategoryId: 'premium', providerOfferIds: ['3'] },
+      ],
+      offers: [
+        { id: 'tg-stars-3', providerOfferId: '3', providerCategoryId: 'stars' },
+        { id: 'tg-premium-3', providerOfferId: '3', providerCategoryId: 'premium' },
+      ],
+    });
+
+    expect(plan.listedOffers).toEqual(['tg-premium-3']);
+    expect(plan.delistedOffers).toEqual(['tg-stars-3']);
+    expect(plan.listedGames).toEqual([GAME_PREMIUM]);
+    expect(plan.delistedGames).toEqual([GAME_STARS]);
+  });
+
+  it('treats a bare offer id from the venue as unknown, not as a match', () => {
+    const plan = planAvailability({
+      supplierCode: TELEGRAM,
+      catalog: [item('50')],
+      games: telegramGames(),
+      offers: telegramOffers(),
+    });
+
+    expect(plan.listedOffers).toEqual([]);
+    expect(plan.unknownSkus).toEqual(['50']);
   });
 });
 
@@ -210,8 +310,8 @@ describe('TopUpCatalogSyncService', () => {
             },
           ],
           offers: [
-            { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50 },
-            { id: newOfferId, providerOfferId: newOfferId },
+            { id: OFFER_STARS_50, providerOfferId: OFFER_STARS_50, providerCategoryId: 'stars' },
+            { id: newOfferId, providerOfferId: newOfferId, providerCategoryId: 'stars' },
           ],
         },
       ],
@@ -291,7 +391,7 @@ describe('TopUpCatalogSyncService', () => {
     expect(after?.suppliers).toEqual([SUPPLIER_CODE]);
     expect(after?.offersListed).toBe(1);
     expect(after?.offersDelisted).toBe(2);
-    expect(after?.unknownSkus).toEqual(['offer-upstream-only']);
+    expect(after?.unknownSkus).toEqual(['stars:offer-upstream-only']);
   });
 
   it('runs again after a failure, so a transient outage is not a stuck sync', async () => {
