@@ -252,6 +252,15 @@ export class SuppliersService {
     quantity: number;
     idempotencyKey: string;
     recipientEmail?: string;
+    /**
+     * The game account to credit, for a direct top-up. A public identifier such
+     * as `player_id` or `telegram_username` — never a credential, because games
+     * that require a login are refused at quote time.
+     *
+     * Only the top-up path supplies this. It is forwarded verbatim: the adapter
+     * is the only layer that knows what the supplier calls these fields.
+     */
+    accountFields?: Readonly<Record<string, string>>;
   }): Promise<SupplierPurchaseOutcome> {
     if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 10) {
       throw DomainErrors.validation([{ path: 'quantity', message: 'quantity must be an integer between 1 and 10' }]);
@@ -277,6 +286,13 @@ export class SuppliersService {
         quantity: input.quantity,
         idempotencyKey: input.idempotencyKey,
         ...(input.recipientEmail === undefined ? {} : { recipientEmail: input.recipientEmail }),
+        /*
+         * Forwarded, not stored: this method is provider-neutral and has no
+         * business knowing that a Telegram purchase needs `telegram_username`.
+         * Dropping it here was a real bug — the adapter received no account to
+         * credit and every top-up failed — so it is passed straight through.
+         */
+        ...(input.accountFields === undefined ? {} : { accountFields: input.accountFields }),
       });
     } catch {
       // Network ambiguity is UNKNOWN, not FAILED: the provider might have charged
@@ -290,6 +306,20 @@ export class SuppliersService {
       offerId: offer.id,
       providerReference: result.providerReference ?? null,
     };
+    /*
+     * A direct top-up has no secret to store, so it is not an asset in the
+     * sense the rest of this case means. It should never reach here at all: a
+     * top-up order routes to `TopUpFulfillmentService`, which records its
+     * outcome in `TopUpFulfillment` and calls the adapter directly. Reaching
+     * this line would mean the two paths have been wired together, and the
+     * right answer is to say so rather than to write an empty gift card.
+     */
+    if (result.asset?.assetType === 'DIRECT_TOPUP') {
+      throw DomainErrors.conflict(
+        'شارژ مستقیم از مسیر خودکار خود ثبت می‌شود، نه به‌عنوان دارایی تحویل.',
+        `direct top-up for order ${input.orderId} reached the gift-card ingest path`,
+      );
+    }
 
     switch (result.status) {
       case 'SUCCEEDED': {

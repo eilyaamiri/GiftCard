@@ -1,24 +1,74 @@
 import { z } from "zod";
-import { idSchema, isoDateTimeSchema, pricingRuleSnapshotSchema } from "@barat/contracts";
+import {
+  PRICING_RULE_SCOPE_VALUES,
+  idSchema,
+  isoDateTimeSchema,
+  pricingRuleScopeSchema,
+  pricingRuleSnapshotSchema,
+} from "@barat/contracts";
 
 /**
  * Wire shapes for `/api/pricing/rules`.
  *
  * `pricingRuleSnapshotSchema` from @barat/contracts already carries every
  * economic field, so only the persistence envelope (scope, versioning window,
- * authorship) is restated here. The API's `PricingRuleScope` is not exported by
- * the contracts package, so the four values are pinned locally.
+ * authorship) is restated here.
+ *
+ * The scope enum is re-exported straight from the contracts package rather than
+ * restated. It was previously pinned to four values locally, which silently
+ * dropped `TOP_UP_GAME` — the scope the seeded direct top-up margin is stored
+ * on — so the API returned that rule and this schema refused to parse it,
+ * making the 5% rate uneditable from the only screen that can change it. A
+ * local copy can drift the same way again; the shared enum cannot.
  */
-export const PRICING_RULE_SCOPE_VALUES = ["GLOBAL", "PRODUCT", "SKU", "SERVICE"] as const;
-export const pricingRuleScopeSchema = z.enum(PRICING_RULE_SCOPE_VALUES);
+export { PRICING_RULE_SCOPE_VALUES, pricingRuleScopeSchema };
 export type PricingRuleScope = z.infer<typeof pricingRuleScopeSchema>;
 
+/**
+ * Persian labels for every scope in the vocabulary, including ones no screen
+ * offers yet. Exhaustive on purpose: a new scope in contracts fails typecheck
+ * here instead of rendering as an empty domain name.
+ */
 export const PRICING_RULE_SCOPE_LABELS: Record<PricingRuleScope, string> = {
   GLOBAL: "سراسری",
   PRODUCT: "محصول",
   SKU: "SKU",
   SERVICE: "سرویس",
+  TOP_UP_GAME: "بازی (شارژ مستقیم)",
 };
+
+/**
+ * The scopes an operator may pick, and the target each one demands.
+ *
+ * `PRODUCT` and `SKU` are absent deliberately: the API would accept them, but
+ * a new rule needs a real target id and this form is launched from an existing
+ * rule, not from a product page, so it has nothing to offer for the picker. The
+ * wire schemas still parse them, so a rule that already exists on those scopes
+ * keeps loading and rendering instead of dropping out of the list.
+ *
+ * `targetId: "none"` is the fallback case and only `TOP_UP_GAME` has one: the
+ * seeded 5% top-up margin is stored with a null target, which is what makes it
+ * apply to every game. It is also the case the API accepts for that scope
+ * alone (apps/api pricing-rule.service.ts), and the rows already in the table
+ * are all null-target by construction.
+ */
+export const PRICING_RULE_SCOPE_OPTIONS = [
+  { value: "TOP_UP_GAME", label: PRICING_RULE_SCOPE_LABELS.TOP_UP_GAME, targetId: "none" },
+  { value: "GLOBAL", label: PRICING_RULE_SCOPE_LABELS.GLOBAL, targetId: "none" },
+  { value: "SERVICE", label: PRICING_RULE_SCOPE_LABELS.SERVICE, targetId: "required" },
+] as const satisfies readonly {
+  readonly value: PricingRuleScope;
+  readonly label: string;
+  readonly targetId: "none" | "required";
+}[];
+
+export type PricingRuleScopeOption = (typeof PRICING_RULE_SCOPE_OPTIONS)[number];
+
+export function scopeOptionFor(
+  scope: PricingRuleScope,
+): PricingRuleScopeOption | undefined {
+  return PRICING_RULE_SCOPE_OPTIONS.find((option) => option.value === scope);
+}
 
 export const wirePricingRuleSchema = pricingRuleSnapshotSchema.extend({
   scope: pricingRuleScopeSchema,
@@ -34,10 +84,16 @@ export type WirePricingRule = z.infer<typeof wirePricingRuleSchema>;
 export const wirePricingRuleListSchema = z.array(wirePricingRuleSchema);
 
 /**
- * Mirrors the API's `putPricingRuleRequestSchema`, including its two refusals:
- * a GLOBAL rule may not name a target, and the rounding step must be a whole
- * Toman. Validating client-side too means the operator sees the problem next to
- * the field instead of as a 400 after the confirmation step.
+ * Mirrors the API's `putPricingRuleRequestSchema`, including its three refusals:
+ * a GLOBAL rule may not name a target, a non-global/non-top-up rule must name
+ * one, and the rounding step must be a whole Toman. Validating client-side too
+ * means the operator sees the problem next to the field instead of as a 400
+ * after the confirmation step.
+ *
+ * `TOP_UP_GAME` is the one scope where a null `targetId` is legal: it is the
+ * fallback that prices every game. The seeded 5% rule is stored that way, so
+ * refusing it here would make that rule unsavable. A top-up rule may also name
+ * a single game, which is why this is an allowance rather than a requirement.
  */
 export const putPricingRuleRequestSchema = pricingRuleSnapshotSchema
   .omit({ id: true, version: true })
@@ -51,7 +107,7 @@ export const putPricingRuleRequestSchema = pricingRuleSnapshotSchema
     if (value.scope === "GLOBAL" && value.targetId !== null) {
       context.addIssue({ code: "custom", path: ["targetId"], message: "قاعدهٔ سراسری نباید هدف مشخص داشته باشد." });
     }
-    if (value.scope !== "GLOBAL" && value.targetId === null) {
+    if (value.scope !== "GLOBAL" && value.scope !== "TOP_UP_GAME" && value.targetId === null) {
       context.addIssue({ code: "custom", path: ["targetId"], message: "قاعدهٔ غیرسراسری باید هدف داشته باشد." });
     }
     const roundingStepIrr = BigInt(value.roundingStepIrr);

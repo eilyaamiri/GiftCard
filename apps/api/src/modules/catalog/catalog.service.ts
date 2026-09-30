@@ -8,9 +8,11 @@ import { Prisma } from '@barat/database';
 import { QUOTABLE_COST_CURRENCIES } from '@barat/contracts';
 import type {
   DecimalString,
+  GetTopUpGameResponse,
   InternationalServiceDto,
   ListProductsRequest,
   ListServicesResponse,
+  ListTopUpGamesResponse,
   ServiceFieldDefinitionDto,
   SkuDto,
 } from '@barat/contracts';
@@ -215,6 +217,28 @@ export interface SkuQuoteTarget {
   readonly discountBps: number;
   /** Effective supplier cost per unit, after the supplier discount. */
   readonly effectiveCost: string;
+}
+
+/**
+ * A top-up offer plus everything the automated purchase will need.
+ *
+ * Deliberately carries the account-field definitions alongside the price. The
+ * quote path has to validate what the customer typed against the venue's own
+ * keys *before* it takes their money, and fetching the fields in a second call
+ * would let the two answers disagree — a quote priced for `player_id` while the
+ * game's fields have since changed is a purchase that cannot be credited.
+ */
+export interface TopUpQuoteTarget {
+  readonly offer: Prisma.TopUpOfferGetPayload<Record<string, never>>;
+  readonly game: Prisma.TopUpGameGetPayload<Record<string, never>>;
+  readonly supplierId: string;
+  readonly supplierCode: string;
+  readonly costCurrency: string;
+  /** Decimal string, as stored. Never a JS number — AGENTS.md rule 1. */
+  readonly costAmount: string;
+  /** Provider-facing offer key, composed from the supplier's catalog identity. */
+  readonly providerSku: string;
+  readonly fields: readonly Prisma.TopUpFieldGetPayload<Record<string, never>>[];
 }
 
 type DecimalLike = { toFixed(decimalPlaces?: number): string };
@@ -490,6 +514,180 @@ export class CatalogService {
     };
   }
 
+  /* ------------------------------------------------------ top-up storefront */
+
+  /**
+   * The games a customer can currently top up.
+   *
+   * Three conditions, and each one is load-bearing:
+   *
+   *   - the game is `isActive` — an operator has curated it. A newly synced
+   *     game arrives inactive precisely so nothing goes on sale unreviewed.
+   *   - the game is `isListed` — the venue still offers it.
+   *   - the supplier is active. An inactive supplier has no adapter wired, so
+   *     listing its games would advertise something that cannot be bought and
+   *     would fail at quote time instead of here.
+   *
+   * The offer count and the «from» price are computed from the SAME predicate
+   * the detail page uses, so the two can never disagree about what is on sale.
+   *
+   * No cost, no supplier id and no provider SKU reaches this DTO: those are
+   * commercial data and, for a top-up, they would also reveal which venue we
+   * buy from.
+   */
+  async listTopUpGames(input: {
+    readonly search?: string | undefined;
+  } = {}): Promise<ListTopUpGamesResponse> {
+    const visible = topUpOfferVisible;
+    const games = await this.db.topUpGame.findMany({
+      where: {
+        isActive: true,
+        isListed: true,
+        supplier: { isActive: true },
+        ...(input.search === undefined || input.search === ''
+          ? {}
+          : {
+              OR: [
+                { name: { contains: input.search, mode: 'insensitive' } },
+                { nameFa: { contains: input.search } },
+              ],
+            }),
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        brandName: true,
+        region: true,
+        imageUrl: true,
+        sortOrder: true,
+        offers: { where: visible, select: { costAmount: true, costCurrency: true } },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    return {
+      items: games.map((game) => {
+        const cheapest = cheapestOffer(game.offers);
+        return {
+          id: game.id,
+          slug: game.slug,
+          name: game.name,
+          nameFa: game.nameFa,
+          brandName: game.brandName,
+          region: game.region,
+          imageUrl: game.imageUrl,
+          fromCostAmount: cheapest?.costAmount ?? null,
+          fromCostCurrency: cheapest?.costCurrency ?? null,
+          offerCount: game.offers.length,
+        };
+      }),
+    };
+  }
+
+  /**
+   * One game and everything about it a customer needs.
+   *
+   * Refused by the same four conditions the catalogue uses, and additionally
+   * for `requiresCredentials`: a game that wants a login is never sellable in
+   * this phase. The refusal is a 404 rather than a 403 — the customer is told
+   * the page does not exist, not that a password-gated game does.
+   */
+  async getTopUpGame(slug: string): Promise<GetTopUpGameResponse> {
+    const game = await this.db.topUpGame.findFirst({
+      where: {
+        slug,
+        isActive: true,
+        isListed: true,
+        requiresCredentials: false,
+        supplier: { isActive: true },
+      },
+      select: {
+        id: true,
+        slug: true,
+        name: true,
+        nameFa: true,
+        brandName: true,
+        region: true,
+        imageUrl: true,
+        providerNote: true,
+        descriptionFa: true,
+        offers: {
+          where: topUpOfferVisible,
+          select: {
+            id: true,
+            name: true,
+            nameFa: true,
+            costAmount: true,
+            costCurrency: true,
+            sortOrder: true,
+          },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        },
+        fields: {
+          select: {
+            key: true,
+            label: true,
+            labelFa: true,
+            fieldType: true,
+            isRequired: true,
+            options: true,
+            validationRegex: true,
+            helpTextFa: true,
+            sortOrder: true,
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+      },
+    });
+    if (game === null) {
+      throw DomainErrors.notFound('top-up game');
+    }
+
+    const cheapest = cheapestOffer(game.offers);
+    return {
+      game: {
+        id: game.id,
+        slug: game.slug,
+        name: game.name,
+        nameFa: game.nameFa,
+        brandName: game.brandName,
+        region: game.region,
+        imageUrl: game.imageUrl,
+        fromCostAmount: cheapest?.costAmount ?? null,
+        fromCostCurrency: cheapest?.costCurrency ?? null,
+        offerCount: game.offers.length,
+        providerNote: game.providerNote,
+        descriptionFa: game.descriptionFa,
+        fields: game.fields.map((field) => ({
+          ...field,
+          options: readTopUpFieldOptions(field.options),
+        })),
+        /*
+         * No `indicativePriceIrr` here, deliberately. A display price would have
+         * to be computed from a live FX rate and a live rule, and the moment it
+         * sits in a list response it starts to look payable. The customer sees
+         * the offer and asks for a real quote; the quote endpoint is the only
+         * thing that produces a number anyone can pay.
+         */
+        offers: game.offers.map((offer) => ({
+          id: offer.id,
+          name: offer.name,
+          nameFa: offer.nameFa,
+          /*
+           * Always true, because the query already filtered on it. The field
+           * exists so the shelf has somewhere to put «ناموجود» later without a
+           * contract change — and saying `true` here rather than omitting it
+           * keeps the storefront from having to guess.
+           */
+          isAvailable: true,
+          sortOrder: offer.sortOrder,
+        })),
+      },
+    };
+  }
+
   /* -------------------------------------------------------- quote-facing API */
 
   /**
@@ -545,6 +743,78 @@ export class CatalogService {
       throw DomainErrors.notFound('service');
     }
     return service;
+  }
+
+  /**
+   * Resolve a direct top-up offer to everything a quote needs to price it.
+   *
+   * Four rows have to agree before a customer may be charged, and all four are
+   * checked in one query rather than by trusting the request:
+   *
+   *   - the offer is active AND still listed by the venue. `isListed` is set by
+   *     sync; an offer the venue has withdrawn is not sellable even if an
+   *     operator has not got round to deactivating it, because the purchase
+   *     would simply fail.
+   *   - the game is active and listed. This is what makes an operator's curation
+   *     stick: a top-up game is synced inactive and stays unbuyable until
+   *     somebody deliberately switches it on.
+   *   - the game does not require credentials. Phase 1 sells only games that
+   *     take a public identifier. Refusing here — rather than at purchase time —
+   *     is the difference between a customer seeing "unavailable" and a customer
+   *     typing their game password into a form we would then have to store.
+   *   - the supplier is active, since an inactive one has no adapter wired.
+   */
+  async getTopUpOfferForQuote(offerId: string): Promise<TopUpQuoteTarget> {
+    const offer = await this.db.topUpOffer.findFirst({
+      where: {
+        id: offerId,
+        isActive: true,
+        isListed: true,
+        game: { isActive: true, isListed: true },
+      },
+      include: {
+        game: {
+          include: {
+            fields: { orderBy: { sortOrder: 'asc' } },
+            supplier: { select: { id: true, code: true, isActive: true } },
+          },
+        },
+      },
+    });
+    if (!offer) {
+      throw DomainErrors.notFound('top-up offer');
+    }
+
+    const { game } = offer;
+    if (game.requiresCredentials) {
+      /* Same message as an unavailable product, on purpose: telling a caller
+       * "this game needs a login" only invites them to try to supply one. */
+      throw DomainErrors.conflict(
+        'این محصول در حال حاضر موجود نیست.',
+        `top-up game ${game.slug} requires credentials and is not sellable`,
+      );
+    }
+    if (!game.supplier.isActive) {
+      throw DomainErrors.conflict(
+        'این محصول در حال حاضر موجود نیست.',
+        `top-up supplier ${game.supplier.code} is inactive`,
+      );
+    }
+
+    return {
+      offer,
+      game,
+      supplierId: game.supplier.id,
+      supplierCode: game.supplier.code,
+      costCurrency: offer.costCurrency,
+      costAmount: offer.costAmount.toFixed(6),
+      providerSku: topUpProviderSku(
+        game.supplier.code,
+        game.providerCategoryId,
+        offer.providerOfferId,
+      ),
+      fields: game.fields,
+    };
   }
 
   /* ---------------------------------------------------------------- admin */
@@ -1516,6 +1786,94 @@ function toSelectableOffer(offer: {
 function decimalString(value: DecimalLike): string {
   const fixed = value.toFixed(6);
   return fixed.includes('.') ? fixed.replace(/0+$/u, '').replace(/\.$/u, '') : fixed;
+}
+
+/**
+ * What counts as an offer a customer can actually buy.
+ *
+ * Both flags matter and they mean different things: `isActive` is an operator's
+ * decision, `isListed` is the venue's. An offer the venue has withdrawn must
+ * disappear even before anyone notices, because the purchase would simply fail.
+ *
+ * Shared by the list count and the detail offers on purpose. Computing them
+ * from two different predicates is how a card ends up advertising «12 offers»
+ * and opening onto nine.
+ */
+const topUpOfferVisible = { isActive: true, isListed: true } as const;
+
+/**
+ * Supplier catalog keys are normally `{category}:{offer}`. FazerCards' Telegram
+ * catalog puts both its Stars and Premium families under the `telegram`
+ * namespace, so its adapter receives a three-part key instead. This mapping
+ * stays at the catalog boundary: providers continue to receive their own
+ * opaque SKU and other game suppliers retain their existing catalog shape.
+ */
+const TOP_UP_SKU_NAMESPACE_BY_SUPPLIER: Readonly<Record<string, string>> = {
+  'fazercards-telegram': 'telegram',
+};
+
+function topUpProviderSku(
+  supplierCode: string,
+  providerCategoryId: string,
+  providerOfferId: string,
+): string {
+  const namespace = TOP_UP_SKU_NAMESPACE_BY_SUPPLIER[supplierCode];
+  return [namespace, providerCategoryId, providerOfferId].filter((part) => part !== undefined).join(':');
+}
+
+/**
+ * The cheapest visible offer, or null.
+ *
+ * Compared as a `Decimal`, never as a float: these are `Decimal(18,6)` money
+ * values and `Math.min` on a parsed number is exactly the rounding the money
+ * rules forbid. `toFixed(6)` on the way out keeps the value in the canonical
+ * form the rest of the system stores.
+ */
+function cheapestOffer(
+  offers: readonly { readonly costAmount: Prisma.Decimal; readonly costCurrency: string }[],
+): { readonly costAmount: DecimalString; readonly costCurrency: string } | null {
+  let cheapest: { readonly costAmount: Prisma.Decimal; readonly costCurrency: string } | null = null;
+  for (const offer of offers) {
+    if (cheapest === null || offer.costAmount.lt(cheapest.costAmount)) {
+      cheapest = offer;
+    }
+  }
+  return cheapest === null
+    ? null
+    : {
+        costAmount: decimalString(cheapest.costAmount) as DecimalString,
+        costCurrency: cheapest.costCurrency,
+      };
+}
+
+/**
+ * The `[{label, value}]` list a SELECT field carries, or null.
+ *
+ * Read defensively: `TopUpField.options` is an untyped JSON column filled by a
+ * sync against a venue free to change shape, and a malformed block must not
+ * take down a customer's page. A value with no label falls back to the value,
+ * because an option a customer cannot read is worse than a duplicated string.
+ */
+function readTopUpFieldOptions(
+  options: Prisma.JsonValue | null,
+): { readonly label: string; readonly value: string }[] | null {
+  if (!Array.isArray(options)) {
+    return null;
+  }
+  const parsed: { label: string; value: string }[] = [];
+  for (const entry of options) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      continue;
+    }
+    const record = entry as Record<string, unknown>;
+    const value = typeof record['value'] === 'string' ? record['value'] : '';
+    if (value === '') {
+      continue;
+    }
+    const label = typeof record['label'] === 'string' && record['label'] !== '' ? record['label'] : value;
+    parsed.push({ label, value });
+  }
+  return parsed.length === 0 ? null : parsed;
 }
 
 function pageMeta(page: number, pageSize: number, total: number) {

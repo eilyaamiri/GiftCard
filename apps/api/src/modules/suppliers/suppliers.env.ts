@@ -8,9 +8,10 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * GAP: `apps/api/src/common/config/env.schema.ts` is frozen (Foundation-owned)
  * and declares none of `RELOADLY_ENABLED`, `RELOADLY_ENVIRONMENT`,
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
- * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `SUPPLIER_PROVIDER_SKU_MAP` or
+ * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `FAZERCARDS_TELEGRAM_ENABLED`,
+ * `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`, `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
- * scattered — so the Foundation agent can lift these nine entries into the
+ * scattered — so the Foundation agent can lift these entries into the
  * validated schema in a single pass.
  *
  * Two of them are secrets. They are read into a value object and handed
@@ -29,6 +30,31 @@ export interface ReloadlyEnv {
   readonly recipientEmail: string;
   readonly senderName: string | undefined;
   readonly timeoutMs: number;
+}
+
+export interface FazerCardsTelegramEnv {
+  readonly enabled: boolean;
+  readonly apiKey: string;
+  readonly timeoutMs: number;
+}
+
+/** Independently gated from every other FazerCards product; a key alone never enables buying. */
+export function readFazerCardsTelegramEnv(): FazerCardsTelegramEnv {
+  const enabled = readBoolean('FAZERCARDS_TELEGRAM_ENABLED', false);
+  if (!enabled) {
+    return { enabled: false, apiKey: '', timeoutMs: DEFAULT_TIMEOUT_MS };
+  }
+
+  const apiKey = read('FAZERCARDS_API_KEY');
+  if (apiKey === undefined) {
+    throw new Error('FAZERCARDS_API_KEY is required when FazerCards Telegram is enabled');
+  }
+  const raw = read('FAZERCARDS_TIMEOUT_MS');
+  const timeoutMs = raw === undefined ? DEFAULT_TIMEOUT_MS : Number(raw);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error(`FAZERCARDS_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
+  }
+  return { enabled: true, apiKey, timeoutMs };
 }
 
 /** `supplierCode:skuId` -> the identifier that supplier knows the SKU by. */

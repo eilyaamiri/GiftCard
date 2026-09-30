@@ -23,8 +23,12 @@ import {
   BPS_FIELDS,
   IRR_FIELDS,
   PRICING_RULE_SCOPE_LABELS,
+  PRICING_RULE_SCOPE_OPTIONS,
+  scopeOptionFor,
   type BpsFieldKey,
   type IrrFieldKey,
+  type PricingRuleScope,
+  type PricingRuleScopeOption,
   type PutPricingRuleRequest,
   type WirePricingRule,
 } from "./pricing-rule-schema";
@@ -33,6 +37,8 @@ type BpsUnit = "bps" | "percent";
 
 interface Draft {
   name: string;
+  scope: PricingRuleScope;
+  targetId: string;
   quoteTtlSeconds: string;
   bps: Record<BpsFieldKey, string>;
   percent: Record<BpsFieldKey, string>;
@@ -56,7 +62,49 @@ function draftFromRule(rule: WirePricingRule): Draft {
   for (const field of IRR_FIELDS) {
     irr[field.key] = rule[field.key];
   }
-  return { name: rule.name, quoteTtlSeconds: String(rule.quoteTtlSeconds), bps, percent, irr };
+  return {
+    name: rule.name,
+    scope: rule.scope,
+    targetId: rule.targetId ?? "",
+    quoteTtlSeconds: String(rule.quoteTtlSeconds),
+    bps,
+    percent,
+    irr,
+  };
+}
+
+/**
+ * The target a scope demands, restated from the option table so the form and
+ * the schema cannot disagree about it.
+ */
+function targetRequirement(scope: PricingRuleScope): "none" | "required" {
+  return scopeOptionFor(scope)?.targetId ?? "required";
+}
+
+/** A null target and an empty box are the same thing to the API. */
+function targetIdFromDraft(draft: Draft): string | null {
+  if (targetRequirement(draft.scope) === "none") return null;
+  const trimmed = draft.targetId.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+/**
+ * Why the current scope/target pair cannot be saved, or null when it can.
+ *
+ * The seeded 5% top-up margin is a null-target `TOP_UP_GAME` rule, so this has
+ * to accept it; a `SERVICE` rule with a cleared target box must not be, because
+ * the API would read it as a rule that prices nothing. These are the same two
+ * refusals the API makes, stated where the operator can see them.
+ */
+export function scopeTargetError(scope: PricingRuleScope, targetId: string | null): string | null {
+  if (targetRequirement(scope) === "required") {
+    return targetId === null ? "برای این دامنه، شناسهٔ هدف الزامی است." : null;
+  }
+  if (scope === "GLOBAL") {
+    return targetId === null ? null : "قاعدهٔ سراسری نباید هدف مشخص داشته باشد.";
+  }
+  /* TOP_UP_GAME: a target names one game, its absence covers them all. */
+  return null;
 }
 
 interface ValidationSuccess {
@@ -102,14 +150,18 @@ function validate(draft: Draft, rule: WirePricingRule): ValidationSuccess | Vali
   const quoteTtlSeconds = parseIntegerText(draft.quoteTtlSeconds, 30, 3_600);
   if (quoteTtlSeconds === null) errors["quoteTtlSeconds"] = "مدت اعتبار باید بین ۳۰ تا ۳۶۰۰ ثانیه باشد.";
 
+  const targetId = targetIdFromDraft(draft);
+  const targetProblem = scopeTargetError(draft.scope, targetId);
+  if (targetProblem !== null) errors["targetId"] = targetProblem;
+
   if (Object.keys(errors).length > 0 || quoteTtlSeconds === null) return { ok: false, errors };
 
   return {
     ok: true,
     values: {
       name,
-      scope: rule.scope,
-      targetId: rule.targetId,
+      scope: draft.scope,
+      targetId,
       isActive: rule.isActive,
       expectedVersion: rule.version,
       quoteTtlSeconds,
@@ -128,9 +180,25 @@ function validate(draft: Draft, rule: WirePricingRule): ValidationSuccess | Vali
   };
 }
 
+/** A rule's identity as one line, for the diff and the payer-facing warning. */
+function describeTarget(scope: PricingRuleScope, targetId: string | null): string {
+  const label = PRICING_RULE_SCOPE_LABELS[scope];
+  if (targetId === null) {
+    return scope === "TOP_UP_GAME" ? `${label} — همهٔ بازی‌ها` : label;
+  }
+  return `${label} — ${targetId}`;
+}
+
 function buildDiff(rule: WirePricingRule, values: PutPricingRuleRequest): DiffRow[] {
   const rows: DiffRow[] = [];
   if (values.name !== rule.name) rows.push({ label: "نام قاعده", before: rule.name, after: values.name });
+  if (values.scope !== rule.scope || values.targetId !== rule.targetId) {
+    rows.push({
+      label: "دامنه و هدف",
+      before: describeTarget(rule.scope, rule.targetId),
+      after: describeTarget(values.scope, values.targetId),
+    });
+  }
   for (const field of BPS_FIELDS) {
     const after = values[field.key];
     if (after !== rule[field.key]) {
@@ -206,6 +274,22 @@ export function PricingRuleEditor({
         bps: { ...current.bps, [key]: parsed === null ? current.bps[key] : String(parsed) },
       };
     });
+    resetReview();
+  }
+
+  /**
+   * Switching scope clears the target box. Carrying it across would turn a
+   * top-up fallback into a rule aimed at whatever game id happened to be typed
+   * before, which is the one mistake this screen cannot show you afterwards.
+   */
+  function setScope(scope: PricingRuleScope) {
+    setDraft((current) => ({ ...current, scope, targetId: "" }));
+    setErrors({});
+    resetReview();
+  }
+
+  function setTargetId(targetId: string) {
+    setDraft((current) => ({ ...current, targetId }));
     resetReview();
   }
 
@@ -314,6 +398,41 @@ export function PricingRuleEditor({
           />
           <FieldError message={errors["name"]} />
         </label>
+
+        <div className="form-grid" style={{ marginBlockStart: 14 }}>
+          <label>
+            دامنهٔ قاعده
+            <select
+              className="bp-ltr"
+              value={draft.scope}
+              onChange={(event) => setScope(event.target.value as PricingRuleScope)}
+            >
+              {PRICING_RULE_SCOPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <span className="muted" style={{ fontWeight: 400 }}>
+              دامنهٔ فعلی: {PRICING_RULE_SCOPE_LABELS[rule.scope]}
+            </span>
+          </label>
+
+          <ScopeTargetField
+            option={scopeOptionFor(draft.scope)}
+            scope={draft.scope}
+            targetId={draft.targetId}
+            currentTargetId={rule.targetId}
+            onChange={setTargetId}
+            error={errors["targetId"]}
+          />
+        </div>
+
+        <p className="muted" style={{ marginBlockStart: 10 }}>
+          دامنه‌های «محصول» و «SKU» در این فرم ارائه نمی‌شوند، چون به شناسهٔ هدفی نیاز دارند که فقط از صفحهٔ
+          خود محصول یا SKU قابل انتخاب است. قاعده‌هایی که از قبل روی این دامنه‌ها ثبت شده باشند، بدون تغییر
+          خوانده و نمایش داده می‌شوند.
+        </p>
       </div>
 
       <div className="card panel" style={{ marginBlockStart: 16 }}>
@@ -424,6 +543,9 @@ export function PricingRuleEditor({
         <p className="warning">
           هر تغییر در این قاعده، مبلغی را که همهٔ مشتری‌ها در استعلام‌های بعدی می‌پردازند تغییر می‌دهد. استعلام‌های
           صادرشده تحت تأثیر قرار نمی‌گیرند، چون قاعده در لحظهٔ صدور در استعلام ثبت شده است.
+          {validation.ok && validation.values.scope === "TOP_UP_GAME" && validation.values.targetId === null
+            ? " این قاعده فقط بر شارژ مستقیم بازی‌ها اثر می‌گذارد و مبلغ کارت‌های هدیه را تغییر نمی‌دهد."
+            : ""}
         </p>
 
         {stage === "edit" ? (
@@ -588,6 +710,67 @@ function DeactivateControl({
       </div>
     </>
   );
+}
+
+/**
+ * The target box, which only exists for a scope that needs one.
+ *
+ * For `TOP_UP_GAME` there is no box at all: the seeded 5% rule is a null-target
+ * fallback, no game picker exists on this screen, and an empty text field would
+ * read as "unset" when its emptiness is in fact the value. The operator is told
+ * what an empty target means instead of being handed a field to guess at.
+ */
+function ScopeTargetField({
+  option,
+  scope,
+  targetId,
+  currentTargetId,
+  onChange,
+  error,
+}: {
+  option: PricingRuleScopeOption | undefined;
+  scope: PricingRuleScope;
+  targetId: string;
+  currentTargetId: string | null;
+  onChange: (value: string) => void;
+  error: string | undefined;
+}) {
+  if (option?.targetId !== "required") {
+    return (
+      <label>
+        هدف قاعده
+        <span style={{ fontWeight: 400 }}>{describeTarget(scope, targetIdFromDraftValue(scope, targetId))}</span>
+        <span className="muted" style={{ fontWeight: 400 }}>
+          {scope === "TOP_UP_GAME"
+            ? "بدون هدف، قاعده بر همهٔ بازی‌ها اعمال می‌شود؛ همین حالت، حاشیهٔ ۵٪ فعلی شارژ مستقیم است."
+            : "قاعدهٔ سراسری هدف مشخصی ندارد."}
+          {currentTargetId === null ? "" : ` هدف فعلی: ${currentTargetId}`}
+        </span>
+        <FieldError message={error} />
+      </label>
+    );
+  }
+  return (
+    <label>
+      شناسهٔ هدف (سرویس)
+      <input
+        className="bp-ltr"
+        value={targetId}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="شناسهٔ سرویس بین‌المللی"
+      />
+      <span className="muted" style={{ fontWeight: 400 }}>
+        {currentTargetId === null ? "این قاعده از قبل هدفی نداشته است." : `هدف فعلی: ${currentTargetId}`}
+      </span>
+      <FieldError message={error} />
+    </label>
+  );
+}
+
+/** The same resolution `targetIdFromDraft` does, for a raw pair inside the field. */
+function targetIdFromDraftValue(scope: PricingRuleScope, targetId: string): string | null {
+  const trimmed = targetId.trim();
+  return trimmed.length === 0 ? null : trimmed;
 }
 
 function FieldError({ message }: { message: string | undefined }) {

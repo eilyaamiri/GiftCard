@@ -124,6 +124,9 @@ export function SupplierResultForm({
       case "PROVIDER_DIRECT_EMAIL":
         if (!recipientEmail.trim()) return null;
         return { assetType, recipientEmail: recipientEmail.trim() };
+      case "DIRECT_TOPUP":
+        // Direct top-ups are fulfilled automatically and cannot be entered by an operator.
+        return null;
     }
   }
 

@@ -140,11 +140,14 @@ enum ChecklistStatus {
 /// CODE / CODE_PIN  -> operator holds a secret that must be encrypted.
 /// URL              -> redemption link, no secret code.
 /// PROVIDER_DIRECT_EMAIL -> provider e-mails the customer; we never see a code.
+/// DIRECT_TOPUP     -> the supplier credits the customer's game account directly;
+///                     there is no code at all, only a confirmation reference.
 enum DeliveryAssetType {
   CODE
   CODE_PIN
   URL
   PROVIDER_DIRECT_EMAIL
+  DIRECT_TOPUP
 }
 
 enum DeliveryStatus {
@@ -309,6 +312,9 @@ enum PricingRuleScope {
   PRODUCT
   SKU
   SERVICE
+  /// Direct top-up margin. `targetId` is a TopUpGame id for a single game, or
+  /// null for every top-up. Its absence falls back to GLOBAL.
+  TOP_UP_GAME
 }
 
 enum CartStatus {
@@ -622,6 +628,7 @@ model StaffUser {
   supportOwnershipFrom        SupportOwnershipEvent[]    @relation("SupportOwnershipPrevious")
   supportOwnershipTo          SupportOwnershipEvent[]    @relation("SupportOwnershipNew")
   supportOwnershipChanged     SupportOwnershipEvent[]    @relation("SupportOwnershipChanger")
+  topUpEvents                 TopUpEvent[]               @relation("TopUpEventStaff")
 
   @@index([role, isActive])
   @@index([teamId])
@@ -832,6 +839,8 @@ model Supplier {
 
   offers       SupplierOffer[]
   fulfillments Fulfillment[]
+  topUpGames        TopUpGame[]
+  topUpFulfillments TopUpFulfillment[]
 
   @@index([isActive])
 }
@@ -906,6 +915,228 @@ model ServiceFieldDefinition {
 
   @@unique([serviceId, key])
   @@index([serviceId, sortOrder])
+}
+
+// ===========================================================================
+// GROUP 3b — DIRECT TOP-UP CATALOG
+//
+// Top-ups deliberately live in their own tables rather than in Product/Sku:
+// the Sku @@unique([productId, region, faceValue, currency]) cannot represent
+// offers that share a price with a sibling, and the product owner requires
+// top-up items never to appear in any gift-card surface (search, brand filter,
+// quick picks). A separate table means no existing query has to be taught to
+// exclude them — they are simply not there.
+// ===========================================================================
+
+/// One supplier top-up category (a game, per region). Never a Product: top-ups
+/// are a separate storefront section and never share gift-card surfaces.
+model TopUpGame {
+  id                 String   @id @default(cuid())
+  slug               String   @unique
+  supplierId         String
+  /// The venue's own category id, e.g. `pubg_mobile`. With the offer id it forms
+  /// the providerSku, so no SUPPLIER_PROVIDER_SKU_MAP entry is ever needed.
+  providerCategoryId String
+  name               String
+  nameFa             String?
+  /// Venue brand grouping, e.g. «PUBG Mobile».
+  brandName          String?
+  /// Raw venue region string (GLOBAL, SEA, ID, ...). Shown, not interpreted.
+  region             String?
+  imageUrl           String?
+  /// The venue's own instructions, English, shown under the account form.
+  providerNote       String?
+  descriptionFa      String?
+  /// Operator switch. A newly synced game starts inactive so an operator can
+  /// curate the selection before it is sellable.
+  isActive           Boolean  @default(false)
+  /// Set by sync: false once the venue stops listing the game or answers 404.
+  isListed           Boolean  @default(true)
+  /// The venue wants the customer's login (email + password). Never sold in
+  /// phase 1; the quote path refuses these games outright.
+  requiresCredentials Boolean @default(false)
+  sortOrder          Int      @default(0)
+  lastSyncedAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  supplier Supplier       @relation(fields: [supplierId], references: [id])
+  fields   TopUpField[]
+  offers   TopUpOffer[]
+
+  @@unique([supplierId, providerCategoryId])
+  @@index([isActive, isListed, sortOrder])
+  @@index([brandName])
+}
+
+/// What the customer must type so the venue can credit their game account.
+/// Mirrors ServiceFieldDefinition, but scoped to a game.
+model TopUpField {
+  id              String           @id @default(cuid())
+  gameId          String
+  /// Venue key, sent back verbatim in `account_fields` (player_id, server, ...).
+  key             String
+  label           String
+  labelFa         String?
+  /// Only TEXT and SELECT are produced by sync today.
+  fieldType       ServiceFieldType @default(TEXT)
+  isRequired      Boolean          @default(true)
+  /// `[{label, value}]` for SELECT, copied from the venue.
+  options         Json?
+  validationRegex String?
+  helpTextFa      String?
+  sortOrder       Int              @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  game TopUpGame @relation(fields: [gameId], references: [id], onDelete: Cascade)
+
+  @@unique([gameId, key])
+  @@index([gameId, sortOrder])
+}
+
+/// One purchasable top-up (e.g. «60 UC»). Identified by the venue offer id,
+/// never by price: many live offers share a price with a sibling.
+model TopUpOffer {
+  id              String   @id @default(cuid())
+  gameId          String
+  providerOfferId String
+  name            String
+  nameFa          String?
+  /// What we pay the venue for one unit.
+  costAmount      Decimal  @db.Decimal(18, 6)
+  costCurrency    String   @default("USD")
+  isActive        Boolean  @default(true)
+  /// Set by sync: false once the offer disappears from the venue list.
+  isListed        Boolean  @default(true)
+  sortOrder       Int      @default(0)
+  lastSyncedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  game         TopUpGame          @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  quotes       Quote[]
+  fulfillments TopUpFulfillment[]
+
+  @@unique([gameId, providerOfferId])
+  @@index([gameId, isActive, isListed, sortOrder])
+}
+
+/// The system-driven delivery of one top-up order.
+///
+/// This is NOT a task and must never become one. Gift cards use a WorkItem
+/// because a person may have to type a code; a top-up is fully automated and
+/// this row is the record an operator *reads* when investigating a problem,
+/// not work an operator is handed. A WorkItem is raised only when the purchase
+/// genuinely failed or its outcome is ambiguous (see TopUpFulfillmentService).
+model TopUpFulfillment {
+  id           String @id @default(cuid())
+  orderId      String @unique
+  topUpOfferId String
+  supplierId   String
+  /// `${providerCategoryId}:${providerOfferId}` as sent. Frozen at purchase.
+  providerSku  String
+  /// Exactly what was sent as `account_fields`. Copied from the quote snapshot.
+  /// Not a secret: a public game account identifier, never a credential.
+  accountFields Json
+  /// What the venue confirms it credited, e.g. `player_id=5001234567`.
+  accountReference String?
+
+  status TopUpStatus @default(QUEUED)
+  /// Venue order number from the purchase call; the handle for polling.
+  providerOrderNumber String?
+  /// Last venue status string (created/processing/completed/failed/refund).
+  providerStatus      String?
+  /// Normalised code, never raw venue text (e.g. account_not_found).
+  failureCode         String?
+  chargedAmount       Decimal? @db.Decimal(18, 6)
+  chargedCurrency     String?
+
+  /// `topup:${orderId}` — the adapter's in-process duplicate-buy guard key.
+  /// Unique, so a replay cannot open a second top-up for one order.
+  idempotencyKey   String @unique
+  purchaseAttempts Int    @default(0)
+  nextCheckAt      DateTime?
+  startedAt        DateTime?
+  completedAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order    Order      @relation(fields: [orderId], references: [id])
+  /// `Restrict`: financial history must never vanish because catalog was pruned.
+  offer    TopUpOffer @relation(fields: [topUpOfferId], references: [id], onDelete: Restrict)
+  supplier Supplier   @relation(fields: [supplierId], references: [id])
+  events   TopUpEvent[]
+
+  @@index([status, nextCheckAt])
+  @@index([supplierId, createdAt])
+}
+
+enum TopUpStatus {
+  /// Paid, waiting for the worker.
+  QUEUED
+  /// Venue balance too low; retried automatically.
+  WAITING_FUNDS
+  /// The purchase call is in flight.
+  PURCHASING
+  /// Venue accepted, still processing; polled automatically.
+  AWAITING_PROVIDER
+  SUCCEEDED
+  /// The venue stated nothing was charged. Safe to refund.
+  FAILED
+  /// The venue may have charged; never re-bought automatically.
+  UNKNOWN
+}
+
+enum TopUpEventType {
+  QUEUED
+  ELIGIBILITY_CHECKED
+  BALANCE_CHECKED
+  PURCHASE_REQUESTED
+  PURCHASE_RESPONDED
+  STATUS_POLLED
+  SUCCEEDED
+  FAILED
+  MARKED_UNKNOWN
+  REFUND_OPENED
+  CUSTOMER_NOTIFIED
+  OPERATOR_NOTE
+  OPERATOR_ACTION
+}
+
+/// Append-only history of one top-up. Never updated, never deleted.
+///
+/// This is the traceability the product owner asked for in place of a task: if
+/// something goes wrong, every step the system took is readable here, in order.
+model TopUpEvent {
+  id                 String         @id @default(cuid())
+  topUpFulfillmentId String
+  orderId            String
+  type               TopUpEventType
+  /// Status of the fulfillment after this event.
+  status             TopUpStatus
+  providerStatus     String?
+  failureCode        String?
+  /// Redacted, structured detail (balances, cost, poll count). Never the API key
+  /// or a raw venue body.
+  detail             Json?
+  /// `SYSTEM` | `STAFF` — same vocabulary as AuditLog.actorType.
+  actorType          String         @default("SYSTEM")
+  staffUserId        String?
+  /// Required for OPERATOR_NOTE / OPERATOR_ACTION.
+  note               String?
+  createdAt          DateTime       @default(now())
+
+  fulfillment TopUpFulfillment @relation(fields: [topUpFulfillmentId], references: [id], onDelete: Restrict)
+  staffUser   StaffUser?       @relation("TopUpEventStaff", fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  @@index([topUpFulfillmentId, createdAt])
+  @@index([orderId, createdAt])
+  @@index([type, createdAt])
 }
 
 // ===========================================================================
@@ -1001,9 +1232,11 @@ model Quote {
   commerceSessionId String?
   cartId            String?
 
-  /// Exactly one of skuId / serviceId is set (enforced in the application layer).
+  /// Exactly one of skuId / serviceId / topUpOfferId is set (enforced in
+  /// QuotesService, as the existing two already are).
   skuId           String?
   serviceId       String?
+  topUpOfferId    String?
   supplierOfferId String?
   quantity        Int     @default(1)
   currency        String  @default("USD")
@@ -1053,6 +1286,7 @@ model Quote {
   cart            Cart?                @relation(fields: [cartId], references: [id], onDelete: SetNull)
   sku             Sku?                 @relation(fields: [skuId], references: [id], onDelete: SetNull)
   service         InternationalService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  topUpOffer      TopUpOffer?          @relation(fields: [topUpOfferId], references: [id], onDelete: SetNull)
   supplierOffer   SupplierOffer?       @relation(fields: [supplierOfferId], references: [id], onDelete: SetNull)
   pricingRule     PricingRule?         @relation(fields: [pricingRuleId], references: [id], onDelete: SetNull)
   fxRate          FxRate?              @relation(fields: [fxRateId], references: [id], onDelete: SetNull)
@@ -1064,6 +1298,7 @@ model Quote {
   @@index([status, expiresAt])
   @@index([commerceSessionId, createdAt])
   @@index([createdAt])
+  @@index([topUpOfferId])
 }
 
 /// One auditable line of a quote's price. Purely additive history.
@@ -1185,6 +1420,7 @@ model Order {
   giftCardCodeRequests GiftCardCodeRequest[]
   deliveryAttempts     DeliveryAttempt[]
   reconciliationIssues ReconciliationIssue[]
+  topUpFulfillments    TopUpFulfillment[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])

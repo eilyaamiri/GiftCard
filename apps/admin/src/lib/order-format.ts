@@ -60,6 +60,7 @@ export const DELIVERY_ASSET_TYPE_LABEL: Record<DeliveryAssetType, string> = {
   CODE_PIN: "کد به همراه پین",
   URL: "لینک بازخرید",
   PROVIDER_DIRECT_EMAIL: "ارسال مستقیم از سوی ارائه‌دهنده",
+  DIRECT_TOPUP: "شارژ مستقیم حساب",
 };
 
 /**

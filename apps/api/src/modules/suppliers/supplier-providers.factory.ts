@@ -1,11 +1,12 @@
 import { Logger } from '@nestjs/common';
 import {
+  FazerCardsTelegramSupplierProvider,
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
   type SupplierProvider,
 } from '@barat/suppliers';
 
-import { readReloadlyEnv } from './suppliers.env';
+import { readFazerCardsTelegramEnv, readReloadlyEnv } from './suppliers.env';
 
 /**
  * Turns the environment into the adapter list bound to `SUPPLIER_PROVIDERS`.
@@ -19,6 +20,26 @@ export function buildSupplierProviders(options: {
 }): readonly SupplierProvider[] {
   const logger = new Logger('SuppliersModule');
   const providers: SupplierProvider[] = [new MockSupplierProvider()];
+
+  /*
+   * Telegram is gated by its own flag, independent of every other FazerCards
+   * product: they share one API key, so the key's presence must never decide
+   * which product may spend. `isTest` outranks the flag for the same reason it
+   * does below — a test run that reached the live venue would buy real Stars.
+   */
+  const telegram = readFazerCardsTelegramEnv();
+  if (telegram.enabled && !options.isTest) {
+    providers.push(
+      new FazerCardsTelegramSupplierProvider({
+        apiKey: telegram.apiKey,
+        timeoutMs: telegram.timeoutMs,
+      }),
+    );
+    /* Environment only — never the API key. */
+    logger.log('FazerCards Telegram registered');
+  } else {
+    logger.warn('FazerCards Telegram is not registered; its offers can only be fulfilled by an operator');
+  }
 
   const reloadly = readReloadlyEnv();
   if (!reloadly.enabled || options.isTest) {

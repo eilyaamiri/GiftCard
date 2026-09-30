@@ -1,6 +1,10 @@
 import { z } from 'zod';
 
-import { createOrderRequestSchema, orderStatusSchema } from '@barat/contracts';
+import {
+  createOrderRequestSchema,
+  deliveryAssetTypeSchema,
+  orderStatusSchema,
+} from '@barat/contracts';
 
 /**
  * Query schemas for the order endpoints.
@@ -73,8 +77,19 @@ export const orderIdParamSchema = z.object({
  * future refactor widening it: nothing that is not listed here can be returned.
  */
 export const revealDeliveryResponseSchema = z.object({
-  assetType: z.enum(['CODE', 'CODE_PIN', 'URL', 'PROVIDER_DIRECT_EMAIL']),
-  /** Absent for URL and provider-direct deliveries: there is no code to show. */
+  /*
+   * Taken from the frozen contracts enum rather than repeated as a literal.
+   * The local copy fell behind the moment `DIRECT_TOPUP` was added — a gift
+   * card and a top-up are both deliverable, and a reveal endpoint that does not
+   * know a delivery type exists will reject a legitimate order. Sharing the
+   * source of truth means the next added type cannot diverge.
+   */
+  assetType: deliveryAssetTypeSchema,
+  /**
+   * Absent for URL, provider-direct and direct-top-up deliveries: there is no
+   * code to show. A top-up credits the customer's game account, so the reveal
+   * response carries no secret at all.
+   */
   code: z.string().nullable(),
   pin: z.string().nullable(),
   deliveryUrl: z.url().nullable(),

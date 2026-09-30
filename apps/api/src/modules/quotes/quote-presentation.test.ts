@@ -312,6 +312,7 @@ describe('toQuoteSnapshotDto / CUSTOMER', () => {
     cartId: null,
     skuId: 'sku_1',
     serviceId: null,
+    topUpOfferId: null,
     supplierOfferId: 'offer_1',
     quantity: 1,
     currency: 'USD',

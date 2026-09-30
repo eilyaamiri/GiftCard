@@ -82,17 +82,28 @@ export class PrismaWorkItemStore implements WorkItemStore {
   /**
    * Reads what the order was placed for.
    *
-   * Only the two discriminating columns are selected: this is a routing
+   * Only the three discriminating columns are selected: this is a routing
    * decision, not a reason to pull a quote — let alone its snapshot — into the
    * work-item module.
+   *
+   * `topUpOfferId` is tested FIRST, and that order matters. The column is
+   * additive and nullable, so during a rolling deploy every pre-existing row
+   * reads as null and keeps its old behaviour. A top-up row, however, must never
+   * be mistaken for a SKU: the SKU branch is what creates the gift-card
+   * `MANUAL_GIFT_CARD_FULFILLMENT` task, and a top-up order must produce no task
+   * at all. Checking the top-up column first makes that impossible regardless of
+   * how the other two columns are populated.
    */
   async findOrderQuoteTarget(orderId: string): Promise<OrderQuoteTarget | null> {
     const row = await this.db.order.findUnique({
       where: { id: orderId },
-      select: { quote: { select: { skuId: true, serviceId: true } } },
+      select: { quote: { select: { skuId: true, serviceId: true, topUpOfferId: true } } },
     });
     if (row === null) {
       return null;
+    }
+    if (row.quote.topUpOfferId !== null) {
+      return 'TOP_UP';
     }
     return row.quote.serviceId === null ? 'SKU' : 'SERVICE';
   }

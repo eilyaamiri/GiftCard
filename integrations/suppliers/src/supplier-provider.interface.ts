@@ -22,6 +22,28 @@ export interface SupplierCatalogItem {
   readonly region: string;
   readonly faceValue: SupplierMoney;
   readonly assetType: DeliveryAssetType;
+  /** Public account identifiers required for a direct top-up, never credentials. */
+  readonly requiredAccountFields?: readonly string[];
+  /**
+   * A label this venue uses to group its own offers, e.g. `PUBG Mobile`.
+   *
+   * Optional: a flat catalogue leaves it out and every item stands alone. It
+   * exists for venues like FazerCards that list a game's offers as one long
+   * `kind`-tagged stream, where a sync must be able to tell which rows belong
+   * to the same game and which of them is a purchasable offer.
+   */
+  readonly groupLabel?: string;
+  /**
+   * What this row IS, when a venue mixes kinds in one catalogue.
+   *
+   * `OFFER` (or absent) means something with a price to sell — the default for
+   * every existing adapter. `GAME` means the row describes a game that is not
+   * itself purchasable; a sync must create the game and no offer from it.
+   * Without this a sync would either invent an offer for a game row or drop the
+   * game entirely, and both are wrong in ways nobody would notice until a
+   * customer could not buy the thing.
+   */
+  readonly itemKind?: 'GAME' | 'OFFER';
 }
 
 export interface SupplierPrice {
@@ -55,6 +77,16 @@ export interface SupplierPurchaseRequest {
   /** Stable across all attempts. Providers must use it as their idempotency key. */
   readonly idempotencyKey: string;
   readonly recipientEmail?: string;
+  /**
+   * The game account a direct top-up is credited to, keyed by the venue's own
+   * field names (`player_id`, `server`, ...).
+   *
+   * Absent for a gift card. These are public identifiers — the ones the customer
+   * typed on the product page — and never a credential: a game that wants an
+   * email and password is refused at quote time, so a password cannot reach an
+   * adapter through this field.
+   */
+  readonly accountFields?: Readonly<Record<string, string>>;
 }
 
 export type SupplierDeliveryAsset =
@@ -79,6 +111,19 @@ export type SupplierDeliveryAsset =
   | {
       readonly assetType: 'PROVIDER_DIRECT_EMAIL';
       readonly recipientEmail: string;
+    }
+  | {
+      /**
+       * A direct top-up: the venue credited the player's own game account and
+       * there is nothing to hand over. Carries no secret by construction, which
+       * is the point — an adapter cannot accidentally return a code here.
+       *
+       * `accountReference` is what the venue confirms it credited, e.g.
+       * `player_id=5001234567`. It is public and displayable; the account the
+       * customer typed is already theirs.
+       */
+      readonly assetType: 'DIRECT_TOPUP';
+      readonly accountReference: string;
     };
 
 export interface SupplierPurchaseResult {

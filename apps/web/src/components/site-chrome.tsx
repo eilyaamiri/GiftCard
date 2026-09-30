@@ -202,9 +202,17 @@ export function SiteChrome({
                 }))}
               />
               <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
+              <Link href="/telegram" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>تلگرام</Link>
               <NavDropdown
                 label="پرداخت بین‌المللی"
                 emptyLabel="سرویسی موجود نیست"
+                trending={{
+                  heading: "تلگرام",
+                  items: [
+                    { key: "telegram-stars", label: "استارز", href: "/telegram/stars" },
+                    { key: "telegram-premium", label: "پرمیوم", href: "/telegram/premium" },
+                  ],
+                }}
                 items={SERVICE_CATEGORIES.map((category) => ({
                   key: category.slug,
                   label: category.labelFa,
@@ -234,6 +242,7 @@ export function SiteChrome({
           <nav className="footer-col" aria-label="نقشه سایت">
             <div className="footer-col-title">نقشه سایت</div>
             <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
+            <Link href="/telegram">استارز و پرمیوم تلگرام</Link>
             <Link href="/services">پرداخت بین‌المللی</Link>
             <Link href="/brands">برندها</Link>
             <Link href="/orders">پیگیری سفارش</Link>

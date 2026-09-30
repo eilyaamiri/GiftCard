@@ -9,6 +9,7 @@ import type {
   OrderDetailDto,
   OrderStatus,
   OrderSummaryDto,
+  OrderTopUpDetail,
 } from '@barat/contracts';
 import { ORDER_STATUS_VALUES } from '@barat/contracts';
 import type { Prisma } from '@barat/database';
@@ -79,6 +80,32 @@ const ORDER_INCLUDE = {
       createdAt: true,
     },
     orderBy: { createdAt: 'desc' },
+    take: 1,
+  },
+  /*
+   * The top-up block, for a direct top-up order. Note what is NOT selected:
+   * `failureCode`, `providerStatus` and the supplier reference are deliberately
+   * absent. They are operational detail for the admin trace, and a customer
+   * endpoint that returned them would leak supply-side internals into a
+   * customer's browser. What the customer gets is what they bought, which
+   * account it went to, and a displayable status.
+   */
+  topUpFulfillments: {
+    select: {
+      accountFields: true,
+      accountReference: true,
+      status: true,
+      offer: {
+        select: {
+          id: true,
+          name: true,
+          nameFa: true,
+          game: {
+            select: { id: true, slug: true, name: true, nameFa: true, imageUrl: true },
+          },
+        },
+      },
+    },
     take: 1,
   },
 } satisfies Prisma.OrderInclude;
@@ -829,6 +856,7 @@ export class OrdersService implements OrderPaymentBridge {
       cancelledAt: row.cancelledAt?.toISOString() ?? null,
       failureReason: row.failureReason,
       delivery: toDeliveryDto(row.giftCardAssets[0]),
+      topUp: toTopUpDetailDto(row.topUpFulfillments?.[0]),
       timeline,
     };
   }
@@ -884,6 +912,100 @@ function toDeliveryDto(
     expiryDate: asset.expiryDate?.toISOString() ?? null,
     sentAt: asset.sentAt?.toISOString() ?? null,
   };
+}
+
+/**
+ * The customer's view of their own top-up, or null for a non-top-up order.
+ *
+ * The internal status is projected onto three customer-facing states rather
+ * than passed through. The reason is that the internal vocabulary describes our
+ * supply chain and not the customer's situation: `WAITING_FUNDS` and
+ * `PURCHASING` are both «we are working on it», and `UNKNOWN` reads exactly
+ * like `FAILED` from outside because the customer can act on neither. Publishing
+ * the distinction would tell a customer that our supplier account is empty,
+ * which is both useless to them and commercially ours.
+ *
+ * `accountFieldKeys` carries the KEYS but never the values. The customer already
+ * knows what they typed — showing it back here would put their game account
+ * identifier into every order-detail response and every cache along the way.
+ */
+function toTopUpDetailDto(
+  fulfillment: OrderRow['topUpFulfillments'][number] | undefined,
+): OrderTopUpDetail | null {
+  /*
+   * Both checks are real. The first is the ordinary case — a gift-card order
+   * has no top-up fulfillment and the customer sees no top-up block. The second
+   * guards the relation itself: a caller that read an order without including
+   * `topUpFulfillments` gets `undefined` rather than `[]`, and reading through
+   * it would throw inside a customer's order page. Returning null there says
+   * "no top-up information was loaded", which is true, instead of crashing on
+   * an omission that has nothing to do with the order.
+   */
+  if (!fulfillment || !fulfillment.offer) {
+    return null;
+  }
+  return {
+    game: {
+      id: fulfillment.offer.game.id,
+      slug: fulfillment.offer.game.slug,
+      name: fulfillment.offer.game.name,
+      nameFa: fulfillment.offer.game.nameFa,
+      imageUrl: fulfillment.offer.game.imageUrl,
+    },
+    offer: {
+      id: fulfillment.offer.id,
+      name: fulfillment.offer.name,
+      nameFa: fulfillment.offer.nameFa,
+    },
+    accountReference: fulfillment.accountReference,
+    accountFieldKeys: Object.keys(readAccountFieldKeys(fulfillment.accountFields)),
+    status: topUpDisplayStatus(fulfillment.status),
+  };
+}
+
+/** Internal status -> what the customer is shown. Total over the enum. */
+function topUpDisplayStatus(status: string): OrderTopUpDetail['status'] {
+  switch (status) {
+    case 'SUCCEEDED':
+      return {
+        status: 'SUCCEEDED',
+        titleFa: 'شارژ انجام شد',
+        descriptionFa: 'مبلغ درخواستی به حساب شما واریز شد.',
+      };
+    case 'FAILED':
+    case 'UNKNOWN':
+      /*
+       * Deliberately identical to the customer. Both mean "not credited", and
+       * the difference between them is ours to resolve, not theirs to worry
+       * about — in either case a refund is what happens next, and the operator
+       * communicates the outcome through the task raised for this order.
+       */
+      return {
+        status: 'FAILED',
+        titleFa: 'شارژ انجام نشد',
+        descriptionFa:
+          'این شارژ موفق نبود و مبلغ آن به شما بازگردانده می‌شود. همکاران ما پیگیری می‌کنند.',
+      };
+    default:
+      return {
+        status: 'PENDING',
+        titleFa: 'در حال انجام',
+        descriptionFa: 'شارژ شما در حال انجام است و نتیجه به‌صورت خودکار ثبت می‌شود.',
+      };
+  }
+}
+
+/**
+ * The account fields' keys, read defensively from the `Json` column.
+ *
+ * Only used for its keys here, so the values are discarded — but the shape still
+ * has to be validated, or a malformed row would throw inside a read endpoint.
+ */
+function readAccountFieldKeys(value: Prisma.JsonValue): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return {};
+  }
+  return value;
 }
 
 const ORDER_STATUS_SET: ReadonlySet<string> = new Set<string>(ORDER_STATUS_VALUES);

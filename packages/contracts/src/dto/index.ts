@@ -3,6 +3,7 @@ export * from './fx';
 export * from './pricing';
 export * from './quote';
 export * from './catalog';
+export * from './topup';
 export * from './order';
 export * from './payment';
 export * from './auth';

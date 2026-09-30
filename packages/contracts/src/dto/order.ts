@@ -10,6 +10,7 @@ import {
   isoDateTimeSchema,
   paginationMetaSchema,
 } from './common';
+import { orderTopUpDetailSchema } from './topup';
 
 /* ============================================================================
  * Order DTOs
@@ -56,6 +57,15 @@ export const orderDetailDtoSchema = orderSummaryDtoSchema.extend({
   /** Normalised, customer-safe reason. Never a raw provider message. */
   failureReason: z.string().nullable(),
   delivery: orderDeliveryDtoSchema.nullable(),
+  /**
+   * Present only for a direct top-up order.
+   *
+   * `delivery` stays null for these: there is no code, link or e-mail to reveal,
+   * only a confirmation that the customer's own account was credited. The block
+   * carries no raw failure code and no supplier status — see
+   * `orderTopUpDetailSchema`.
+   */
+  topUp: orderTopUpDetailSchema.nullable(),
   /** Customer-visible timeline, derived from audited status transitions. */
   timeline: z.array(
     z.object({
