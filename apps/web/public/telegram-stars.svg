@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Telegram Stars">
+  <defs>
+    <linearGradient id="gs" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5CC6FF"/>
+      <stop offset="1" stop-color="#1F86D8"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="url(#gs)"/>
+  <path d="M32 13.4l4.3 8.9 9.7 1.4-7 6.9 1.7 9.8-8.7-4.6-8.7 4.6 1.7-9.8-7-6.9 9.7-1.4z" fill="#FFFFFF"/>
+  <path d="M18 44c8.4 6.2 21.4 6.2 29.8 0" fill="none" stroke="#FFFFFF" stroke-opacity="1" stroke-width="2.6" stroke-linecap="round"/>
+</svg>

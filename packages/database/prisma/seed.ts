@@ -674,6 +674,56 @@ async function seedPricingRule(adminId: string): Promise<string> {
   return id;
 }
 
+/**
+ * The top-up margin, as data rather than a constant.
+ *
+ * 500 bps — the product owner's 5% — but stored in the same `PricingRule` table
+ * every other rate lives in, on a scope of its own (`TOP_UP_GAME`), so it can be
+ * changed from the admin path without a deployment. A 5% literal inside the
+ * pricing formula would have been right on the day it was written and wrong the
+ * first time the rate moved.
+ *
+ * Only the margin differs from GLOBAL. Everything else — the FX spread, the
+ * payment fee, the rial rounding step — should stay identical to the rest of
+ * the catalogue unless an operator decides otherwise, so those are copied
+ * deliberately rather than left to a second set of numbers that would drift.
+ *
+ * `targetId` is null, which makes this the fallback for every game. A per-game
+ * rule can be added later by an operator without touching this row.
+ */
+async function seedTopUpPricingRule(adminId: string): Promise<string> {
+  const id = 'seed_pricing_rule_topup_v1';
+  await prisma.pricingRule.upsert({
+    where: { id },
+    create: {
+      id,
+      name: 'Direct top-up margin (5%)',
+      scope: PricingRuleScope.TOP_UP_GAME,
+      targetId: null,
+      version: 1,
+      fxSpreadBps: 150,
+      fxRiskBufferBps: 100,
+      serviceFeeBps: 200,
+      serviceFeeFixedIrr: 0n,
+      operationalFeeIrr: 0n,
+      targetMarginBps: 500,
+      minimumMarginIrr: 0n,
+      paymentFeeBps: 100,
+      paymentFeeFixedIrr: 0n,
+      quoteTtlSeconds: 600,
+      roundingStepIrr: 10_000n,
+      maxSupplierCostToleranceBps: 500,
+      isActive: true,
+      effectiveFrom: SEED_EPOCH,
+      createdByStaffId: adminId,
+    },
+    /* `update: {}` on purpose: re-running the seed must not undo an operator's
+     * rate change. The row is created once and then belongs to the admin UI. */
+    update: {},
+  });
+  return id;
+}
+
 const FX_MID_IRR_PER_USD = 1_920_000n;
 
 async function seedFxRate(adminId: string): Promise<string> {
@@ -1235,6 +1285,132 @@ async function seedSuppliers(
 }
 
 // ============================================================================
+// 5b. Telegram top-up catalog — inactive until live prices are synced
+// ============================================================================
+
+/**
+ * Provision the curated Telegram catalog without pretending that the supplier's
+ * prices are durable. TopUpOffer.costAmount is required by the schema, so new
+ * offers use a zero placeholder and remain inactive; the quote path must fetch
+ * and persist a live supplier price before any operator activates this catalog.
+ *
+ * The supplier/category/offer identifiers are deliberately stable and mirror
+ * the provider SKU contract: `${providerCategoryId}:${providerOfferId}`.
+ */
+async function seedTelegramTopUpCatalog(): Promise<void> {
+  const supplierId = 'seed_supplier_fazercards_telegram';
+
+  const supplier = await prisma.supplier.upsert({
+    where: { code: 'fazercards-telegram' },
+    create: {
+      id: supplierId,
+      code: 'fazercards-telegram',
+      name: 'FazerCards Telegram',
+      integrationMode: SupplierIntegrationMode.API,
+      supportsRawCode: false,
+      defaultCurrency: 'USD',
+      // Explicitly disabled until credentials, live pricing, and activation are reviewed.
+      isActive: false,
+      notes: 'Telegram Stars/Premium catalog; prices must be fetched live before activation.',
+    },
+    update: {},
+  });
+
+  const catalog = [
+    {
+      slug: 'telegram-stars',
+      providerCategoryId: 'stars',
+      name: 'Telegram Stars',
+      nameFa: 'استارز تلگرام',
+      brandName: 'Telegram',
+      offers: [50, 100, 200, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000].map(
+        (quantity) => ({
+          providerOfferId: String(quantity),
+          name: `${quantity} Stars`,
+          nameFa: `${quantity} استارز`,
+        }),
+      ),
+    },
+    {
+      slug: 'telegram-premium',
+      providerCategoryId: 'premium',
+      name: 'Telegram Premium',
+      nameFa: 'تلگرام پرمیوم',
+      brandName: 'Telegram',
+      offers: [3, 6, 12].map((months) => ({
+        providerOfferId: String(months),
+        name: `${months}-month Premium`,
+        nameFa: `پرمیوم ${months} ماهه`,
+      })),
+    },
+  ] as const;
+
+  for (const [gameIndex, gameDefinition] of catalog.entries()) {
+    const seedGameId = `seed_topup_game_${gameDefinition.slug.replaceAll('-', '_')}`;
+    const game = await prisma.topUpGame.upsert({
+      where: { slug: gameDefinition.slug },
+      create: {
+        id: seedGameId,
+        slug: gameDefinition.slug,
+        supplierId: supplier.id,
+        providerCategoryId: gameDefinition.providerCategoryId,
+        name: gameDefinition.name,
+        nameFa: gameDefinition.nameFa,
+        brandName: gameDefinition.brandName,
+        region: 'GLOBAL',
+        providerNote: 'Enter a Telegram username including @. Price is fetched live at quote time.',
+        isActive: false,
+        isListed: true,
+        requiresCredentials: false,
+        sortOrder: gameIndex,
+      },
+      update: {},
+    });
+
+    await prisma.topUpField.upsert({
+      where: { gameId_key: { gameId: game.id, key: 'telegram_username' } },
+      create: {
+        id: `${seedGameId}_field_telegram_username`,
+        gameId: game.id,
+        key: 'telegram_username',
+        label: 'Telegram username',
+        labelFa: 'نام کاربری تلگرام',
+        isRequired: true,
+        // The venue specifies a non-empty string, not a username regex.
+        helpTextFa: 'نام کاربری عمومی تلگرام را با یا بدون @ وارد کنید.',
+        sortOrder: 0,
+      },
+      update: {},
+    });
+
+    for (const [offerIndex, offerDefinition] of gameDefinition.offers.entries()) {
+      await prisma.topUpOffer.upsert({
+        where: {
+          gameId_providerOfferId: {
+            gameId: game.id,
+            providerOfferId: offerDefinition.providerOfferId,
+          },
+        },
+        create: {
+          id: `${seedGameId}_offer_${offerDefinition.providerOfferId}`,
+          gameId: game.id,
+          providerOfferId: offerDefinition.providerOfferId,
+          name: offerDefinition.name,
+          nameFa: offerDefinition.nameFa,
+          // Never seed the documented snapshot prices: they are indicative only.
+          costAmount: '0.0000',
+          costCurrency: 'USD',
+          isActive: false,
+          isListed: true,
+          sortOrder: offerIndex,
+        },
+        update: {},
+      });
+    }
+  }
+}
+
+// ============================================================================
 // 6. Customers — a fixed pool reused across the funnel fixture
 // ============================================================================
 
@@ -1775,9 +1951,11 @@ async function main(): Promise<void> {
   await seedQueueMemberships(queueIds, operatorIds, managerId);
   await seedChecklistTemplates();
   const pricingRuleId = await seedPricingRule(adminId);
+  await seedTopUpPricingRule(adminId);
   const fxRateId = await seedFxRate(adminId);
   const { skuDefs } = await seedCatalog();
   const { tilloId, tilloOfferBySkuId } = await seedSuppliers(skuDefs);
+  await seedTelegramTopUpCatalog();
   const customerIds = await seedCustomers();
 
   const anomalyIds = await seedFunnel({

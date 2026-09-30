@@ -1,7 +1,12 @@
 import { Controller, Get, Inject, Param, Query, StreamableFile, Header } from '@nestjs/common';
 import { z } from 'zod';
 import { getProductRequestSchema, listProductsRequestSchema } from '@barat/contracts';
-import type { ListProductsRequest, ListServicesResponse } from '@barat/contracts';
+import type {
+  GetTopUpGameResponse,
+  ListProductsRequest,
+  ListServicesResponse,
+  ListTopUpGamesResponse,
+} from '@barat/contracts';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Public } from '../identity';
@@ -77,6 +82,20 @@ type ListServicesQuery = z.infer<typeof listServicesQuerySchema>;
 const productQuerySchema = z.object({ region: z.string().trim().min(2).max(8).optional() });
 
 /**
+ * The games list is unpaginated: a curated top-up catalogue is a handful of
+ * entries an operator has deliberately switched on, not a 7,000-row catalogue,
+ * so a page parameter would be a knob nobody turns. `search` exists because the
+ * list will still grow past what fits on one screen.
+ */
+const listTopUpGamesQuerySchema = z.object({ search: z.string().trim().max(120).optional() });
+type ListTopUpGamesQuery = z.infer<typeof listTopUpGamesQuerySchema>;
+
+/*
+ * A top-up slug is ours (`telegram-stars`) and a 90-character one is a bad
+ * request worth rejecting before it reaches a query.
+ */
+
+/**
  * The public storefront catalog.
  *
  * `@Public()` — browsing must work before login. Every response comes from the
@@ -139,5 +158,37 @@ export class CatalogController {
     @Query(zodPipe(listServicesQuerySchema)) query: ListServicesQuery,
   ): Promise<ListServicesResponse> {
     return this.catalog.listServices(query.page, query.pageSize, query.search, query.category);
+  }
+
+  /* ------------------------------------------------------------------ top-ups */
+
+  /**
+   * The games section of the storefront.
+   *
+   * An empty list — never an error — is the answer when nothing is on sale:
+   * an inactive supplier, or games synced but not yet curated by an operator.
+   * The storefront renders «فعلاً چیزی برای شارژ نیست» and the operator decides
+   * when that becomes untrue. A 404 here would make a commercial decision look
+   * like a bug, and would page whoever is on call for nothing.
+   */
+  @Get('top-ups')
+  listTopUpGames(
+    @Query(zodPipe(listTopUpGamesQuerySchema)) query: ListTopUpGamesQuery,
+  ): Promise<ListTopUpGamesResponse> {
+    return this.catalog.listTopUpGames({ search: query.search });
+  }
+
+  /**
+   * One game, its account form and its offers.
+   *
+   * 404 for anything not sellable, including a game that requires credentials.
+   * The storefront must treat "not purchasable" and "does not exist" the same
+   * way, so the two are the same response.
+   */
+  @Get('top-ups/:slug')
+  getTopUpGame(
+    @Param(zodPipe(z.object({ slug: slugSchema }))) params: { slug: string },
+  ): Promise<GetTopUpGameResponse> {
+    return this.catalog.getTopUpGame(params.slug);
   }
 }

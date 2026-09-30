@@ -12,12 +12,14 @@ import {
   type PurchaseBody,
 } from './suppliers.schemas';
 import { SuppliersService } from './suppliers.service';
+import { TopUpCatalogSyncService } from './topup-catalog.sync';
 import type {
   SupplierOfferView,
   SupplierPurchaseOutcome,
   SupplierPurchaseStatusView,
   SupplierView,
 } from './suppliers.types';
+import type { TopUpSyncResult } from './topup-catalog.sync';
 
 /**
  * `@Roles` is what authenticates these routes: without it the global RolesGuard
@@ -26,7 +28,10 @@ import type {
 @Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER', 'OPERATOR')
 @Controller('operator/suppliers')
 export class SuppliersController {
-  constructor(@Inject(SuppliersService) private readonly suppliers: SuppliersService) {}
+  constructor(
+    @Inject(SuppliersService) private readonly suppliers: SuppliersService,
+    @Inject(TopUpCatalogSyncService) private readonly topUpSync: TopUpCatalogSyncService,
+  ) {}
 
   @Get()
   async list(@Req() request: unknown): Promise<{ suppliers: readonly SupplierView[] }> {
@@ -83,5 +88,21 @@ export class SuppliersController {
   ): Promise<{ result: SupplierPurchaseStatusView }> {
     requireStaff(request);
     return { result: await this.suppliers.checkPurchaseStatus(body) };
+  }
+
+  /**
+   * Re-reads every enabled top-up venue and applies what it still lists.
+   *
+   * Operator-triggered rather than scheduled: the catalogue moves in hours, not
+   * seconds, and a background job would need its own retry and overlap story in
+   * the worker's queue contract for a reconciliation nobody is waiting on. The
+   * run is idempotent — it writes availability, never a price and never the
+   * operator's `isActive` switch — so pressing it twice is harmless.
+   */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Post('topup/sync')
+  async syncTopUpCatalog(@Req() request: unknown): Promise<{ result: TopUpSyncResult }> {
+    requireStaff(request);
+    return { result: await this.topUpSync.sync() };
   }
 }

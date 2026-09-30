@@ -15,6 +15,7 @@ import {
   type EscalationInput,
   type FulfillmentTrigger,
   type FulfillmentTriggerInput,
+  type OrderQuoteTarget,
   type WorkItemEscalator,
   type WorkItemStore,
   type WorkItemSummary,
@@ -116,6 +117,18 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
   private async typeForOrder(orderId: string): Promise<WorkItemType> {
     const target = await this.store.findOrderQuoteTarget(orderId);
     return target === 'SERVICE' ? 'INTERNATIONAL_PAYMENT' : 'MANUAL_GIFT_CARD_FULFILLMENT';
+  }
+
+  /**
+   * What a paid order is for, so a caller can route it before creating anything.
+   *
+   * Deliberately does not create a work item. The fulfillment trigger calls this
+   * first and sends a `TOP_UP` order down the automated path instead of here —
+   * a top-up needs no operator on the happy path, so the correct behaviour is
+   * for this module never to be entered at all.
+   */
+  async quoteTargetForOrder(orderId: string): Promise<OrderQuoteTarget | null> {
+    return this.store.findOrderQuoteTarget(orderId);
   }
 
   /**

@@ -23,6 +23,12 @@ export type CatalogDatabase = Pick<
   | 'supplierOffer'
   | 'internationalService'
   | 'serviceFieldDefinition'
+  /* Direct top-up is catalog too: the games, their account fields and their
+   * purchasable offers are synced and curated exactly like a product is. It is
+   * read here and written only by the admin path, never by a customer. */
+  | 'topUpGame'
+  | 'topUpField'
+  | 'topUpOffer'
   /* The array form of `$transaction` is used for list + count pairs, so the
    * page and its total always come from one consistent read. */
   | '$transaction'

@@ -160,9 +160,14 @@ security event `AMOUNT_MISMATCH` and halts the flow.
    layer, key from env/secret manager) plus a `maskedCode` for display.
    **There is no plaintext code column and no code is ever logged.**
 6. Financial history is never hard-deleted — only status transitions.
-7. `DeliveryAssetType` is one of `CODE | CODE_PIN | URL | PROVIDER_DIRECT_EMAIL`.
+7. `DeliveryAssetType` is one of `CODE | CODE_PIN | URL | PROVIDER_DIRECT_EMAIL | DIRECT_TOPUP`.
    Reloadly / Runa / Giftbit do **not** hand a raw code to the operator; only Tillo does.
    Any code that assumes "the operator always types a code" is wrong.
+   `DIRECT_TOPUP` carries **no secret at all** — the venue credits the customer's own
+   game account and there is nothing to hand over. It is never stored as a gift card:
+   a top-up order takes the automated path and creates **no WorkItem**. A task appears
+   only when the purchase genuinely failed or its outcome is ambiguous, which is the
+   path by which an operator answers the customer.
 
 ---
 

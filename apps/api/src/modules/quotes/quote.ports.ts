@@ -1,3 +1,4 @@
+import type { SupplierPrice } from '@barat/suppliers';
 import type {
   FxRateSnapshot,
   PricingBreakdown as WirePricingBreakdown,
@@ -48,6 +49,19 @@ export interface QuoteFxAggregator {
 export const QUOTE_CROSS_RATE_SERVICE = Symbol('QUOTE_CROSS_RATE_SERVICE');
 export interface QuoteCrossRateService {
   getSnapshot(currency: string): Promise<CrossRateSnapshot>;
+}
+
+export const QUOTE_SUPPLIER_PRICE_LOOKUP = Symbol('QUOTE_SUPPLIER_PRICE_LOOKUP');
+
+/**
+ * Quote-time live price boundary. A missing provider is represented as `null`,
+ * allowing the direct top-up path to fail closed without knowing provider wiring.
+ */
+export interface QuoteSupplierPriceLookup {
+  getLivePrice(input: {
+    readonly supplierCode: string;
+    readonly providerSku: string;
+  }): Promise<SupplierPrice | null>;
 }
 
 export const QUOTE_PRICING_SERVICE = Symbol('QUOTE_PRICING_SERVICE');

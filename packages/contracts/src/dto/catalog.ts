@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { serviceFieldTypeSchema } from '../enums/commerce';
 import { deliveryAssetTypeSchema } from '../enums/operations';
 import { positiveDecimalStringSchema, positiveIrrStringSchema } from '../money/schemas';
 import { idSchema, isoDateTimeSchema, paginationMetaSchema } from './common';
@@ -111,7 +112,7 @@ export const serviceFieldDefinitionDtoSchema = z.object({
   key: z.string().min(1),
   label: z.string().min(1),
   labelFa: z.string().min(1),
-  fieldType: z.enum(['TEXT', 'EMAIL', 'URL', 'NUMBER', 'SELECT', 'TEXTAREA', 'FILE']),
+  fieldType: serviceFieldTypeSchema,
   isRequired: z.boolean(),
   validationRegex: z.string().nullable(),
   helpTextFa: z.string().nullable(),

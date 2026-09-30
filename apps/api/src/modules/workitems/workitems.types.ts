@@ -186,11 +186,19 @@ export interface ClaimingStaff {
 /**
  * What a paid order is for, read from the immutable quote it was placed from.
  *
- * A quote carries exactly one of `skuId` / `serviceId`, so the two cases are
- * total: a SKU is a gift card we hand over, a service is a payment we make
- * abroad on the customer's behalf.
+ * A quote carries exactly one of `skuId` / `serviceId` / `topUpOfferId`, so the
+ * three cases are total: a SKU is a gift card we hand over, a service is a
+ * payment we make abroad on the customer's behalf, and a top-up is a purchase
+ * the supplier delivers straight into the customer's game account.
+ *
+ * `TOP_UP` is not a work-item type and never becomes one. It exists so the
+ * trigger can tell a top-up order apart *before* creating anything, and route it
+ * to the automated top-up path instead. Without this third case a top-up order
+ * falls through to `SKU` and lands in the gift-card queue as
+ * `MANUAL_GIFT_CARD_FULFILLMENT` — an operator being handed work for an order
+ * that needs no human at all, which is exactly what the product owner forbade.
  */
-export type OrderQuoteTarget = 'SKU' | 'SERVICE';
+export type OrderQuoteTarget = 'SKU' | 'SERVICE' | 'TOP_UP';
 
 export interface WorkItemStore {
   findByOrderId(orderId: string): Promise<WorkItemSummary | null>;

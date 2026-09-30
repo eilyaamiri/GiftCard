@@ -6,7 +6,12 @@ import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { buildSupplierProviders } from './supplier-providers.factory';
-import { providerSkuKey, readProviderSkuMap, readReloadlyEnv } from './suppliers.env';
+import {
+  providerSkuKey,
+  readFazerCardsTelegramEnv,
+  readProviderSkuMap,
+  readReloadlyEnv,
+} from './suppliers.env';
 
 /*
  * These readers sit in front of real money: one flag decides whether the API is
@@ -23,6 +28,9 @@ const KEYS = [
   'RELOADLY_RECIPIENT_EMAIL',
   'RELOADLY_SENDER_NAME',
   'RELOADLY_TIMEOUT_MS',
+  'FAZERCARDS_TELEGRAM_ENABLED',
+  'FAZERCARDS_API_KEY',
+  'FAZERCARDS_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
   'SUPPLIER_PROVIDER_SKU_MAP_FILE',
 ] as const;
@@ -136,6 +144,86 @@ describe('readReloadlyEnv', () => {
     process.env['RELOADLY_TIMEOUT_MS'] = raw;
 
     expect(() => readReloadlyEnv()).toThrow(/RELOADLY_TIMEOUT_MS/u);
+  });
+});
+
+/** The complete set of variables a live FazerCards Telegram integration needs. */
+function configureFazerCardsTelegram(): void {
+  process.env['FAZERCARDS_TELEGRAM_ENABLED'] = 'true';
+  process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+}
+
+/*
+ * Telegram is the one supplier here with no venue-side idempotency key, so
+ * turning this flag on lets the API spend real money with no second line of
+ * defence. Like Reloadly's, the flag is tested for what it refuses.
+ */
+describe('readFazerCardsTelegramEnv', () => {
+  it('is off when nothing is configured', () => {
+    expect(readFazerCardsTelegramEnv().enabled).toBe(false);
+  });
+
+  it('stays off when the key is present but the flag is not', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    // Deploying the key is not the same decision as going live with it.
+    expect(readFazerCardsTelegramEnv().enabled).toBe(false);
+  });
+
+  it('refuses a flag it cannot read as a decision', () => {
+    for (const raw of ['1', 'yes', 'TRUE', 'on']) {
+      process.env['FAZERCARDS_TELEGRAM_ENABLED'] = raw;
+      expect(() => readFazerCardsTelegramEnv()).toThrow(/must be exactly/u);
+    }
+  });
+
+  it('carries no API key while it is off', () => {
+    expect(readFazerCardsTelegramEnv().apiKey).toBe('');
+  });
+
+  it('reads a complete live configuration', () => {
+    configureFazerCardsTelegram();
+    process.env['FAZERCARDS_TIMEOUT_MS'] = '5000';
+
+    expect(readFazerCardsTelegramEnv()).toEqual({
+      enabled: true,
+      apiKey: 'fzr-live-key',
+      timeoutMs: 5000,
+    });
+  });
+
+  it('defaults the timeout to 20s', () => {
+    configureFazerCardsTelegram();
+
+    expect(readFazerCardsTelegramEnv().timeoutMs).toBe(20_000);
+  });
+
+  it('refuses to go live without the API key', () => {
+    configureFazerCardsTelegram();
+    delete process.env['FAZERCARDS_API_KEY'];
+
+    expect(() => readFazerCardsTelegramEnv()).toThrow('FAZERCARDS_API_KEY');
+  });
+
+  it('treats a blank key as missing', () => {
+    configureFazerCardsTelegram();
+    process.env['FAZERCARDS_API_KEY'] = '   ';
+
+    expect(() => readFazerCardsTelegramEnv()).toThrow('FAZERCARDS_API_KEY');
+  });
+
+  it.each(['0', '-1', '60001', '1.5', 'soon'])('rejects the timeout %s', (raw) => {
+    configureFazerCardsTelegram();
+    process.env['FAZERCARDS_TIMEOUT_MS'] = raw;
+
+    expect(() => readFazerCardsTelegramEnv()).toThrow(/FAZERCARDS_TIMEOUT_MS/u);
+  });
+
+  it.each(['1', '60000'])('accepts the boundary timeout %s', (raw) => {
+    configureFazerCardsTelegram();
+    process.env['FAZERCARDS_TIMEOUT_MS'] = raw;
+
+    expect(readFazerCardsTelegramEnv().timeoutMs).toBe(Number(raw));
   });
 });
 
@@ -292,5 +380,40 @@ describe('buildSupplierProviders', () => {
     expect(logged).not.toContain('client-id');
     expect(logged).not.toContain('client-secret');
     expect(logged).not.toContain('cards@example.com');
+  });
+
+  it('registers FazerCards Telegram once it is switched on', () => {
+    configureFazerCardsTelegram();
+
+    expect(keysFor(false)).toEqual(['mock', 'fazercards-telegram']);
+  });
+
+  it('never registers FazerCards Telegram under NODE_ENV=test', () => {
+    configureFazerCardsTelegram();
+
+    // A test run that reached the live venue would buy real Stars.
+    expect(keysFor(true)).toEqual(['mock']);
+  });
+
+  it('registers FazerCards Telegram independently of Reloadly', () => {
+    configureFazerCardsTelegram();
+
+    // One supplier being live must never imply another one is.
+    expect(keysFor(false)).not.toContain('reloadly');
+  });
+
+  it('does not turn on FazerCards Telegram merely because the shared key is set', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    expect(keysFor(false)).toEqual(['mock']);
+  });
+
+  it('does not log the FazerCards API key', () => {
+    configureFazerCardsTelegram();
+    const log = vi.mocked(Logger.prototype.log);
+
+    buildSupplierProviders({ isTest: false });
+
+    expect(log.mock.calls.flat().join(' ')).not.toContain('fzr-live-key');
   });
 });

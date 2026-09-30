@@ -288,6 +288,26 @@ export class GiftCardAssetService {
           expiryDate: null,
         };
       }
+      case 'DIRECT_TOPUP': {
+        /*
+         * A top-up stores no secret: the credit lands on the player's own
+         * account, so there is nothing to encrypt, mask or hand over. Every
+         * secret column is null on purpose, and this case exists so a future
+         * reader sees that as a decision rather than an omission.
+         *
+         * It should not be reached in practice. A top-up order takes the
+         * automated path in `TopUpFulfillmentService` and never creates the
+         * work item this method hangs off. Reaching it means those two paths
+         * have been wired together wrongly, which is worth an error rather
+         * than a silently empty asset.
+         */
+        throw DomainErrors.validation([
+          {
+            path: 'asset.assetType',
+            message: 'شارژ مستقیم دارایی قابل‌ذخیره ندارد و نباید از این مسیر ثبت شود.',
+          },
+        ]);
+      }
       default: {
         const exhaustive: never = asset;
         throw DomainErrors.validation([

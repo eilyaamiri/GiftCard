@@ -32,9 +32,10 @@ export const quoteSnapshotSchema = z.object({
   commerceSessionId: idSchema.nullable(),
   cartId: idSchema.nullable(),
 
-  /* What is being priced — exactly one of these two is set. */
+  /* What is being priced — exactly one of these three is set. */
   skuId: idSchema.nullable(),
   serviceId: idSchema.nullable(),
+  topUpOfferId: idSchema.nullable(),
   supplierOfferId: idSchema.nullable(),
   quantity: z.number().int().min(1),
   currency: z.string().regex(/^[A-Z]{3}$/u),
@@ -88,6 +89,12 @@ export const createQuoteRequestSchema = z
   .object({
     skuId: idSchema.optional(),
     serviceId: idSchema.optional(),
+    /**
+     * The third target kind: a direct top-up. The customer names the offer they
+     * picked, and the account it should be credited to travels in
+     * `topUpAccountFields`.
+     */
+    topUpOfferId: idSchema.optional(),
     quantity: z.number().int().min(1).max(100).default(1),
 
     /**
@@ -100,13 +107,26 @@ export const createQuoteRequestSchema = z
     /** Free-form service inputs, validated against `ServiceFieldDefinition`. */
     serviceFields: z.record(z.string(), z.string()).optional(),
 
+    /**
+     * The game-account identifiers the supplier needs, e.g.
+     * `{ player_id: '5001234567', server: 'asia' }`, validated against the
+     * game's `TopUpField` rows.
+     *
+     * These are public account identifiers, not credentials. Games that want a
+     * login are refused before they reach this schema, so no password is ever
+     * accepted here or stored in the quote snapshot.
+     */
+    topUpAccountFields: z.record(z.string(), z.string()).optional(),
+
     cartId: idSchema.optional(),
     commerceSessionToken: commerceSessionTokenSchema.optional(),
     discountCode: z.string().max(64).optional(),
   })
   .refine(
-    (value) => Boolean(value.skuId) !== Boolean(value.serviceId),
-    'Provide exactly one of skuId or serviceId',
+    (value) =>
+      [value.skuId, value.serviceId, value.topUpOfferId].filter((target) => target !== undefined)
+        .length === 1,
+    'Provide exactly one of skuId, serviceId or topUpOfferId',
   );
 export type CreateQuoteRequest = z.infer<typeof createQuoteRequestSchema>;
 

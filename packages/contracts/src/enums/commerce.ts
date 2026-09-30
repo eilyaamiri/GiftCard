@@ -96,3 +96,28 @@ export const QUOTE_STATUS_VALUES = ['ACTIVE', 'EXPIRED', 'ACCEPTED', 'CANCELLED'
 export const QuoteStatus = enumFrom(QUOTE_STATUS_VALUES);
 export type QuoteStatus = (typeof QUOTE_STATUS_VALUES)[number];
 export const quoteStatusSchema = z.enum(QUOTE_STATUS_VALUES);
+
+/* ============================================================================
+ * Catalog input fields
+ * ==========================================================================*/
+
+/**
+ * The input control an account form renders.
+ *
+ * Declared once here and shared by `ServiceFieldDefinition` and `TopUpField`,
+ * which model the same thing at different scopes — a payment abroad and a game
+ * top-up. Two inline enums would drift the moment either side gained a type.
+ */
+export const SERVICE_FIELD_TYPE_VALUES = [
+  'TEXT',
+  'EMAIL',
+  'URL',
+  'NUMBER',
+  'SELECT',
+  'TEXTAREA',
+  'FILE',
+] as const;
+
+export const ServiceFieldType = enumFrom(SERVICE_FIELD_TYPE_VALUES);
+export type ServiceFieldType = (typeof SERVICE_FIELD_TYPE_VALUES)[number];
+export const serviceFieldTypeSchema = z.enum(SERVICE_FIELD_TYPE_VALUES);

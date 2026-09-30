@@ -356,6 +356,7 @@ export const DELIVERY_ASSET_TYPE_LABEL: Record<DeliveryAssetType, string> = {
   CODE_PIN: "کد و پین",
   URL: "لینک بازخرید",
   PROVIDER_DIRECT_EMAIL: "ارسال مستقیم تأمین‌کننده",
+  DIRECT_TOPUP: "شارژ مستقیم حساب",
 };
 
 /** Only these two asset types hold an encrypted secret worth revealing. */

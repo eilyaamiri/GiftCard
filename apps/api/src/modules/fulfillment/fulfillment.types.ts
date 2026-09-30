@@ -152,7 +152,21 @@ export type AssetSecretInput =
       readonly expiryDate?: Date;
     }
   | { readonly assetType: 'URL'; readonly deliveryUrl: string; readonly expiryDate?: Date }
-  | { readonly assetType: 'PROVIDER_DIRECT_EMAIL'; readonly recipientEmail: string };
+  | { readonly assetType: 'PROVIDER_DIRECT_EMAIL'; readonly recipientEmail: string }
+  /*
+   * A direct top-up has no secret at all: the credit lands on the player's own
+   * account and there is nothing to hand over. It is listed here so the type
+   * says so out loud, rather than leaving a reader to infer it from an absent
+   * field. The account reference is public — it is what the customer already
+   * typed — so it is not encrypted the way a code is.
+   *
+   * It reaches `gift-card-asset.service` only far enough to be REFUSED. A
+   * top-up order takes the automated path in `TopUpFulfillmentService` and
+   * never creates the work item this ingest path hangs off; the arm exists so
+   * an accidental wiring shows up as a typed rejection rather than as a
+   * silently empty gift card.
+   */
+  | { readonly assetType: 'DIRECT_TOPUP'; readonly accountReference: string };
 
 export interface RecordAssetInput {
   /** The order is derived from the work item, never taken from the request. */

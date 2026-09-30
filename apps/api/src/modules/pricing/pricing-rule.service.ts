@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { z } from 'zod';
 
-import { idSchema, pricingRuleSnapshotSchema } from '@barat/contracts';
+import { idSchema, pricingRuleScopeSchema, pricingRuleSnapshotSchema } from '@barat/contracts';
 import {
   Prisma,
   type PricingRule as DatabasePricingRule,
@@ -22,7 +22,7 @@ const pricingRuleValuesSchema = pricingRuleSnapshotSchema.omit({
  */
 export const putPricingRuleRequestSchema = pricingRuleValuesSchema
   .extend({
-    scope: z.enum(['GLOBAL', 'PRODUCT', 'SKU', 'SERVICE']),
+    scope: pricingRuleScopeSchema,
     targetId: idSchema.nullable(),
     expectedVersion: z.number().int().min(1).optional(),
     isActive: z.boolean().default(true),
@@ -35,11 +35,11 @@ export const putPricingRuleRequestSchema = pricingRuleValuesSchema
         message: 'A GLOBAL pricing rule must have a null targetId',
       });
     }
-    if (value.scope !== 'GLOBAL' && value.targetId === null) {
+    if (value.scope !== 'GLOBAL' && value.scope !== 'TOP_UP_GAME' && value.targetId === null) {
       context.addIssue({
         code: 'custom',
         path: ['targetId'],
-        message: 'A non-global pricing rule must have a targetId',
+        message: 'A non-global, non-top-up-game pricing rule must have a targetId',
       });
     }
     const roundingStepIrr = BigInt(value.roundingStepIrr);

@@ -475,6 +475,70 @@ describe('CatalogService incomplete products', () => {
   });
 });
 
+describe('CatalogService top-up quote targets', () => {
+  function topUpQuoteHarness(
+    gameOverrides: Record<string, unknown> = {},
+    offerOverrides: Record<string, unknown> = {},
+  ) {
+    const offer = {
+      id: 'topup-offer-1',
+      providerOfferId: '50',
+      costAmount: new Decimal('0.7632'),
+      costCurrency: 'USD',
+      isActive: true,
+      isListed: true,
+      game: {
+        id: 'telegram-game-1',
+        slug: 'telegram',
+        providerCategoryId: 'stars',
+        requiresCredentials: false,
+        supplier: { id: 'supplier-fazer', code: 'fazercards-telegram', isActive: true },
+        fields: [],
+        ...gameOverrides,
+      },
+      ...offerOverrides,
+    };
+    const topUpOffer = { findFirst: vi.fn().mockResolvedValue(offer) };
+    const db = { topUpOffer } as unknown as CatalogDatabase;
+    return { service: new CatalogService(db, TEST_CONFIG), topUpOffer };
+  }
+
+  it.each([
+    ['Stars', 'stars', '50', 'telegram:stars:50'],
+    ['Premium', 'premium', '12', 'telegram:premium:12'],
+  ])('uses the FazerCards Telegram SKU namespace for %s', async (_family, providerCategoryId, providerOfferId, providerSku) => {
+    const { service } = topUpQuoteHarness(
+      { providerCategoryId },
+      { providerOfferId },
+    );
+
+    const target = await service.getTopUpOfferForQuote('topup-offer-1');
+
+    expect(target.providerSku).toBe(providerSku);
+  });
+
+  it('preserves the two-part SKU used by other game top-up suppliers', async () => {
+    const { service } = topUpQuoteHarness({
+      providerCategoryId: 'mobile-legends',
+      supplier: { id: 'supplier-other', code: 'other-game-supplier', isActive: true },
+    }, { providerOfferId: 'diamond-86' });
+
+    const target = await service.getTopUpOfferForQuote('topup-offer-1');
+
+    expect(target.providerSku).toBe('mobile-legends:diamond-86');
+  });
+
+  it('refuses an offer whose supplier was deactivated after it was listed', async () => {
+    const { service } = topUpQuoteHarness({
+      supplier: { id: 'supplier-fazer', code: 'fazercards-telegram', isActive: false },
+    });
+
+    await expect(service.getTopUpOfferForQuote('topup-offer-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+  });
+});
+
 describe('CatalogService admin product list', () => {
   /* The imported supplier catalog is ~2,400 products, all switched off. An
    * operator reaches one of them by searching for it, so these assert on the

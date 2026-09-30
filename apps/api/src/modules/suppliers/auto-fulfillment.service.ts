@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { AuditService } from '../audit/audit.service';
 import { DELIVERABLE_ORDER_STATUSES } from '../fulfillment/checklist-evaluation';
@@ -10,6 +10,19 @@ import type {
   WorkItemSummary,
 } from '../workitems/workitems.types';
 import { SuppliersService } from './suppliers.service';
+/*
+ * A VALUE import, and the lint rule below is disabled on purpose.
+ *
+ * Nest resolves constructor parameters through `design:paramtypes` metadata,
+ * which the compiler erases for a type-only import — the parameter then arrives
+ * as `undefined` and the module fails to boot with a dependency-resolution
+ * error that names the index rather than the import. `consistent-type-imports`
+ * sees the class used only as a type and asks for `import type`; the DI
+ * container is the reason it cannot be one. `OrdersService`-style services
+ * elsewhere in this codebase are in the same position.
+ */
+// eslint-disable-next-line @typescript-eslint/consistent-type-imports
+import { TopUpFulfillmentService } from './topup-fulfillment.service';
 import type { AutoFulfillmentTarget } from './suppliers.types';
 
 /**
@@ -66,6 +79,45 @@ function notEligible(workItemId: string, reason: string): AutoFulfillmentOutcome
 }
 
 /**
+ * The placeholder a top-up order returns to the payment callback.
+ *
+ * A top-up creates no work item, but `FulfillmentTrigger.onOrderPaid` promises
+ * one — a promise made for gift cards, where an operator task is the point. The
+ * two honest options are an empty optional or a value that is obviously not a
+ * task; the contract cannot yet express the first, and an exception in a
+ * payment callback would be worse than either.
+ *
+ * So this is a fiction with a non-id prefix that cannot be mistaken for a real
+ * work item id (`WI-…`), and a queue key that no operator queue uses. Nothing
+ * persists it. The callers in the payments module discard the return value
+ * entirely; it exists so the type stays honest about what it does *not*
+ * represent rather than pretending an order was assigned to someone.
+ */
+function topUpTriggerSummary(orderId: string, customerId: string | null): WorkItemSummary {
+  const syntheticId = `topup-trigger:${orderId}`;
+  return {
+    id: syntheticId,
+    code: syntheticId,
+    orderId,
+    customerId,
+    queueKey: 'UNKNOWN_OUTCOME',
+    type: 'UNKNOWN_OUTCOME',
+    status: 'COMPLETED',
+    priority: 100,
+    assignedToStaffId: null,
+    assignedToStaffName: null,
+    assignedAt: null,
+    startedAt: null,
+    completedAt: null,
+    dueAt: null,
+    slaBreachedAt: null,
+    title: 'شارژ مستقیم (خودکار)',
+    description: null,
+    createdAt: new Date(),
+  };
+}
+
+/**
  * Buys a gift card by itself when the supplier account can pay for it, and hands
  * the work to an operator when it cannot.
  *
@@ -78,11 +130,21 @@ function notEligible(workItemId: string, reason: string): AutoFulfillmentOutcome
  */
 @Injectable()
 export class AutoFulfillmentService implements FulfillmentTrigger {
+  private readonly logger = new Logger(AutoFulfillmentService.name);
   constructor(
     @Inject(WorkItemsService) private readonly workItems: WorkItemsService,
     @Inject(SuppliersService) private readonly suppliers: SuppliersService,
     @Inject(FulfillmentService) private readonly fulfillment: FulfillmentService,
     @Inject(AuditService) private readonly audit: AuditService,
+    /**
+     * The automated top-up path.
+     *
+     * The dependency runs one way — suppliers → top-up service → work items —
+     * exactly like the `SuppliersService` edge above, so there is no cycle. It
+     * is injected as the concrete class rather than through a token because,
+     * unlike a provider adapter, there is only ever one of it.
+     */
+    private readonly topUps: TopUpFulfillmentService,
   ) {}
 
   /**
@@ -95,6 +157,31 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
    * and the attempt either upgrades the outcome or leaves the queue untouched.
    */
   async onOrderPaid(input: FulfillmentTriggerInput): Promise<WorkItemSummary> {
+    /*
+     * Direct top-ups take the automated path and NEVER create a work item here.
+     *
+     * This check has to happen first, before `workItems.onOrderPaid`, because
+     * that call is what creates the task — and a top-up order would land in the
+     * gift-card queue as MANUAL_GIFT_CARD_FULFILLMENT, handing an operator work
+     * that needs no human at all. That is exactly what the product owner
+     * forbade, and it is not something a later step could undo: once the task
+     * exists it is in someone's queue.
+     *
+     * The returned summary is synthetic and never persisted. Its only job is to
+     * satisfy the `FulfillmentTrigger` contract, whose callers are payment code
+     * that discards the value. The real record lives in `TopUpFulfillment` /
+     * `TopUpEvent`, and the one task that MAY be created for a top-up is raised
+     * later by `TopUpFulfillmentService`, only on a genuine failure.
+     */
+    if ((await this.workItems.quoteTargetForOrder(input.orderId)) === 'TOP_UP') {
+      void this.topUps.onTopUpOrderPaid(input.orderId).catch(() => {
+        /* The scheduler re-derives missing/due rows. Make the detached failure
+         * observable without ever logging provider error payloads. */
+        this.logger.warn('Top-up paid trigger failed; deferred to the retry sweep');
+      });
+      return topUpTriggerSummary(input.orderId, input.customerId ?? null);
+    }
+
     const item = await this.workItems.onOrderPaid(input);
 
     void this.attemptForPaidOrder(item.id).catch(() => {

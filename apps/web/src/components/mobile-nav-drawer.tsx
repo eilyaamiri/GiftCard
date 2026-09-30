@@ -119,6 +119,13 @@ export function MobileNavDrawer({
                 <ChevronDown size={16} aria-hidden="true" />
               </summary>
               <ul>
+                <li className="mobile-nav-drawer-subgroup" aria-label="تلگرام">
+                  <span className="mobile-nav-drawer-subgroup-title">تلگرام</span>
+                  <ul>
+                    <li><Link href="/telegram/stars">استارز</Link></li>
+                    <li><Link href="/telegram/premium">پرمیوم</Link></li>
+                  </ul>
+                </li>
                 {SERVICE_CATEGORIES.map((category) => (
                   <li key={category.slug}>
                     <Link href={`/services?category=${encodeURIComponent(category.slug)}`}>
@@ -130,6 +137,7 @@ export function MobileNavDrawer({
             </details>
 
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>
+            <Link href="/telegram" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>استارز و پرمیوم تلگرام</Link>
             <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
             <Link href="/help" className="mobile-nav-drawer-link">راهنما</Link>
           </nav>

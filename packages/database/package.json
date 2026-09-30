@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./generated/client": {
+      "types": "./generated/client/index.d.ts",
+      "default": "./generated/client/index.js"
     }
   },
   "files": ["dist", "generated", "prisma"],

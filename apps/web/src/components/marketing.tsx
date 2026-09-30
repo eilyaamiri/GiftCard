@@ -9,6 +9,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
 import { getFaqs } from "@/lib/faq";
+import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
 
 /**
  * Every strip on the landing page is the same width — four cards — so the page
@@ -219,10 +220,11 @@ function TypewriterHeading({ text, className }: Readonly<{ text: string; classNa
 
 export async function HomePage() {
   const categories = await homeCategories();
-  const [shelves, services, faqs] = await Promise.all([
+  const [shelves, services, faqs, telegramGames] = await Promise.all([
     homeShelves(categories),
     homeServices(),
     getFaqs(),
+    listTelegramGames(),
   ]);
   return (
     <>
@@ -236,6 +238,7 @@ export async function HomePage() {
               <div className="hero-actions">
                 <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
                 <Link className="btn btn-outline" href="/services">پرداخت یک سرویس</Link>
+                <Link className="btn btn-ghost" href="/telegram">استارز و پرمیوم تلگرام</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>
@@ -282,6 +285,21 @@ export async function HomePage() {
               </div>
             </section>
           ) : null}
+          <section className="container section tg-home-shelf">
+            <ShelfHead eyebrow="شارژ مستقیم" title="استارز و پرمیوم تلگرام" href="/telegram" />
+            <div className="grid tg-home-grid">
+              {(["stars", "premium"] as const).map((product) => {
+                const game = telegramGames.find((item) => telegramProductOf(item) === product);
+                return (
+                  <Link href={`/telegram/${product}`} className="card pad tg-home-card" key={product}>
+                    <strong>{game?.nameFa ?? (product === "stars" ? "استارز تلگرام" : "پرمیوم تلگرام")}</strong>
+                    <span className="muted">قیمت نهایی پیش از پرداخت؛ تحویل مستقیم روی حساب شما</span>
+                    <span className="section-head-link">مشاهده جزئیات <ArrowLeft size={14} aria-hidden="true" /></span>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
         </div>
         <section className="container section">
           <div className="section-head">

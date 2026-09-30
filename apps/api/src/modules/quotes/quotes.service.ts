@@ -19,11 +19,12 @@ import type {
   GetQuoteResponse,
   QuoteSnapshot,
 } from '@barat/contracts';
+import type { SupplierPrice } from '@barat/suppliers';
 
 import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
-import { CatalogService, type SkuQuoteTarget } from '../catalog/catalog.service';
+import { CatalogService, type SkuQuoteTarget, type TopUpQuoteTarget } from '../catalog/catalog.service';
 import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-rate.types';
 import { PricingRuleService, toEnginePricingRule } from '../pricing/pricing-rule.service';
 import type { PricingBreakdown, PricingRule } from '../pricing/pricing.types';
@@ -32,9 +33,11 @@ import {
   QUOTE_CROSS_RATE_SERVICE,
   QUOTE_FX_AGGREGATOR,
   QUOTE_PRICING_SERVICE,
+  QUOTE_SUPPLIER_PRICE_LOOKUP,
   type QuoteCrossRateService,
   type QuoteFxAggregator,
   type QuotePricingService,
+  type QuoteSupplierPriceLookup,
   type QuotesDatabase,
   ruleSnapshot,
 } from './quote.ports';
@@ -52,6 +55,10 @@ import {
   withoutReservedKeys,
   type ServiceAccountSnapshot,
 } from './service-account-fields';
+import {
+  buildTopUpAccountFields,
+  validateTopUpAccountFields,
+} from './topup-account-fields';
 
 export interface QuoteActor {
   readonly customerId?: string | null;
@@ -66,6 +73,19 @@ type QuoteTarget =
       readonly kind: 'service';
       readonly id: string;
       readonly service: Awaited<ReturnType<CatalogService['getServiceForQuote']>>;
+    }
+  | {
+      readonly kind: 'topup';
+      readonly id: string;
+      readonly topUp: TopUpQuoteTarget;
+      /*
+       * Already validated against the game's own fields by `resolveTarget`, and
+       * already filtered to the venue's key set. Carried on the target rather
+       * than re-read later: the fields a customer was shown and the fields sent
+       * to the venue must be the same set, and a second lookup could disagree
+       * with the first if a sync landed in between.
+       */
+      readonly accountFields: Readonly<Record<string, string>>;
     };
 
 const COMPONENT_INCLUDE = { components: { orderBy: { sortOrder: 'asc' as const } } } as const;
@@ -105,6 +125,7 @@ export class QuotesService {
     @Inject(QUOTE_PRICING_SERVICE) private readonly pricing: QuotePricingService,
     @Inject(QUOTE_FX_AGGREGATOR) private readonly fx: QuoteFxAggregator,
     @Inject(QUOTE_CROSS_RATE_SERVICE) private readonly crossRates: QuoteCrossRateService,
+    @Inject(QUOTE_SUPPLIER_PRICE_LOOKUP) private readonly supplierPrices: QuoteSupplierPriceLookup,
     @Inject(AuditService) private readonly audit: AuditService,
     @Inject(AppConfigService) private readonly config: AppConfigService,
   ) {}
@@ -132,6 +153,15 @@ export class QuotesService {
     }
 
     const target = await this.resolveTarget(input);
+    /*
+     * A direct top-up is priced from the venue, not from our synced copy.
+     * `TopUpOffer.costAmount` is a snapshot from the last sync and can be hours
+     * old; charging the customer against it and then discovering at purchase
+     * time that the venue raised the price is the variance this whole flow
+     * exists to avoid. The live read happens before pricing and before the rule
+     * is chosen so a venue that no longer quotes the offer is refused here.
+     */
+    const topUpPrice = target.kind === 'topup' ? await this.liveTopUpPrice(target.topUp) : null;
     const ruleRecord = await this.selectRule(target);
     if (!ruleRecord) {
       throw DomainErrors.conflict(
@@ -147,15 +177,24 @@ export class QuotesService {
 
     const quantity = input.quantity ?? 1;
     const unitSupplierCost =
-      target.kind === 'sku' ? target.sku.effectiveCost : input.requestedAmountForeign;
+      target.kind === 'sku'
+        ? target.sku.effectiveCost
+        : target.kind === 'topup'
+          ? requiredTopUpPrice(topUpPrice).cost.amount
+          : input.requestedAmountForeign;
     if (!unitSupplierCost) {
       throw DomainErrors.validation([
         { path: 'requestedAmountForeign', message: 'A foreign amount is required' },
       ]);
     }
-    const unitFaceAmount = unitCustomerForeignAmount(target, input);
-    const faceCurrency = targetFaceCurrency(target);
-    const costCurrency = target.kind === 'sku' ? target.sku.costCurrency : faceCurrency;
+    const unitFaceAmount = unitCustomerForeignAmount(target, input, topUpPrice);
+    const faceCurrency = targetFaceCurrency(target, topUpPrice);
+    const costCurrency =
+      target.kind === 'service'
+        ? faceCurrency
+        : target.kind === 'topup'
+          ? requiredTopUpPrice(topUpPrice).cost.currency
+          : target.sku.costCurrency;
 
     /*
      * Two amounts go into a quote and they are not in the same currency.
@@ -219,6 +258,8 @@ export class QuotesService {
       faceRate,
       costRate,
       serviceAccount,
+      topUpAccountFields: target.kind === 'topup' ? target.accountFields : null,
+      topUpLivePrice: topUpPrice,
       now,
       expiresAt,
     });
@@ -233,6 +274,13 @@ export class QuotesService {
           cartId: input.cartId ?? null,
           skuId: target.kind === 'sku' ? target.id : null,
           serviceId: target.kind === 'service' ? target.id : null,
+          /*
+           * Set for a top-up and for nothing else. `findOrderQuoteTarget` reads
+           * this column to decide how an order is fulfilled, so a top-up with a
+           * null here would be routed to an operator as a manual gift card —
+           * the exact failure this column exists to prevent.
+           */
+          topUpOfferId: target.kind === 'topup' ? target.id : null,
           supplierOfferId: target.kind === 'sku' ? target.sku.offerId : null,
           quantity,
           /* The currency of the thing bought, taken from the catalog rather
@@ -291,6 +339,7 @@ export class QuotesService {
         quoteNumber: quote.quoteNumber,
         skuId: quote.skuId,
         serviceId: quote.serviceId,
+        topUpOfferId: quote.topUpOfferId,
         supplierOfferId: quote.supplierOfferId,
         quantity: quote.quantity,
         pricingRuleId: quote.pricingRuleId,
@@ -542,6 +591,32 @@ export class QuotesService {
   }
 
   private async resolveTarget(input: CreateQuoteRequest): Promise<QuoteTarget> {
+    if (input.topUpOfferId) {
+      /*
+       * The offer resolves to the game, the supplier AND the account fields the
+       * venue expects, in one read. Validation against those fields happens
+       * here rather than at purchase time on purpose: a top-up is a real charge
+       * the moment it is paid for, and a field the venue will reject is a
+       * purchase that cannot be credited — discovered too late to be free.
+       */
+      const topUp = await this.catalog.getTopUpOfferForQuote(input.topUpOfferId);
+      const submitted = input.topUpAccountFields ?? {};
+      const details = validateTopUpAccountFields(topUp.fields, submitted);
+      if (details.length > 0) {
+        throw DomainErrors.validation([...details]);
+      }
+      if (input.currency !== undefined && input.currency !== topUp.costCurrency) {
+        throw DomainErrors.validation([
+          { path: 'currency', message: 'Currency does not match the top-up offer currency' },
+        ]);
+      }
+      return {
+        kind: 'topup',
+        id: topUp.offer.id,
+        topUp,
+        accountFields: buildTopUpAccountFields(topUp.fields, submitted),
+      };
+    }
     if (input.skuId) {
       /*
        * `QUOTE_COST_CURRENCY`, not `input.currency`. This argument filters
@@ -613,6 +688,49 @@ export class QuotesService {
   }
 
   /**
+   * The venue's current price for a direct top-up, or no quote at all.
+   *
+   * Fails closed on purpose. `null` means no adapter is registered for this
+   * supplier — the fail-closed default the top-up flag exists to produce — and
+   * a thrown read means the venue could not be asked. Both are refused rather
+   * than falling back to `TopUpOffer.costAmount`: that stored number is exactly
+   * the stale figure this lookup is here to replace, and a quote built from it
+   * would be paying a price we already suspect is wrong.
+   *
+   * A zero or negative price is refused too. It would price the top-up at the
+   * fee floor, and a free top-up is never a real venue quote.
+   */
+  private async liveTopUpPrice(topUp: TopUpQuoteTarget): Promise<SupplierPrice> {
+    let price: SupplierPrice | null;
+    try {
+      price = await this.supplierPrices.getLivePrice({
+        supplierCode: topUp.supplierCode,
+        providerSku: topUp.providerSku,
+      });
+    } catch {
+      /* The provider error may carry a credential or a raw body; it is dropped
+       * rather than logged, and the customer is told only that pricing failed. */
+      price = null;
+    }
+    let validPrice = false;
+    try {
+      validPrice = price !== null && price.providerSku === topUp.providerSku &&
+        new Decimal(price.cost.amount).isFinite() &&
+        new Decimal(price.cost.amount).greaterThan(0) &&
+        price.cost.currency.length > 0 && !Number.isNaN(price.observedAt.getTime());
+    } catch {
+      /* A malformed supplier amount is no more usable than a missing price. */
+    }
+    if (price === null || !validPrice) {
+      throw DomainErrors.conflict(
+        'قیمت‌گذاری این محصول در حال حاضر ممکن نیست. کمی بعد دوباره تلاش کنید.',
+        `no live price for top-up ${topUp.providerSku} from supplier ${topUp.supplierCode}`,
+      );
+    }
+    return price;
+  }
+
+  /**
    * One currency's standing against the dollar, or no quote at all.
    *
    * A stale cross rate is refused exactly as a stale rial rate is: the customer
@@ -642,6 +760,14 @@ export class QuotesService {
 
   private async selectRule(target: QuoteTarget): Promise<DatabaseRule | null> {
     const rules = await this.pricingRules.list();
+    /*
+     * A top-up has a scope of its own, `TOP_UP_GAME`, and no PRODUCT step: the
+     * game is not a `Product` row, so there is nothing between it and GLOBAL.
+     * The scope exists precisely so an operator can set a different margin for
+     * top-ups without touching the rate every gift card is priced from — and
+     * the 5% figure lives in the rule, not in a constant here, so it can be
+     * changed without a deployment.
+     */
     const candidates =
       target.kind === 'sku'
         ? ([
@@ -649,10 +775,15 @@ export class QuotesService {
             ['PRODUCT', target.sku.sku.productId],
             ['GLOBAL', null],
           ] as const)
-        : ([
-            ['SERVICE', target.id],
-            ['GLOBAL', null],
-          ] as const);
+        : target.kind === 'topup'
+          ? ([
+              ['TOP_UP_GAME', target.topUp.game.id],
+              ['GLOBAL', null],
+            ] as const)
+          : ([
+              ['SERVICE', target.id],
+              ['GLOBAL', null],
+            ] as const);
     for (const [scope, targetId] of candidates) {
       const matched = rules.find((rule) => rule.scope === scope && rule.targetId === targetId);
       if (matched) return matched;
@@ -692,9 +823,25 @@ function makeQuoteNumber(now: Date): string {
   return `BQ-${day}-${suffix}`;
 }
 
+function requiredTopUpPrice(price: SupplierPrice | null): SupplierPrice {
+  if (price === null) {
+    throw new Error('Top-up live price is required');
+  }
+  return price;
+}
+
 /** The currency the thing being bought is denominated in. */
-function targetFaceCurrency(target: QuoteTarget): string {
-  return target.kind === 'sku' ? target.sku.sku.currency : target.service.currency;
+function targetFaceCurrency(target: QuoteTarget, topUpPrice: SupplierPrice | null = null): string {
+  if (target.kind === 'sku') {
+    return target.sku.sku.currency;
+  }
+  /*
+   * A top-up's face currency is what the venue bills us in — there is no
+   * separate "value printed on the product", because the product IS the credit
+   * and its price is set by the venue. So face and cost are the same currency
+   * here, and both rate legs resolve to the same snapshot.
+   */
+  return target.kind === 'topup' ? requiredTopUpPrice(topUpPrice).cost.currency : target.service.currency;
 }
 
 /**
@@ -732,7 +879,22 @@ function toUsd(amount: string, rate: CrossRateSnapshot): Decimal {
  * The engine multiplies by quantity; returning a per-unit figure keeps that
  * multiplication in exactly one place.
  */
-function unitCustomerForeignAmount(target: QuoteTarget, input: CreateQuoteRequest): string {
+function unitCustomerForeignAmount(
+  target: QuoteTarget,
+  input: CreateQuoteRequest,
+  topUpPrice: SupplierPrice | null = null,
+): string {
+  if (target.kind === 'topup') {
+    /* The venue's own price and the customer's value are one and the same
+     * number: the customer buys «500 Stars» and we are billed for «500 Stars».
+     * There is no face value to look up, which is why this is the cost rather
+     * than a second figure that could drift from it.
+     *
+     * Taken from the live read, not the synced row, for the same reason the
+     * supplier cost is: both must be the number the venue is standing behind
+     * right now, and there is only one of them. */
+    return requiredTopUpPrice(topUpPrice).cost.amount;
+  }
   if (target.kind === 'service') {
     const amount = input.requestedAmountForeign;
     if (amount === undefined) {
@@ -769,6 +931,19 @@ function makeSnapshot(params: {
   readonly costRate: CrossRateSnapshot;
   /** Sealed already: this function never sees a plaintext credential. */
   readonly serviceAccount: ServiceAccountSnapshot | null;
+  /*
+   * The game account a top-up credits, already validated and already filtered
+   * to the venue's own key set; null for everything else.
+   *
+   * Public identifiers, not credentials — there is no encryption here, because
+   * a game that wants a password is refused before a quote is ever created. It
+   * is frozen into the snapshot rather than read from the request at purchase
+   * time for the same reason the price is: an order must be fulfilled as it was
+   * sold, even if the game's field list changes afterwards.
+   */
+  readonly topUpAccountFields: Readonly<Record<string, string>> | null;
+  /** The venue's live quote at the moment this price was built, or null. */
+  readonly topUpLivePrice: SupplierPrice | null;
   readonly now: Date;
   readonly expiresAt: Date;
 }): Prisma.InputJsonObject {
@@ -788,6 +963,8 @@ function makeSnapshot(params: {
     faceRate,
     costRate,
     serviceAccount,
+    topUpAccountFields,
+    topUpLivePrice,
     now,
     expiresAt,
   } = params;
@@ -803,7 +980,8 @@ function makeSnapshot(params: {
     cartId: input.cartId ?? null,
     skuId: target.kind === 'sku' ? target.id : null,
     serviceId: target.kind === 'service' ? target.id : null,
-    target: quoteTargetSnapshot(target),
+    topUpOfferId: target.kind === 'topup' ? target.id : null,
+    target: quoteTargetSnapshot(target, topUpLivePrice),
     supplierOfferId: target.kind === 'sku' ? target.sku.offerId : null,
     quantity: input.quantity ?? 1,
     currency: foreignCurrency,
@@ -857,11 +1035,17 @@ function makeSnapshot(params: {
     ...(serviceAccount === null
       ? {}
       : { serviceAccount: serviceAccount as unknown as Prisma.InputJsonObject }),
+    ...(topUpAccountFields === null
+      ? {}
+      : { topUpAccountFields: topUpAccountFields as Prisma.InputJsonObject }),
   };
 }
 
 /** Product/service and supplier values by value, never mutable references only. */
-function quoteTargetSnapshot(target: QuoteTarget): Prisma.InputJsonObject {
+function quoteTargetSnapshot(
+  target: QuoteTarget,
+  topUpLivePrice: SupplierPrice | null,
+): Prisma.InputJsonObject {
   if (target.kind === 'sku') {
     const sku = target.sku.sku;
     return {
@@ -883,6 +1067,43 @@ function quoteTargetSnapshot(target: QuoteTarget): Prisma.InputJsonObject {
         listedCost: databaseDecimalString(target.sku.listedCost),
         discountBps: target.sku.discountBps,
         effectiveCost: databaseDecimalString(target.sku.effectiveCost),
+      },
+    };
+  }
+
+  if (target.kind === 'topup') {
+    const { topUp } = target;
+    return {
+      kind: 'TOP_UP',
+      topUp: {
+        offerId: topUp.offer.id,
+        providerOfferId: topUp.offer.providerOfferId,
+        name: topUp.offer.name,
+        nameFa: topUp.offer.nameFa,
+        /* Frozen because it is the whole purchase request: the adapter sends
+         * exactly this string, and it is composed from two catalog fields that
+         * a later sync could change. */
+        providerSku: topUp.providerSku,
+        /* Both the last synced value and the quote-time venue answer are frozen:
+         * the former explains catalog state, the latter explains the payable
+         * price. Fulfillment reads this snapshot, never a later catalog sync. */
+        catalogCostAmount: databaseDecimalString(topUp.costAmount),
+        costAmount: databaseDecimalString(requiredTopUpPrice(topUpLivePrice).cost.amount),
+        costCurrency: requiredTopUpPrice(topUpLivePrice).cost.currency,
+        priceObservedAt: requiredTopUpPrice(topUpLivePrice).observedAt.toISOString(),
+        game: {
+          id: topUp.game.id,
+          slug: topUp.game.slug,
+          providerCategoryId: topUp.game.providerCategoryId,
+          name: topUp.game.name,
+          nameFa: topUp.game.nameFa,
+          brandName: topUp.game.brandName,
+          region: topUp.game.region,
+        },
+      },
+      supplier: {
+        id: topUp.supplierId,
+        code: topUp.supplierCode,
       },
     };
   }

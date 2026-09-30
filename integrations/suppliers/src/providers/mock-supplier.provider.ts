@@ -40,6 +40,8 @@ export class MockSupplierProvider implements SupplierProvider {
   private readonly purchases = new Map<string, SupplierPurchaseResult>();
   private readonly purchaseStatuses = new Map<string, SupplierPurchaseResult>();
   private purchaseInvocationCount = 0;
+  /** The request behind the most recent purchase, for assertions on its fields. */
+  private lastRequest: SupplierPurchaseRequest | null = null;
 
   constructor(options: MockSupplierProviderOptions = {}) {
     this.catalog = options.catalog ?? [];
@@ -81,6 +83,18 @@ export class MockSupplierProvider implements SupplierProvider {
     return this.purchaseInvocationCount;
   }
 
+  /**
+   * The request the supplier was actually handed, or null if it was never called.
+   *
+   * Exposed so a test can assert on what was SENT — the account fields, the
+   * idempotency key — rather than only on what came back. A request that is
+   * never made and a request whose fields are wrong are different bugs, and
+   * only the second one is visible from the response.
+   */
+  getLastPurchaseRequest(): SupplierPurchaseRequest | null {
+    return this.lastRequest;
+  }
+
   async getCatalog(): Promise<readonly SupplierCatalogItem[]> {
     return this.catalog;
   }
@@ -109,6 +123,7 @@ export class MockSupplierProvider implements SupplierProvider {
     }
 
     this.purchaseInvocationCount += 1;
+    this.lastRequest = request;
     const result = this.nextPurchaseResult;
     this.purchases.set(request.idempotencyKey, result);
 

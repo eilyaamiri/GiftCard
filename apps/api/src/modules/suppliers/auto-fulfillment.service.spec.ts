@@ -15,7 +15,9 @@ import { InMemoryWorkItemStore } from '../workitems/testing/in-memory-workitem.s
 import { WorkItemsService } from '../workitems/workitems.service';
 import { AutoFulfillmentService } from './auto-fulfillment.service';
 import { SuppliersService } from './suppliers.service';
+import { TopUpFulfillmentService } from './topup-fulfillment.service';
 import { InMemorySupplierStore } from './testing/in-memory-supplier.store';
+import { InMemoryTopUpStore } from './testing/in-memory-topup.store';
 import type { AutoFulfillmentTarget, SupplierOfferView } from './suppliers.types';
 
 /**
@@ -156,6 +158,9 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
   // One escalator for both services, on the same work-item store the assertions
   // read: a cost-variance review lands next to the task, as in production.
   const workItemsService = new WorkItemsService(workItems, audit);
+  // Empty: this suite never routes a top-up order here, and an empty store is
+  // what makes that visible — a store with a seeded target would prove less.
+  const topUpStore = new InMemoryTopUpStore();
 
   const fulfillment = new FulfillmentService(
     fulfillmentStore,
@@ -179,7 +184,24 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
   );
 
   return {
-    service: new AutoFulfillmentService(workItemsService, suppliers, fulfillment, audit),
+    /*
+     * The top-up service is a real instance, not a stub: this suite drives
+     * gift-card orders only, and the trigger must call it for none of them. A
+     * stub would prove nothing about that.
+     */
+    service: new AutoFulfillmentService(
+      workItemsService,
+      suppliers,
+      fulfillment,
+      audit,
+      /*
+       * Real collaborators with an empty top-up store and the same escalator as
+       * everything else here. This suite drives gift-card orders only, and the
+       * point of wiring the real service is that it must be reached for none of
+       * them — a stub would prove nothing about that.
+       */
+      new TopUpFulfillmentService(topUpStore, providers, workItemsService, audit),
+    ),
     provider,
     workItems,
     fulfillmentStore,

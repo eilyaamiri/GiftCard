@@ -4,5 +4,6 @@
  */
 
 export * from './supplier-provider.interface';
+export * from './providers/fazercards-telegram.provider';
 export * from './providers/mock-supplier.provider';
 export * from './providers/reloadly-gift-card.provider';

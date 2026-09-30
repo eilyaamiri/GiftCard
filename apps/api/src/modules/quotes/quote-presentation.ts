@@ -79,6 +79,7 @@ export interface QuoteRow {
   readonly cartId: string | null;
   readonly skuId: string | null;
   readonly serviceId: string | null;
+  readonly topUpOfferId: string | null;
   readonly supplierOfferId: string | null;
   readonly quantity: number;
   readonly currency: string;
@@ -170,6 +171,13 @@ export function toQuoteSnapshotDto(
     cartId: row.cartId,
     skuId: row.skuId,
     serviceId: row.serviceId,
+    /*
+     * The top-up offer is not supplier identity — it is a catalogue row the
+     * customer picked from, and the client needs it to render what is being
+     * bought. So it is passed through for everyone, unlike `supplierOfferId`
+     * directly below, which stays staff-only.
+     */
+    topUpOfferId: row.topUpOfferId,
     /* Supplier identity is staff-only. A customer response always carries null,
      * so no future field rename can turn this into a leak. */
     supplierOfferId: forStaff ? row.supplierOfferId : null,

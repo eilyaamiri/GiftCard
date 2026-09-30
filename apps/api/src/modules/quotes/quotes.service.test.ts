@@ -195,6 +195,82 @@ function createRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuote
   return { skuId: 'sku-1', quantity: 1, currency: 'USD', ...overrides } as CreateQuoteRequest;
 }
 
+/** A top-up offer, as `CatalogService.getTopUpOfferForQuote` resolves one. */
+function topUpTarget(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    offer: {
+      id: 'topup-offer-1',
+      gameId: 'topup-game-1',
+      providerOfferId: 'stars-500',
+      name: '500 Stars',
+      nameFa: '۵۰۰ استارز',
+      costAmount: new Decimal('4.75'),
+      costCurrency: 'USD',
+      isActive: true,
+      isListed: true,
+      sortOrder: 0,
+      lastSyncedAt: null,
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    },
+    game: {
+      id: 'topup-game-1',
+      slug: 'telegram-stars',
+      supplierId: SUPPLIER_ID,
+      providerCategoryId: 'telegram',
+      name: 'Telegram Stars',
+      nameFa: 'استارز تلگرام',
+      brandName: 'Telegram',
+      region: 'GLOBAL',
+      imageUrl: null,
+      providerNote: null,
+      descriptionFa: null,
+      isActive: true,
+      isListed: true,
+      requiresCredentials: false,
+      sortOrder: 0,
+      lastSyncedAt: null,
+      createdAt: CREATED_AT,
+      updatedAt: CREATED_AT,
+    },
+    supplierId: SUPPLIER_ID,
+    supplierCode: 'fazercards',
+    costCurrency: 'USD',
+    costAmount: '4.750000',
+    providerSku: 'telegram:stars:500',
+    fields: [
+      {
+        id: 'field-1',
+        gameId: 'topup-game-1',
+        key: 'telegram_username',
+        label: 'Telegram username',
+        labelFa: 'نام کاربری تلگرام',
+        fieldType: 'TEXT',
+        isRequired: true,
+        options: null,
+        validationRegex: '^[A-Za-z][A-Za-z0-9_]{3,31}$',
+        helpTextFa: null,
+        sortOrder: 0,
+        createdAt: CREATED_AT,
+        updatedAt: CREATED_AT,
+      },
+    ],
+    ...overrides,
+  };
+}
+
+/** A `TOP_UP_GAME` rule at the product owner's 5%, administered not hardcoded. */
+const TOP_UP_RULE = {
+  ...GLOBAL_RULE,
+  id: 'rule-topup-1',
+  name: 'top-up 5%',
+  scope: 'TOP_UP_GAME',
+  /* Matched by the GAME id, not by a denomination's offer id: the scope exists
+   * to price all Stars/Premium offers for one game under one rule. */
+  targetId: 'topup-game-1',
+  targetMarginBps: 500,
+};
+
 /** An international service with no configured fields of its own. */
 function serviceForQuote(): Record<string, unknown> {
   return {
@@ -369,12 +445,20 @@ interface Harness {
   readonly getCrossRate: ReturnType<typeof vi.fn>;
   readonly getSkuQuoteTarget: ReturnType<typeof vi.fn>;
   readonly getServiceForQuote: ReturnType<typeof vi.fn>;
+  readonly getTopUpOfferForQuote: ReturnType<typeof vi.fn>;
+  readonly getLivePrice: ReturnType<typeof vi.fn>;
   readonly rules: { value: unknown[] };
 }
 
 const ACTOR: QuoteActor = { customerId: 'customer-1', commerceSessionId: null };
 
-function harness(options: { readonly skuTarget?: unknown } = {}): Harness {
+function harness(
+  options: {
+    readonly skuTarget?: unknown;
+    readonly topUpTarget?: unknown;
+    readonly liveTopUpPrice?: unknown | null;
+  } = {},
+): Harness {
   const db = new FakeQuoteDatabase();
   const engine = new PricingService();
   const computeQuote = vi.fn(engine.computeQuote.bind(engine));
@@ -389,9 +473,20 @@ function harness(options: { readonly skuTarget?: unknown } = {}): Harness {
   const pricingRules = { list: async () => rules.value } as unknown as PricingRuleService;
   const getServiceForQuote = vi.fn();
   const getSkuQuoteTarget = vi.fn(async () => options.skuTarget ?? SKU_TARGET);
+  const getTopUpOfferForQuote = vi.fn(async () => options.topUpTarget ?? topUpTarget());
+  const getLivePrice = vi.fn(async () =>
+    options.liveTopUpPrice === undefined
+      ? {
+          providerSku: 'telegram:stars:500',
+          cost: { amount: '4.750000', currency: 'USD' },
+          observedAt: new Date('2026-08-30T09:59:45.000Z'),
+        }
+      : options.liveTopUpPrice,
+  );
   const catalog = {
     getSkuQuoteTarget,
     getServiceForQuote,
+    getTopUpOfferForQuote,
   } as unknown as CatalogService;
 
   const record = vi.fn().mockResolvedValue(undefined);
@@ -403,6 +498,7 @@ function harness(options: { readonly skuTarget?: unknown } = {}): Harness {
     pricing as never,
     { getRateSnapshot } as never,
     { getSnapshot: getCrossRate } as never,
+    { getLivePrice } as never,
     { record } as unknown as AuditService,
     /* A fresh buffer per call, like the real config: the service zeroes the key
      * it is handed once the password envelope exists. */
@@ -418,6 +514,8 @@ function harness(options: { readonly skuTarget?: unknown } = {}): Harness {
     getCrossRate,
     getSkuQuoteTarget,
     getServiceForQuote,
+    getTopUpOfferForQuote,
+    getLivePrice,
     rules,
   };
 }
@@ -948,6 +1046,258 @@ describe('QuotesService.createQuote — non-USD face values', () => {
     expect(snapshot['chargeBaseUsd']).toBe('63.536438');
     expect(snapshot['customerForeignAmount']).toBe('10000');
     expect(snapshot['customerForeignCurrency']).toBe('JPY');
+  });
+});
+
+/* ============================================================================
+ * Direct top-up
+ *
+ * A top-up is priced exactly like anything else — through the one pricing
+ * engine and the one rule table (AGENTS.md §5) — but it differs in three ways
+ * that each cost real money if they are wrong, and those are what these tests
+ * are about:
+ *
+ *   1. It must select the TOP_UP_GAME rule, so an operator's top-up margin is
+ *      what is applied and the gift-card rate is left alone.
+ *   2. The quote row must carry `topUpOfferId`, because that column is what
+ *      routes the paid order away from the operator queue. A null there is a
+ *      paid top-up sitting in a human's inbox.
+ *   3. The customer's game account must be frozen into the snapshot, and must
+ *      be the venue's own key set — a key the venue did not ask for is a
+ *      purchase that cannot be credited.
+ * ==========================================================================*/
+
+describe('QuotesService.createQuote — direct top-up', () => {
+  function topUpRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuoteRequest {
+    return {
+      topUpOfferId: 'topup-offer-1',
+      topUpAccountFields: { telegram_username: 'player_one' },
+      quantity: 1,
+      ...overrides,
+    } as CreateQuoteRequest;
+  }
+
+  it('uses and freezes a fresh Stars price rather than the stale catalog cost', async () => {
+    const context = harness({
+      liveTopUpPrice: {
+        providerSku: 'telegram:stars:500',
+        cost: { amount: '5.123456', currency: 'USD' },
+        observedAt: new Date('2026-08-30T09:59:45.000Z'),
+      },
+    });
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.getLivePrice).toHaveBeenCalledTimes(1);
+    expect(context.getLivePrice).toHaveBeenCalledWith({
+      supplierCode: 'fazercards',
+      providerSku: 'telegram:stars:500',
+    });
+    expect(context.computeQuote.mock.calls[0]?.[0]).toMatchObject({
+      supplierCostUsd: new Decimal('5.123456'),
+      customerForeignAmount: new Decimal('5.123456'),
+    });
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    const topUp = (snapshot['target'] as Record<string, unknown>)['topUp'] as Record<string, unknown>;
+    expect(topUp).toMatchObject({
+      catalogCostAmount: '4.750000',
+      costAmount: '5.123456',
+      costCurrency: 'USD',
+      priceObservedAt: '2026-08-30T09:59:45.000Z',
+    });
+    expect((context.db.only()['supplierCostUsd'] as Decimal).toFixed(6)).toBe('5.123456');
+  });
+
+  it('uses and freezes a fresh Premium price rather than the stale catalog cost', async () => {
+    const premium = topUpTarget({
+      offer: { ...(topUpTarget()['offer'] as Record<string, unknown>), id: 'topup-premium-3m', providerOfferId: 'premium-3m', costAmount: new Decimal('8.00') },
+      game: { ...(topUpTarget()['game'] as Record<string, unknown>), id: 'topup-premium-game', slug: 'telegram-premium' },
+      costAmount: '8.000000',
+      providerSku: 'telegram:premium:3m',
+    });
+    const context = harness({
+      topUpTarget: premium,
+      liveTopUpPrice: {
+        providerSku: 'telegram:premium:3m',
+        cost: { amount: '9.654321', currency: 'USD' },
+        observedAt: new Date('2026-08-30T09:59:46.000Z'),
+      },
+    });
+    context.rules.value = [{ ...TOP_UP_RULE, targetId: 'topup-premium-game' }, GLOBAL_RULE];
+
+    await context.service.createQuote(topUpRequest({ topUpOfferId: 'topup-premium-3m' }), ACTOR);
+
+    expect(context.getLivePrice).toHaveBeenCalledWith({
+      supplierCode: 'fazercards',
+      providerSku: 'telegram:premium:3m',
+    });
+    expect(context.computeQuote.mock.calls[0]?.[0]).toMatchObject({
+      supplierCostUsd: new Decimal('9.654321'),
+      customerForeignAmount: new Decimal('9.654321'),
+    });
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    const topUp = (snapshot['target'] as Record<string, unknown>)['topUp'] as Record<string, unknown>;
+    expect(topUp['costAmount']).toBe('9.654321');
+    expect(topUp['catalogCostAmount']).toBe('8.000000');
+  });
+
+  it('fails closed when no direct top-up provider is registered', async () => {
+    const context = harness({ liveTopUpPrice: null });
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await expect(context.service.createQuote(topUpRequest(), ACTOR)).rejects.toMatchObject({ status: 409 });
+
+    expect(context.getLivePrice).toHaveBeenCalledWith({
+      supplierCode: 'fazercards',
+      providerSku: 'telegram:stars:500',
+    });
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it.each(['0', '-1', 'not-a-price', 'Infinity'])('refuses an invalid live top-up price of %s', async (amount) => {
+    const context = harness({
+      liveTopUpPrice: {
+        providerSku: 'telegram:stars:500',
+        cost: { amount, currency: 'USD' },
+        observedAt: new Date('2026-08-30T09:59:45.000Z'),
+      },
+    });
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await expect(context.service.createQuote(topUpRequest(), ACTOR)).rejects.toMatchObject({ status: 409 });
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('refuses a live price for a different supplier SKU', async () => {
+    const context = harness({
+      liveTopUpPrice: {
+        providerSku: 'telegram:premium:12',
+        cost: { amount: '5.123456', currency: 'USD' },
+        observedAt: new Date('2026-08-30T09:59:45.000Z'),
+      },
+    });
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await expect(context.service.createQuote(topUpRequest(), ACTOR)).rejects.toMatchObject({ status: 409 });
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('prices with the TOP_UP_GAME rule, not the global one', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    expect(context.db.only()['pricingRuleId']).toBe('rule-topup-1');
+  });
+
+  it('stores the offer id, which is what keeps the order out of the queue', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    const row = context.db.only();
+    expect(row['topUpOfferId']).toBe('topup-offer-1');
+    /* The other two targets must stay null. An order that looks like a SKU and
+     * a top-up at once is exactly the ambiguity `findOrderQuoteTarget` exists
+     * to refuse, and the check order there must never have to be relied on. */
+    expect(row['skuId']).toBeNull();
+    expect(row['serviceId']).toBeNull();
+  });
+
+  it('freezes the validated game account into the snapshot', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest(), ACTOR);
+
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    expect(snapshot['topUpAccountFields']).toEqual({ telegram_username: 'player_one' });
+    const target = snapshot['target'] as Record<string, unknown>;
+    expect(target['kind']).toBe('TOP_UP');
+    /* The exact string the adapter will send, composed from two catalog fields
+     * a later sync could change. Frozen here, not re-read at purchase time. */
+    expect((target['topUp'] as Record<string, unknown>)['providerSku']).toBe('telegram:stars:500');
+  });
+
+  it('refuses an account field the game never asked for', async () => {
+    const context = harness();
+
+    await expect(
+      context.service.createQuote(
+        topUpRequest({ topUpAccountFields: { telegram_username: 'player_one', password: 'hunter2' } }),
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('refuses a missing required account field, before anything is priced', async () => {
+    const context = harness();
+
+    await expect(
+      context.service.createQuote(topUpRequest({ topUpAccountFields: {} }), ACTOR),
+    ).rejects.toMatchObject({ status: 400 });
+
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('refuses an account field that does not match the venue format', async () => {
+    const context = harness();
+
+    await expect(
+      /* The venue's own pattern is `^[A-Za-z][A-Za-z0-9_]{3,31}$`. Validating
+       * it here is the difference between a free rejection and a purchase the
+       * venue refuses after the customer has been charged. */
+      context.service.createQuote(
+        topUpRequest({ topUpAccountFields: { telegram_username: '9' } }),
+        ACTOR,
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('never echoes the submitted value back in a validation error', async () => {
+    const context = harness();
+    const SECRET_LOOKING = 'not a username!!';
+
+    const error = await context.service
+      .createQuote(
+        topUpRequest({ topUpAccountFields: { telegram_username: SECRET_LOOKING } }),
+        ACTOR,
+      )
+      .catch((thrown: unknown) => thrown);
+
+    /* A validation response is the most likely place for a value to leak into
+     * a log or a client error toast. It must name the field, never the value. */
+    expect(JSON.stringify(error)).not.toContain(SECRET_LOOKING);
+  });
+
+  it('refuses a request that names two targets at once', async () => {
+    const context = harness();
+
+    await expect(
+      context.service.createQuote({ skuId: 'sku-1', topUpOfferId: 'topup-offer-1' } as CreateQuoteRequest, ACTOR),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuses a currency that is not the offer currency', async () => {
+    const context = harness();
+
+    await expect(
+      context.service.createQuote(topUpRequest({ currency: 'EUR' }), ACTOR),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('still refuses a top-up when no TOP_UP_GAME rule and no global rule exist', async () => {
+    const context = harness();
+    context.rules.value = [];
+
+    await expect(context.service.createQuote(topUpRequest(), ACTOR)).rejects.toMatchObject({
+      status: 409,
+    });
   });
 });
 

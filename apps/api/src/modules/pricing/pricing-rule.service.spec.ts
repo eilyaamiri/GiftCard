@@ -638,6 +638,15 @@ describe('putPricingRuleRequestSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('allows a null targetId on the TOP_UP_GAME fallback rule', () => {
+    const result = putPricingRuleRequestSchema.safeParse({
+      ...putRequest(),
+      scope: 'TOP_UP_GAME',
+      targetId: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
   it('requires a targetId on a scoped rule', () => {
     const result = putPricingRuleRequestSchema.safeParse({
       ...putRequest(),
