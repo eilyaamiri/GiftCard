@@ -203,6 +203,7 @@ export function SiteChrome({
               />
               <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
               <Link href="/telegram" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>تلگرام</Link>
+              <Link href="/games" aria-current={pathname.startsWith("/games") ? "page" : undefined}>شارژ بازی</Link>
               <NavDropdown
                 label="پرداخت بین‌المللی"
                 emptyLabel="سرویسی موجود نیست"
@@ -243,6 +244,7 @@ export function SiteChrome({
             <div className="footer-col-title">نقشه سایت</div>
             <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
             <Link href="/telegram">استارز و پرمیوم تلگرام</Link>
+            <Link href="/games">شارژ مستقیم بازی</Link>
             <Link href="/services">پرداخت بین‌المللی</Link>
             <Link href="/brands">برندها</Link>
             <Link href="/orders">پیگیری سفارش</Link>
