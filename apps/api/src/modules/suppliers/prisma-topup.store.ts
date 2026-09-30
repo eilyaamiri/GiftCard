@@ -441,10 +441,14 @@ export class PrismaTopUpCatalogStore implements TopUpCatalogStore {
         providerCategoryId: game.providerCategoryId,
         providerOfferIds: game.offers.map((offer) => offer.providerOfferId),
       })),
-      /* Flattened: a sync reconciles against the venue's offer ids, and which
-       * game a given offer hangs off is already in `games[].providerOfferIds`. */
+      /* Flattened, but each offer keeps its game's category: the venue's SKU is
+       * composed from both, and offer ids repeat across games. */
       offers: supplier.topUpGames.flatMap((game) =>
-        game.offers.map((offer) => ({ id: offer.id, providerOfferId: offer.providerOfferId })),
+        game.offers.map((offer) => ({
+          id: offer.id,
+          providerOfferId: offer.providerOfferId,
+          providerCategoryId: game.providerCategoryId,
+        })),
       ),
     }));
   }

@@ -20,6 +20,7 @@ import type {
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
+import { topUpProviderSku } from '../suppliers/topup-provider-sku';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
 import type {
   CatalogProductDto,
@@ -1800,26 +1801,6 @@ function decimalString(value: DecimalLike): string {
  * and opening onto nine.
  */
 const topUpOfferVisible = { isActive: true, isListed: true } as const;
-
-/**
- * Supplier catalog keys are normally `{category}:{offer}`. FazerCards' Telegram
- * catalog puts both its Stars and Premium families under the `telegram`
- * namespace, so its adapter receives a three-part key instead. This mapping
- * stays at the catalog boundary: providers continue to receive their own
- * opaque SKU and other game suppliers retain their existing catalog shape.
- */
-const TOP_UP_SKU_NAMESPACE_BY_SUPPLIER: Readonly<Record<string, string>> = {
-  'fazercards-telegram': 'telegram',
-};
-
-function topUpProviderSku(
-  supplierCode: string,
-  providerCategoryId: string,
-  providerOfferId: string,
-): string {
-  const namespace = TOP_UP_SKU_NAMESPACE_BY_SUPPLIER[supplierCode];
-  return [namespace, providerCategoryId, providerOfferId].filter((part) => part !== undefined).join(':');
-}
 
 /**
  * The cheapest visible offer, or null.

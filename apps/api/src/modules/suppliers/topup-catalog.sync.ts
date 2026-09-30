@@ -4,6 +4,7 @@ import { SUPPLIER_PROVIDERS, type SupplierCatalogItem, type SupplierProvider } f
 import { AuditService } from '../audit/audit.service';
 import { TOP_UP_CATALOG_STORE } from './suppliers.types';
 import type { TopUpCatalogStore, TopUpCatalogGame, TopUpCatalogOffer } from './suppliers.types';
+import { topUpProviderSku } from './topup-provider-sku';
 
 /**
  * ============================================================================
@@ -76,21 +77,33 @@ interface AvailabilityPlan {
  * silent: an inverted comparison here does not throw, it just quietly delists a
  * product nobody can then buy, or keeps selling one that is gone.
  *
- * The listing rule is identity by `providerOfferId` — the venue's own offer id,
- * never a price, because two live offers routinely share a price.
+ * The listing rule is identity by provider SKU — the venue's own key, never a
+ * price, because two live offers routinely share a price. The SKU is composed
+ * by `topUpProviderSku`, the same function that hands a quote the SKU to price,
+ * so what the venue returns is compared against exactly what we would buy. The
+ * venue answers in full SKUs (`stars:50`, or `telegram:stars:50` for the
+ * namespaced Telegram catalogue); matching them against a bare offer id would
+ * recognise nothing and delist every row.
  */
 export function planAvailability(input: {
+  readonly supplierCode: string;
   readonly catalog: readonly SupplierCatalogItem[];
   readonly games: readonly TopUpCatalogGame[];
   readonly offers: readonly TopUpCatalogOffer[];
 }): AvailabilityPlan {
   const seen = new Set(input.catalog.map((item) => item.providerSku));
+  const skuOf = (providerCategoryId: string, providerOfferId: string): string =>
+    topUpProviderSku(input.supplierCode, providerCategoryId, providerOfferId);
+  const offerSeen = (offer: TopUpCatalogOffer): boolean =>
+    seen.has(skuOf(offer.providerCategoryId, offer.providerOfferId));
 
-  const knownSkus = new Set(input.offers.map((offer) => offer.providerOfferId));
+  const knownSkus = new Set(
+    input.offers.map((offer) => skuOf(offer.providerCategoryId, offer.providerOfferId)),
+  );
   const unknownSkus = [...seen].filter((sku) => !knownSkus.has(sku));
 
   const listedGames = input.games
-    .filter((game) => game.providerOfferIds.some((id) => seen.has(id)))
+    .filter((game) => game.providerOfferIds.some((id) => seen.has(skuOf(game.providerCategoryId, id))))
     .map((game) => game.id);
 
   /*
@@ -106,8 +119,8 @@ export function planAvailability(input: {
   return {
     listedGames,
     delistedGames,
-    listedOffers: input.offers.filter((offer) => seen.has(offer.providerOfferId)).map((o) => o.id),
-    delistedOffers: input.offers.filter((offer) => !seen.has(offer.providerOfferId)).map((o) => o.id),
+    listedOffers: input.offers.filter(offerSeen).map((o) => o.id),
+    delistedOffers: input.offers.filter((offer) => !offerSeen(offer)).map((o) => o.id),
     unknownSkus,
   };
 }
@@ -173,6 +186,7 @@ export class TopUpCatalogSyncService {
 
       const catalog = await provider.getCatalog();
       const plan = planAvailability({
+        supplierCode: supplier.code,
         catalog,
         games: supplier.games,
         offers: supplier.offers,

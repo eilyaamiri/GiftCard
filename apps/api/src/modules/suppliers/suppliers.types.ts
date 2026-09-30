@@ -327,6 +327,11 @@ export interface TopUpCatalogOffer {
   readonly id: string;
   /** The venue's own id, which is what a sync matches on. Never a price. */
   readonly providerOfferId: string;
+  /**
+   * The owning game's category. Carried on the offer because the venue's SKU
+   * is composed from both, and an offer id alone is not unique across games.
+   */
+  readonly providerCategoryId: string;
 }
 
 export interface TopUpSyncableSupplier {
