@@ -6,6 +6,7 @@ import { Input, Label, Select, FormMessage } from "@barat/ui";
 import { Loader2 } from "lucide-react";
 import { ApiClientError } from "@/lib/api";
 import { createQuote } from "@/app/checkout/purchase";
+import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { TELEGRAM_USERNAME_KEY, isValidUsername, normalizeUsername, type TelegramProduct } from "@/lib/telegram";
 
 /**
@@ -132,12 +133,18 @@ export function TelegramOrderForm({
        * international payment states what it owes in a foreign currency, while
        * a top-up's price is the supplier's cost converted to Rial. Nothing here
        * reads this field, and the quote that comes back carries the currency
-       * the server actually priced in. */
+       * the server actually priced in.
+       *
+       * `commerceSessionToken` is what lets a customer who has not signed in
+       * get a price at all — the API refuses an anonymous quote without one —
+       * and it is the same browser handle the quote page reads the quote back
+       * with. */
       const { quote } = await createQuote({
         topUpOfferId: selected,
         quantity: 1,
         currency: DEFAULT_CURRENCY,
         topUpAccountFields: { [accountKey]: accountValue() },
+        commerceSessionToken: getCommerceSessionToken(),
       });
       router.push(`/quote/${quote.id}`);
     } catch (error) {
