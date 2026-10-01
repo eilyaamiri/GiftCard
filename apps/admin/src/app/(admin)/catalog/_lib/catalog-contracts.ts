@@ -836,7 +836,11 @@ export const topUpImportGameSchema = z.object({
   name: z.string(),
   slug: z.string().nullable(),
   status: z.enum(["NEW", "EXISTING", "SKIPPED"]),
-  skipReason: z.enum(["NO_OFFERS", "NO_ACCOUNT_FIELDS", "SERVED_BY_TELEGRAM_SUPPLIER"]).optional(),
+  skipReason: z
+    .enum(["NO_OFFERS", "NO_ACCOUNT_FIELDS", "SERVED_BY_TELEGRAM_SUPPLIER", "OFFERS_UNREADABLE"])
+    .optional(),
+  /** With `OFFERS_UNREADABLE`: the adapter's normalised failure code, for support. */
+  failureCode: z.string().optional(),
   requiresCredentials: z.boolean(),
   fields: z.array(
     z.object({
@@ -876,4 +880,5 @@ export const TOP_UP_IMPORT_SKIP_LABELS: Record<NonNullable<TopUpImportGame["skip
   NO_OFFERS: "بسته‌ای برای فروش ندارد",
   NO_ACCOUNT_FIELDS: "فیلد حساب کاربری ندارد",
   SERVED_BY_TELEGRAM_SUPPLIER: "تلگرام جداگانه فروخته می‌شود",
+  OFFERS_UNREADABLE: "بسته‌هایش از تأمین‌کننده دریافت نشد؛ ورود بعدی دوباره امتحان می‌کند",
 };

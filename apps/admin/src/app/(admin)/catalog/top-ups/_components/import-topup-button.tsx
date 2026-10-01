@@ -162,6 +162,7 @@ function ImportReport({ result }: { result: TopUpImportResult }) {
                     {game.skipReason ? (
                       <div className="muted" style={{ fontSize: 11 }}>
                         {TOP_UP_IMPORT_SKIP_LABELS[game.skipReason]}
+                        {game.failureCode ? <span className="bp-ltr"> ({game.failureCode})</span> : null}
                       </div>
                     ) : null}
                     {game.requiresCredentials && game.status !== "SKIPPED" ? (

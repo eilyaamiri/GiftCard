@@ -1,5 +1,11 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import type { SupplierMoney, SupplierTopUpField, SupplierTopUpGame } from '@barat/suppliers';
+import type {
+  SupplierMoney,
+  SupplierTopUpCatalogRead,
+  SupplierTopUpField,
+  SupplierTopUpGame,
+  SupplierTopUpUnreadableGame,
+} from '@barat/suppliers';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
@@ -52,7 +58,9 @@ export type TopUpImportSkipReason =
   /** No account field at all: there is nowhere to send the top-up. */
   | 'NO_ACCOUNT_FIELDS'
   /** Telegram is sold under its own supplier and storefront page. */
-  | 'SERVED_BY_TELEGRAM_SUPPLIER';
+  | 'SERVED_BY_TELEGRAM_SUPPLIER'
+  /** The venue would not hand over this game's packages, even after retrying. A later import picks it up. */
+  | 'OFFERS_UNREADABLE';
 
 export interface TopUpImportGameReport {
   readonly providerCategoryId: string;
@@ -61,6 +69,8 @@ export interface TopUpImportGameReport {
   readonly slug: string | null;
   readonly status: 'NEW' | 'EXISTING' | 'SKIPPED';
   readonly skipReason?: TopUpImportSkipReason;
+  /** With `OFFERS_UNREADABLE`: the adapter's normalised failure code. */
+  readonly failureCode?: string;
   readonly requiresCredentials: boolean;
   readonly fields: readonly {
     readonly key: string;
@@ -101,6 +111,29 @@ interface ImportPlan {
 }
 
 const MAX_SLUG_LENGTH = 90;
+/** What a normalised adapter failure code looks like; anything else is not repeated. */
+const SAFE_FAILURE_CODE = /^[A-Z0-9_]{1,80}$/;
+
+/**
+ * The adapter's normalised failure code and the venue's HTTP status, read off
+ * whatever the reader threw. Never its message — and a code that does not look
+ * like one of ours is dropped rather than echoed.
+ */
+export function describeCatalogReadFailure(error: unknown): { readonly code: string | null; readonly detail: string } {
+  if (!(error instanceof Error)) {
+    return { code: null, detail: 'unknown error' };
+  }
+  const { code, httpStatus } = error as Error & { code?: unknown; httpStatus?: unknown };
+  const safeCode = typeof code === 'string' && SAFE_FAILURE_CODE.test(code) ? code : null;
+  const parts = [error.name];
+  if (safeCode !== null) {
+    parts.push(`code=${safeCode}`);
+  }
+  if (typeof httpStatus === 'number' && Number.isInteger(httpStatus)) {
+    parts.push(`http=${String(httpStatus)}`);
+  }
+  return { code: safeCode, detail: parts.join(' ') };
+}
 const TELEGRAM_PATTERN = /telegram/i;
 
 /**
@@ -186,6 +219,8 @@ export function planTopUpImport(input: {
   readonly supplierCode: string;
   readonly catalog: readonly SupplierTopUpGame[];
   readonly snapshot: TopUpImportSnapshot;
+  /** Games the venue listed but would not describe; reported, never created. */
+  readonly unreadable?: readonly SupplierTopUpUnreadableGame[];
 }): ImportPlan {
   const existing = new Map(input.snapshot.games.map((game) => [game.providerCategoryId, game]));
   const taken = new Set(input.snapshot.takenSlugs);
@@ -265,6 +300,25 @@ export function planTopUpImport(input: {
     reports.push({ ...report, slug, status: 'NEW', newOffers: offers.length });
   }
 
+  for (const game of input.unreadable ?? []) {
+    if (seenCategories.has(game.categoryId)) {
+      continue;
+    }
+    seenCategories.add(game.categoryId);
+    reports.push({
+      providerCategoryId: game.categoryId,
+      name: game.name,
+      slug: null,
+      status: 'SKIPPED',
+      skipReason: 'OFFERS_UNREADABLE',
+      failureCode: game.failureCode,
+      requiresCredentials: false,
+      fields: [],
+      newOffers: 0,
+      offers: [],
+    });
+  }
+
   return {
     result: {
       supplierCode: input.supplierCode,
@@ -334,20 +388,38 @@ export class TopUpCatalogImportService {
     input: { readonly dryRun: boolean; readonly actor: { readonly id: string; readonly role: string } },
   ): Promise<TopUpImportResult> {
     /* The whole catalogue is read before anything is planned or written. */
-    let catalog: readonly SupplierTopUpGame[];
+    let read: SupplierTopUpCatalogRead;
     try {
-      catalog = await reader.readCatalog();
+      read = await reader.readCatalog();
     } catch (error) {
-      /* The error's class only: adapter messages are safe, but this stays terse by rule. */
-      const detail = error instanceof Error ? error.name : 'unknown error';
+      /* Class, normalised code and HTTP status — enough to tell a lapsed account from a busy venue, never a message. */
+      const failure = describeCatalogReadFailure(error);
       throw DomainErrors.conflict(
-        'دریافت کاتالوگ از تأمین‌کننده ناموفق بود. چند دقیقه بعد دوباره تلاش کنید.',
-        `top-up catalogue read failed for ${reader.supplierCode}: ${detail}`,
+        failure.code === null
+          ? 'دریافت کاتالوگ از تأمین‌کننده ناموفق بود. چند دقیقه بعد دوباره تلاش کنید.'
+          : `دریافت کاتالوگ از تأمین‌کننده ناموفق بود (کد خطا: ${failure.code}). چند دقیقه بعد دوباره تلاش کنید.`,
+        `top-up catalogue read failed for ${reader.supplierCode}: ${failure.detail}`,
+      );
+    }
+    /* Same rule as above: a code that does not look like ours is neither logged nor shown. */
+    const unreadable = read.unreadable.map((game) => ({
+      ...game,
+      failureCode: SAFE_FAILURE_CODE.test(game.failureCode) ? game.failureCode : 'UNKNOWN',
+    }));
+    if (unreadable.length > 0) {
+      const codes = [...new Set(unreadable.map((game) => game.failureCode))].join(', ');
+      this.logger.warn(
+        `top-up catalogue read for ${reader.supplierCode} skipped ${String(unreadable.length)} unreadable games (${codes})`,
       );
     }
 
     const snapshot = await this.store.snapshot(reader.supplierCode);
-    const plan = planTopUpImport({ supplierCode: reader.supplierCode, catalog, snapshot });
+    const plan = planTopUpImport({
+      supplierCode: reader.supplierCode,
+      catalog: read.games,
+      snapshot,
+      unreadable,
+    });
     const result: TopUpImportResult = { dryRun: input.dryRun, ...plan.result };
     if (input.dryRun) {
       return result;
