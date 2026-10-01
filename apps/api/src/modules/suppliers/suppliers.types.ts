@@ -2,7 +2,7 @@ import type {
   SupplierAvailability,
   SupplierDeliveryAsset,
   SupplierPrice,
-  SupplierTopUpGame,
+  SupplierTopUpCatalogRead,
 } from '@barat/suppliers';
 
 /* ============================================================================
@@ -407,7 +407,8 @@ export interface TopUpCatalogReader {
   /** Used only if the supplier row does not exist yet. */
   readonly supplierName: string;
   readonly defaultCurrency: string;
-  readCatalog(): Promise<readonly SupplierTopUpGame[]>;
+  /** Carries on past a game it could not read; see `SupplierTopUpCatalogRead`. */
+  readCatalog(): Promise<SupplierTopUpCatalogRead>;
 }
 
 /** What already exists, so an import creates only what is missing. */

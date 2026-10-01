@@ -454,6 +454,128 @@ describe('FazerCardsTopUpSupplierProvider', () => {
     });
   });
 
+  describe('catalogue retries and partial reads', () => {
+    /** Answers `/topups` with `ids`, and each game's offers from its own queue of responses (the last one repeats). */
+    function stubCatalog(
+      ids: readonly string[],
+      answers: Record<string, readonly (Route | Error)[]>,
+    ): { calls: string[]; listUrls: string[] } {
+      const calls: string[] = [];
+      const listUrls: string[] = [];
+      const seen = new Map<string, number>();
+      globalThis.fetch = (async (input: string) => {
+        const url = new URL(String(input));
+        if (url.pathname === '/api/v2/topups') {
+          listUrls.push(String(input));
+          return {
+            status: 200,
+            json: async () => ({
+              ok: true,
+              items: ids.map((id) => ({ category_id: id, name: id.toUpperCase() })),
+              meta: { total: ids.length, has_more: false, next_cursor: null },
+            }),
+          } as unknown as Response;
+        }
+        const id = url.searchParams.get('category_id') ?? '';
+        calls.push(id);
+        const queue = answers[id] ?? [offers()];
+        const index = seen.get(id) ?? 0;
+        seen.set(id, index + 1);
+        const answer = queue[Math.min(index, queue.length - 1)] as Route | Error;
+        if (answer instanceof Error) {
+          throw answer;
+        }
+        return { status: answer.status ?? 200, json: async () => answer.body } as unknown as Response;
+      }) as unknown as typeof fetch;
+      return { calls, listUrls };
+    }
+
+    const timeout = (): Error => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' });
+
+    function quick() {
+      const pauses: number[] = [];
+      return { pauses, adapter: provider({ sleep: async (ms: number) => void pauses.push(ms) }) };
+    }
+
+    it('asks for cover art the way the spec spells it', async () => {
+      const { listUrls } = stubCatalog(['pubg_mobile'], {});
+
+      await quick().adapter.getTopUpCatalog();
+
+      expect(new URL(listUrls[0] ?? '').searchParams.get('include_ui')).toBe('1');
+    });
+
+    it('rides out a throttled offers call', async () => {
+      const { calls } = stubCatalog(['pubg_mobile'], { pubg_mobile: [{ status: 429, body: {} }, { status: 503, body: {} }, offers()] });
+      const { adapter, pauses } = quick();
+
+      const [game] = await adapter.getTopUpCatalog();
+
+      expect(game?.offers).toHaveLength(1);
+      expect(calls).toEqual(['pubg_mobile', 'pubg_mobile', 'pubg_mobile']);
+      expect(pauses).toEqual([500, 1500]);
+    });
+
+    it('retries a dropped connection but not a timed-out one', async () => {
+      const dropped = stubCatalog(['pubg_mobile'], { pubg_mobile: [new TypeError('fetch failed'), offers()] });
+      await expect(quick().adapter.getTopUpCatalog()).resolves.toHaveLength(1);
+      expect(dropped.calls).toHaveLength(2);
+
+      const slow = stubCatalog(['pubg_mobile'], { pubg_mobile: [timeout(), offers()] });
+      await expect(quick().adapter.getTopUpCatalog()).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+      expect(slow.calls).toHaveLength(1);
+    });
+
+    it('does not retry a refusal', async () => {
+      const { calls } = stubCatalog(['pubg_mobile'], {
+        pubg_mobile: [{ status: 403, body: { ok: false, error: 'Subscription inactive', code: 'subscription_inactive' } }],
+      });
+
+      await expect(quick().adapter.getTopUpCatalog()).rejects.toMatchObject({
+        code: 'PROVIDER_SUBSCRIPTION_INACTIVE',
+        httpStatus: 403,
+      });
+      expect(calls).toHaveLength(1);
+    });
+
+    it('keeps the strict read all-or-nothing, since the availability sync delists what is missing', async () => {
+      stubCatalog(['pubg_mobile', 'free_fire'], { free_fire: [{ status: 503, body: {} }] });
+
+      await expect(quick().adapter.getTopUpCatalog()).rejects.toMatchObject({ code: 'CATALOG_UNAVAILABLE', httpStatus: 503 });
+      await expect(quick().adapter.getCatalog()).rejects.toMatchObject({ code: 'CATALOG_UNAVAILABLE' });
+    });
+
+    it('reads past a game that keeps failing, and names it', async () => {
+      const { calls } = stubCatalog(['pubg_mobile', 'free_fire', 'mlbb'], {
+        free_fire: [{ status: 503, body: { ok: false, error: 'Upstream down', code: 'upstream_unavailable' } }],
+        mlbb: [{ status: 404, body: {} }],
+      });
+
+      const result = await quick().adapter.readTopUpCatalog();
+
+      expect(result.games.map((game) => game.categoryId)).toEqual(['pubg_mobile']);
+      expect(result.unreadable).toEqual([
+        { categoryId: 'free_fire', name: 'FREE_FIRE', failureCode: 'PROVIDER_UPSTREAM_UNAVAILABLE' },
+      ]);
+      expect(calls.filter((id) => id === 'free_fire')).toHaveLength(3);
+    });
+
+    it('throws when no game could be read at all: that is the account or the venue, not one game', async () => {
+      stubCatalog(['pubg_mobile', 'free_fire'], {
+        pubg_mobile: [{ status: 403, body: { ok: false, code: 'subscription_inactive' } }],
+        free_fire: [{ status: 403, body: { ok: false, code: 'subscription_inactive' } }],
+      });
+
+      await expect(quick().adapter.readTopUpCatalog()).rejects.toMatchObject({ code: 'PROVIDER_SUBSCRIPTION_INACTIVE' });
+    });
+
+    it('reads an empty catalogue as empty', async () => {
+      stubCatalog([], {});
+
+      await expect(quick().adapter.readTopUpCatalog()).resolves.toEqual({ games: [], unreadable: [] });
+    });
+  });
+
   describe('getPrice', () => {
     it('reads the price off the matching offer', async () => {
       stubFetch({ 'GET /api/v2/topups/offers': offers() });

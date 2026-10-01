@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SupplierTopUpField, SupplierTopUpGame } from '@barat/suppliers';
+import type { SupplierTopUpCatalogRead, SupplierTopUpField, SupplierTopUpGame } from '@barat/suppliers';
 
 import { BaratDomainException } from '../../common/errors/domain.exception';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
@@ -78,7 +78,12 @@ const PASSWORD_GAME = game('fortnite', 'Fortnite V-Bucks', [
   text('password', 'Password', { credential: true }),
 ]);
 
-function harness(catalog: readonly SupplierTopUpGame[] | Error = [PUBG, MLBB, GENSHIN, PASSWORD_GAME]) {
+/** A complete read: every listed game came back. */
+const read = (...games: readonly SupplierTopUpGame[]): SupplierTopUpCatalogRead => ({ games, unreadable: [] });
+
+function harness(
+  catalog: readonly SupplierTopUpGame[] | SupplierTopUpCatalogRead | Error = [PUBG, MLBB, GENSHIN, PASSWORD_GAME],
+) {
   const store = new InMemoryTopUpCatalogImportStore();
   const audits: unknown[] = [];
   const writer: AuditWriter = {
@@ -96,7 +101,7 @@ function harness(catalog: readonly SupplierTopUpGame[] | Error = [PUBG, MLBB, GE
       if (catalog instanceof Error) {
         throw catalog;
       }
-      return catalog;
+      return 'games' in catalog ? catalog : read(...catalog);
     },
   };
   const service = new TopUpCatalogImportService(store, [reader], new AuditService(writer));
@@ -309,6 +314,60 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
     expect(h.audits).toHaveLength(0);
   });
 
+  it('names the adapter failure code and HTTP status, never the message', async () => {
+    const failure = Object.assign(new Error('FazerCards refused the request with HTTP 403'), {
+      name: 'FazerCardsTopUpSupplierError',
+      code: 'PROVIDER_SUBSCRIPTION_INACTIVE',
+      httpStatus: 403,
+    });
+    const h = harness(failure);
+
+    const error = (await h.run(true).catch((caught: unknown) => caught)) as BaratDomainException;
+
+    expect(error.status).toBe(409);
+    expect(error.safeMessage).toContain('PROVIDER_SUBSCRIPTION_INACTIVE');
+    expect(error.internalDetail).toBe(
+      'top-up catalogue read failed for fazercards-topup: FazerCardsTopUpSupplierError code=PROVIDER_SUBSCRIPTION_INACTIVE http=403',
+    );
+    expect(error.internalDetail).not.toContain('refused');
+  });
+
+  it('does not repeat a code that does not look like one of ours', async () => {
+    const h = harness(Object.assign(new Error('boom'), { code: 'key fc_secret leaked', httpStatus: '403' }));
+
+    const error = (await h.run(true).catch((caught: unknown) => caught)) as BaratDomainException;
+
+    expect(error.safeMessage).not.toContain('fc_secret');
+    expect(error.internalDetail).toBe('top-up catalogue read failed for fazercards-topup: Error');
+  });
+
+  it('imports the games it could read and reports the ones it could not', async () => {
+    const h = harness({
+      games: [PUBG],
+      unreadable: [
+        { categoryId: 'mlbb', name: 'Mobile Legends', failureCode: 'PROVIDER_UNAVAILABLE' },
+        { categoryId: 'genshin', name: 'Genshin Impact', failureCode: 'not a code' },
+      ],
+    });
+
+    const result = await h.run(false);
+
+    expect(result.totals).toMatchObject({ newGames: 1, skipped: 2 });
+    expect(result.games.filter((report) => report.status === 'SKIPPED')).toEqual([
+      expect.objectContaining({
+        providerCategoryId: 'mlbb',
+        skipReason: 'OFFERS_UNREADABLE',
+        failureCode: 'PROVIDER_UNAVAILABLE',
+        offers: [],
+        newOffers: 0,
+      }),
+      expect.objectContaining({ providerCategoryId: 'genshin', skipReason: 'OFFERS_UNREADABLE', failureCode: 'UNKNOWN' }),
+    ]);
+    // Only the readable game is written; the others are left for a later import.
+    expect(h.store.applyCalls).toBe(1);
+    expect((await h.store.snapshot(CODE)).games.map((g) => g.providerCategoryId)).toEqual(['pubg_mobile']);
+  });
+
   it('turns a concurrent write into a conflict and records nothing', async () => {
     const h = harness([PUBG]);
     h.store.failApply = new TopUpImportRaceError();
@@ -334,7 +393,7 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
   });
 
   it('refuses a second run while one is in flight', async () => {
-    let release: (games: readonly SupplierTopUpGame[]) => void = () => undefined;
+    let release: (result: SupplierTopUpCatalogRead) => void = () => undefined;
     let calls = 0;
     const store = new InMemoryTopUpCatalogImportStore();
     const service = new TopUpCatalogImportService(
@@ -347,7 +406,7 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
           readCatalog: () => {
             calls += 1;
             /* Only the first read hangs; the one after the guard is released answers at once. */
-            return calls === 1 ? new Promise((resolve) => (release = resolve)) : Promise.resolve([PUBG]);
+            return calls === 1 ? new Promise((resolve) => (release = resolve)) : Promise.resolve(read(PUBG));
           },
         },
       ],
@@ -358,7 +417,7 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
     await expect(service.import({ supplierCode: CODE, dryRun: true, actor: ACTOR })).rejects.toMatchObject({
       status: 409,
     });
-    release([PUBG]);
+    release(read(PUBG));
     await expect(first).resolves.toMatchObject({ totals: { newGames: 1 } });
 
     // The guard is released afterwards.
@@ -372,7 +431,7 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
         supplierCode: CODE,
         supplierName: 'FazerCards Top-up',
         defaultCurrency: 'USD',
-        readCatalog: async () => [PUBG],
+        readCatalog: async () => read(PUBG),
       } satisfies TopUpCatalogReader,
       {
         get(target, property, receiver) {

@@ -89,6 +89,24 @@ export interface SupplierTopUpGame {
   readonly requiresCredentials: boolean;
 }
 
+/** A game the venue lists whose packages could not be read this time. */
+export interface SupplierTopUpUnreadableGame {
+  readonly categoryId: string;
+  readonly name: string;
+  /** The adapter's normalised failure code — never the venue's own message. */
+  readonly failureCode: string;
+}
+
+/**
+ * A top-up catalogue read that carries on past a game it could not read,
+ * and says which ones. For the import only: it creates rows and never removes
+ * any, so a game missing from one read costs nothing.
+ */
+export interface SupplierTopUpCatalogRead {
+  readonly games: readonly SupplierTopUpGame[];
+  readonly unreadable: readonly SupplierTopUpUnreadableGame[];
+}
+
 export interface SupplierPrice {
   readonly providerSku: string;
   readonly cost: SupplierMoney;
@@ -212,4 +230,12 @@ export interface SupplierProvider {
    * flat `getCatalog` cannot express.
    */
   getTopUpCatalog?(): Promise<readonly SupplierTopUpGame[]>;
+
+  /**
+   * The same catalogue, read past any game whose packages fail to load.
+   *
+   * Never feed this to anything that delists: a game left out here may only
+   * have hit a busy venue. `getTopUpCatalog` stays all-or-nothing for that.
+   */
+  readTopUpCatalog?(): Promise<SupplierTopUpCatalogRead>;
 }

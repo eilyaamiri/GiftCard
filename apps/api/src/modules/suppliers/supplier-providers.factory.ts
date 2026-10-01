@@ -117,7 +117,7 @@ export function buildTopUpCatalogReaders(options: {
       supplierCode: FAZERCARDS_TOPUP_SUPPLIER_CODE,
       supplierName: 'FazerCards Top-up',
       defaultCurrency: 'USD',
-      readCatalog: () => adapter.getTopUpCatalog(),
+      readCatalog: () => adapter.readTopUpCatalog(),
     },
   ];
 }

@@ -7,9 +7,11 @@ import type {
   SupplierProvider,
   SupplierPurchaseRequest,
   SupplierPurchaseResult,
+  SupplierTopUpCatalogRead,
   SupplierTopUpField,
   SupplierTopUpGame,
   SupplierTopUpOffer,
+  SupplierTopUpUnreadableGame,
 } from '../supplier-provider.interface';
 
 const DEFAULT_BASE_URL = 'https://api.fzr.cards/api/v2';
@@ -34,16 +36,29 @@ const MAX_LIST_PAGES = 50;
  */
 const OFFER_FETCH_CONCURRENCY = 4;
 
+/**
+ * Catalogue reads retry a throttled or briefly unavailable venue, after these
+ * pauses. Short on purpose: an import runs inside one admin request, behind a
+ * proxy that gives up after two minutes. Purchases are never retried here.
+ */
+const CATALOG_RETRY_DELAYS_MS = [500, 1_500] as const;
+const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([429, 502, 503, 504]);
+
 type JsonObject = Record<string, unknown>;
 
 /** Adapter-owned failure. `code` is normalised; a raw provider message never travels inside it. */
 export class FazerCardsTopUpSupplierError extends Error {
   readonly code: string;
+  /** The venue's HTTP status, when it answered at all. */
+  readonly httpStatus?: number;
 
-  constructor(code: string, message: string, options?: { cause?: unknown }) {
+  constructor(code: string, message: string, options?: { cause?: unknown; httpStatus?: number }) {
     super(message, options);
     this.name = 'FazerCardsTopUpSupplierError';
     this.code = code;
+    if (options?.httpStatus !== undefined) {
+      this.httpStatus = options.httpStatus;
+    }
   }
 }
 
@@ -52,6 +67,8 @@ export interface FazerCardsTopUpSupplierProviderOptions {
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
   readonly clock?: () => Date;
+  /** The pause between catalogue retries; injectable so tests do not wait. */
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 function isObject(value: unknown): value is JsonObject {
@@ -294,6 +311,15 @@ interface FazerCardsCategory {
   readonly raw: JsonObject;
 }
 
+/** A connection that failed outright — not one that ran out of time. */
+function isRetryableNetworkError(error: unknown): boolean {
+  if (!(error instanceof FazerCardsTopUpSupplierError) || error.code !== 'NETWORK_ERROR') {
+    return false;
+  }
+  const cause: unknown = error.cause;
+  return !(isObject(cause) && cause['name'] === 'TimeoutError');
+}
+
 /** `Promise.all` over `items`, at most `limit` at a time, results in input order. The first rejection wins. */
 async function mapWithConcurrency<T, R>(
   items: readonly T[],
@@ -367,6 +393,7 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly clock: () => Date;
+  private readonly sleep: (ms: number) => Promise<void>;
 
   private readonly inFlightPurchases = new Map<string, Promise<SupplierPurchaseResult>>();
 
@@ -384,6 +411,7 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/u, '');
     this.timeoutMs = timeoutMs;
     this.clock = options.clock ?? (() => new Date());
+    this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
 
   /* ==========================================================================
@@ -439,15 +467,60 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
    * Every game the venue lists, with its account fields and packages.
    *
    * A game whose offers call answers 404 is left out: the venue may still list
-   * a category it no longer sells, same as the ReSellCodes precedent.
+   * a category it no longer sells, same as the ReSellCodes precedent. Any other
+   * failure fails the whole read — the availability sync delists whatever is
+   * missing, so a partial answer here would take games off sale.
    */
   async getTopUpCatalog(): Promise<readonly SupplierTopUpGame[]> {
+    return (await this.collectTopUpCatalog(false)).games;
+  }
+
+  /**
+   * The catalogue import's read: a game whose offers still fail after the
+   * retries is reported in `unreadable` rather than failing every other game
+   * with it. If no game could be read at all, the problem is the account or
+   * the venue, not one game, and the first failure is thrown as it is.
+   */
+  async readTopUpCatalog(): Promise<SupplierTopUpCatalogRead> {
+    return this.collectTopUpCatalog(true);
+  }
+
+  private async collectTopUpCatalog(tolerant: boolean): Promise<SupplierTopUpCatalogRead> {
     const categories = await this.fetchAllCategories();
-    const games = await mapWithConcurrency(categories, OFFER_FETCH_CONCURRENCY, async (category) => {
-      const listing = await this.fetchOffers(category.categoryId);
-      return listing === null ? null : this.toTopUpGame(category, listing);
+    type Outcome =
+      | { readonly category: FazerCardsCategory; readonly read: true; readonly game: SupplierTopUpGame | null }
+      | { readonly category: FazerCardsCategory; readonly read: false; readonly error: FazerCardsTopUpSupplierError };
+    const outcomes = await mapWithConcurrency(categories, OFFER_FETCH_CONCURRENCY, async (category): Promise<Outcome> => {
+      try {
+        const listing = await this.fetchOffers(category.categoryId, { retry: true });
+        return { category, read: true, game: listing === null ? null : this.toTopUpGame(category, listing) };
+      } catch (error) {
+        if (!tolerant || !(error instanceof FazerCardsTopUpSupplierError)) {
+          throw error;
+        }
+        return { category, read: false, error };
+      }
     });
-    return games.filter((game): game is SupplierTopUpGame => game !== null);
+
+    const games: SupplierTopUpGame[] = [];
+    const unreadable: SupplierTopUpUnreadableGame[] = [];
+    let firstError: FazerCardsTopUpSupplierError | null = null;
+    for (const outcome of outcomes) {
+      if (!outcome.read) {
+        firstError ??= outcome.error;
+        unreadable.push({
+          categoryId: outcome.category.categoryId,
+          name: outcome.category.name,
+          failureCode: outcome.error.code,
+        });
+      } else if (outcome.game !== null) {
+        games.push(outcome.game);
+      }
+    }
+    if (firstError !== null && unreadable.length === categories.length) {
+      throw firstError;
+    }
+    return { games, unreadable };
   }
 
   /** Read straight from the same offers list `getCatalog` uses; no per-SKU price endpoint is documented. */
@@ -649,12 +722,12 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
     let total: number | null = null;
 
     for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
-      /* `include_ui` asks for cover art; a venue that ignores it just sends none. */
-      const query = new URLSearchParams({ limit: String(LIST_PAGE_LIMIT), include_ui: 'true' });
+      /* `include_ui=1` (the spec's own spelling) asks for cover art; a venue that ignores it just sends none. */
+      const query = new URLSearchParams({ limit: String(LIST_PAGE_LIMIT), include_ui: '1' });
       if (cursor !== null) {
         query.set('cursor', cursor);
       }
-      const response = await this.call({ method: 'GET', path: `/topups?${query.toString()}` });
+      const response = await this.getWithRetry(`/topups?${query.toString()}`);
       const payload = this.expectOk(response, 'CATALOG_UNAVAILABLE');
       if (!isObject(payload) || !Array.isArray(payload['items'])) {
         throw new FazerCardsTopUpSupplierError('INVALID_RESPONSE', 'FazerCards /topups was not a list');
@@ -692,11 +765,11 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
    */
   private async fetchOffers(
     categoryId: string,
+    options: { readonly retry?: boolean } = {},
   ): Promise<{ offers: readonly JsonObject[]; payload: JsonObject } | null> {
-    const response = await this.call({
-      method: 'GET',
-      path: `/topups/offers?category_id=${encodeURIComponent(categoryId)}`,
-    });
+    const path = `/topups/offers?category_id=${encodeURIComponent(categoryId)}`;
+    /* Only catalogue reads retry; a quote or availability check answers at once. */
+    const response = options.retry === true ? await this.getWithRetry(path) : await this.call({ method: 'GET', path });
     if (response.status === 404) {
       return null;
     }
@@ -764,9 +837,35 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
       throw new FazerCardsTopUpSupplierError(
         normaliseErrorCode(response.payload, code),
         `FazerCards refused the request with HTTP ${response.status}`,
+        { httpStatus: response.status },
       );
     }
     return response.payload;
+  }
+
+  /**
+   * A catalogue GET that rides out throttling (429), a gateway hiccup
+   * (502/503/504) or a dropped connection. A timeout is not retried: it has
+   * already spent the whole per-request budget once.
+   */
+  private async getWithRetry(path: string): Promise<FazerCardsResponse> {
+    for (let attempt = 0; ; attempt += 1) {
+      const delay = CATALOG_RETRY_DELAYS_MS[attempt];
+      let response: FazerCardsResponse;
+      try {
+        response = await this.call({ method: 'GET', path });
+      } catch (error) {
+        if (delay === undefined || !isRetryableNetworkError(error)) {
+          throw error;
+        }
+        await this.sleep(delay);
+        continue;
+      }
+      if (delay === undefined || !RETRYABLE_STATUSES.has(response.status)) {
+        return response;
+      }
+      await this.sleep(delay);
+    }
   }
 
   private async call(options: {
