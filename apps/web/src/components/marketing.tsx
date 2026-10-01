@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Check, Globe2, LockKeyhole, Sparkles, Zap } from "lucide-react";
+import { ArrowLeft, Check, Gamepad2, Globe2, LockKeyhole, Send, Sparkles, Zap } from "lucide-react";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { visibleBrandsQuery } from "@/lib/brand-art";
@@ -238,10 +238,10 @@ export async function HomePage() {
               <TypewriterHeading text="چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات." className="h1" />
               <p className="hero-copy">گیفت‌کارت بخرید یا هزینه سرویس‌های بین‌المللی را با خیال راحت پرداخت کنید. قیمت شفاف، پرداخت امن و پشتیبانی واقعی.</p>
               <div className="hero-actions">
-                <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
-                <Link className="btn btn-outline" href="/services">پرداخت یک سرویس</Link>
-                <Link className="btn btn-ghost" href="/telegram">استارز و پرمیوم تلگرام</Link>
-                <Link className="btn btn-ghost" href="/games">شارژ مستقیم بازی</Link>
+                <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} aria-hidden="true" /></Link>
+                <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> پرداخت یک سرویس</Link>
+                <Link className="btn btn-outline" href="/telegram"><Send size={17} aria-hidden="true" /> استارز و پرمیوم تلگرام</Link>
+                <Link className="btn btn-outline" href="/games"><Gamepad2 size={17} aria-hidden="true" /> شارژ مستقیم بازی</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>
