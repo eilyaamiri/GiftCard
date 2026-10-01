@@ -111,6 +111,12 @@ interface ImportPlan {
 }
 
 const MAX_SLUG_LENGTH = 90;
+/**
+ * How long a preview's read is reused by the import that follows it. Long
+ * enough for an operator to scroll a 300-game preview, short enough that a
+ * forgotten tab reads the venue again.
+ */
+export const PREVIEW_READ_REUSE_MS = 15 * 60 * 1_000;
 /** What a normalised adapter failure code looks like; anything else is not repeated. */
 const SAFE_FAILURE_CODE = /^[A-Z0-9_]{1,80}$/;
 
@@ -343,6 +349,15 @@ export class TopUpCatalogImportService {
   private readonly logger = new Logger(TopUpCatalogImportService.name);
   private readonly readers: ReadonlyMap<string, TopUpCatalogReader>;
   private running = false;
+  /**
+   * The last preview's read, per supplier. The import that follows reuses it
+   * instead of reading the venue a second time: a full read is one request per
+   * game, and a second one minutes after the first is refused by the venue's
+   * rate limit. It also means what is saved is what the operator just saw.
+   * Only the read is kept — the plan is always rebuilt against a fresh
+   * snapshot, so a game created since the preview is still never duplicated.
+   */
+  private readonly previewReads = new Map<string, { readonly read: SupplierTopUpCatalogRead; readonly at: number }>();
 
   constructor(
     @Inject(TOP_UP_CATALOG_IMPORT_STORE) private readonly store: TopUpCatalogImportStore,
@@ -390,7 +405,7 @@ export class TopUpCatalogImportService {
     /* The whole catalogue is read before anything is planned or written. */
     let read: SupplierTopUpCatalogRead;
     try {
-      read = await reader.readCatalog();
+      read = await this.readCatalog(reader, input.dryRun);
     } catch (error) {
       /* Class, normalised code and HTTP status — enough to tell a lapsed account from a busy venue, never a message. */
       const failure = describeCatalogReadFailure(error);
@@ -436,6 +451,8 @@ export class TopUpCatalogImportService {
         newOffers: plan.newOffers,
         importedAt: new Date(),
       });
+      /* Saved: the next import has nothing to reuse and reads the venue afresh. */
+      this.previewReads.delete(reader.supplierCode);
     } catch (error) {
       if (error instanceof TopUpImportRaceError) {
         throw DomainErrors.conflict(
@@ -463,5 +480,19 @@ export class TopUpCatalogImportService {
       `top-up catalogue imported for ${reader.supplierCode}: ${result.totals.newGames} games, ${result.totals.newOffers} offers`,
     );
     return result;
+  }
+
+  /** A preview always reads the venue; an import reuses a recent preview's read when there is one. */
+  private async readCatalog(reader: TopUpCatalogReader, dryRun: boolean): Promise<SupplierTopUpCatalogRead> {
+    const now = Date.now();
+    const previous = this.previewReads.get(reader.supplierCode);
+    if (!dryRun && previous !== undefined && now - previous.at < PREVIEW_READ_REUSE_MS) {
+      return previous.read;
+    }
+    const read = await reader.readCatalog();
+    if (dryRun) {
+      this.previewReads.set(reader.supplierCode, { read, at: now });
+    }
+    return read;
   }
 }

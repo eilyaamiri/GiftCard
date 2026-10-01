@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SupplierTopUpCatalogRead, SupplierTopUpField, SupplierTopUpGame } from '@barat/suppliers';
 
 import { BaratDomainException } from '../../common/errors/domain.exception';
@@ -6,6 +6,7 @@ import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { InMemoryTopUpCatalogImportStore } from './testing/in-memory-topup-catalog-import.store';
 import {
   persianFieldLabel,
+  PREVIEW_READ_REUSE_MS,
   slugifyGameName,
   TopUpCatalogImportService,
   TOP_UP_IMPORT_AUDIT_ACTION,
@@ -281,6 +282,129 @@ describe('TopUpCatalogImportService — dry run', () => {
     expect(h.store.applyCalls).toBe(0);
     expect(h.store.suppliers.size).toBe(0);
     expect(h.audits).toHaveLength(0);
+  });
+});
+
+describe('TopUpCatalogImportService — reusing the preview read', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('imports what the preview read, without reading the venue again', async () => {
+    const h = harness([PUBG, MLBB]);
+
+    const dry = await h.run(true);
+    const saved = await h.run(false);
+
+    expect(h.reads()).toBe(1);
+    expect(saved.games.map((row) => row.slug)).toEqual(dry.games.map((row) => row.slug));
+    expect((await h.store.snapshot(CODE)).games).toHaveLength(2);
+  });
+
+  it('reads the venue again once the preview is too old', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const h = harness([PUBG]);
+
+    await h.run(true);
+    vi.setSystemTime(Date.now() + PREVIEW_READ_REUSE_MS);
+    await h.run(false);
+
+    expect(h.reads()).toBe(2);
+  });
+
+  it('reads the venue for an import that had no preview', async () => {
+    const h = harness([PUBG]);
+
+    await h.run(false);
+
+    expect(h.reads()).toBe(1);
+  });
+
+  it('does not reuse a read once it has been saved', async () => {
+    const h = harness([PUBG]);
+
+    await h.run(true);
+    await h.run(false);
+    await h.run(false);
+
+    expect(h.reads()).toBe(2);
+  });
+
+  it('reuses nothing from a preview that failed', async () => {
+    let calls = 0;
+    const store = new InMemoryTopUpCatalogImportStore();
+    const service = new TopUpCatalogImportService(
+      store,
+      [
+        {
+          supplierCode: CODE,
+          supplierName: 'FazerCards Top-up',
+          defaultCurrency: 'USD',
+          readCatalog: async () => {
+            calls += 1;
+            if (calls === 1) {
+              throw new Error('venue busy');
+            }
+            return read(PUBG);
+          },
+        },
+      ],
+      new AuditService({ append: async () => undefined }),
+    );
+
+    await expect(service.import({ supplierCode: CODE, dryRun: true, actor: ACTOR })).rejects.toMatchObject({
+      status: 409,
+    });
+    await expect(service.import({ supplierCode: CODE, dryRun: false, actor: ACTOR })).resolves.toMatchObject({
+      totals: { newGames: 1 },
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('keeps the read after a refused save, so the retry does not hit the venue', async () => {
+    const h = harness([PUBG]);
+    await h.run(true);
+    h.store.failApply = new TopUpImportRaceError();
+    await expect(h.run(false)).rejects.toMatchObject({ status: 409 });
+
+    h.store.failApply = undefined;
+    await h.run(false);
+
+    expect(h.reads()).toBe(1);
+    expect((await h.store.snapshot(CODE)).games).toHaveLength(1);
+  });
+
+  it('plans against what exists now, not what existed at preview time', async () => {
+    const h = harness([PUBG, MLBB]);
+    await h.run(true);
+    // Another import saved PUBG between this preview and its import.
+    await h.store.applyImport({
+      supplier: { code: CODE, name: 'FazerCards Top-up', defaultCurrency: 'USD' },
+      newGames: [
+        {
+          providerCategoryId: 'pubg_mobile',
+          slug: 'pubg-mobile',
+          name: 'PUBG Mobile',
+          region: 'GLOBAL',
+          imageUrl: null,
+          providerNote: null,
+          requiresCredentials: false,
+          sortOrder: 0,
+          fields: [],
+          offers: [],
+        },
+      ],
+      newOffers: [],
+      importedAt: new Date(),
+    });
+
+    const saved = await h.run(false);
+
+    expect(saved.totals.newGames).toBe(1);
+    expect((await h.store.snapshot(CODE)).games.map((g) => g.providerCategoryId).sort()).toEqual([
+      'mlbb',
+      'pubg_mobile',
+    ]);
   });
 });
 
