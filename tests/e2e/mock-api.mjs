@@ -84,6 +84,61 @@ const services = [{
   fields: [{ id: "field-invoice", key: "invoiceNumber", label: "Invoice number", labelFa: "شماره فاکتور", fieldType: "TEXT", isRequired: true, validationRegex: null, helpTextFa: "شمارهٔ فاکتور را از صفحهٔ پرداخت کپی کنید.", options: null, sortOrder: 0 }],
 }];
 
+/* ============================================================================
+ * Direct top-ups
+ *
+ * Every account shape the storefront sells: a player id alone, a player id
+ * plus a typed server id, and a player id plus a server picked from the
+ * venue's list. A game that wants a password is never listed by the API, so
+ * it has no fixture here. Telegram rides in the same catalogue and must never
+ * reach the games shelf.
+ * ==========================================================================*/
+
+const topUpGames = [
+  {
+    id: "topup-pubg", slug: "pubg-mobile", name: "PUBG Mobile", nameFa: "پابجی موبایل", brandName: "PUBG", region: "GLOBAL", imageUrl: null, offerCount: 2,
+    descriptionFa: null, providerNote: null,
+    fields: [{ key: "player_id", label: "Player ID", labelFa: "شناسه بازیکن", fieldType: "TEXT", isRequired: true, options: null, validationRegex: "^[0-9]{5,12}$", helpTextFa: "شناسه را از پروفایل بازی کپی کنید.", sortOrder: 0 }],
+    offers: [
+      { id: "offer-pubg-60", name: "60 UC", nameFa: "۶۰ یوسی", isAvailable: true, sortOrder: 0 },
+      { id: "offer-pubg-325", name: "325 UC", nameFa: "۳۲۵ یوسی", isAvailable: true, sortOrder: 1 },
+      /* Withdrawn by the venue: the page must not offer it. */
+      { id: "offer-pubg-660", name: "660 UC", nameFa: "۶۶۰ یوسی", isAvailable: false, sortOrder: 2 },
+    ],
+  },
+  {
+    id: "topup-mlbb", slug: "mobile-legends", name: "Mobile Legends", nameFa: "موبایل لجندز", brandName: "Moonton", region: "GLOBAL", imageUrl: null, offerCount: 1,
+    descriptionFa: null, providerNote: null,
+    fields: [
+      /* Deliberately out of order: the form sorts by `sortOrder`. */
+      { key: "zone_id", label: "Zone ID", labelFa: "شناسه سرور", fieldType: "TEXT", isRequired: true, options: null, validationRegex: "^[0-9]{4,5}$", helpTextFa: null, sortOrder: 1 },
+      { key: "user_id", label: "User ID", labelFa: "شناسه بازیکن", fieldType: "TEXT", isRequired: true, options: null, validationRegex: null, helpTextFa: null, sortOrder: 0 },
+    ],
+    offers: [{ id: "offer-mlbb-86", name: "86 Diamonds", nameFa: "۸۶ الماس", isAvailable: true, sortOrder: 0 }],
+  },
+  {
+    id: "topup-genshin", slug: "genshin-impact", name: "Genshin Impact", nameFa: null, brandName: "HoYoverse", region: "ASIA", imageUrl: null, offerCount: 1,
+    descriptionFa: null, providerNote: null,
+    fields: [
+      { key: "uid", label: "UID", labelFa: "شناسه بازیکن", fieldType: "TEXT", isRequired: true, options: null, validationRegex: null, helpTextFa: null, sortOrder: 0 },
+      { key: "server", label: "Server", labelFa: "سرور", fieldType: "SELECT", isRequired: true, options: [{ label: "Asia", value: "os_asia" }, { label: "Europe", value: "os_euro" }], validationRegex: null, helpTextFa: null, sortOrder: 1 },
+    ],
+    offers: [{ id: "offer-genshin-60", name: "60 Genesis Crystals", nameFa: null, isAvailable: true, sortOrder: 0 }],
+  },
+  {
+    id: "topup-telegram-stars", slug: "telegram-stars", name: "Telegram Stars", nameFa: "استارز تلگرام", brandName: "Telegram", region: null, imageUrl: null, offerCount: 1,
+    descriptionFa: null, providerNote: null,
+    fields: [{ key: "telegram_username", label: "Username", labelFa: null, fieldType: "TEXT", isRequired: true, options: null, validationRegex: null, helpTextFa: null, sortOrder: 0 }],
+    offers: [{ id: "offer-stars-50", name: "50 Stars", nameFa: null, isAvailable: true, sortOrder: 0 }],
+  },
+];
+
+/** The list route's shape: the detail without fields, offers or copy. */
+function topUpSummary(game) {
+  const { id, slug, name, nameFa, brandName, region, imageUrl, offerCount } = game;
+  return { id, slug, name, nameFa, brandName, region, imageUrl, offerCount };
+}
+
 function quoteFor(body = {}) {
   const service = Boolean(body.serviceId);
   const quote = {
@@ -219,6 +274,12 @@ createServer(async (request, response) => {
   if (request.method === "GET" && url.pathname === "/api/catalog/products/apple-us") return json(response, 200, { product: { ...products[1], redemptionNotesFa: null, skus: [] } });
   if (request.method === "GET" && url.pathname === "/api/catalog/products/spotify-premium") return json(response, 200, { product: { ...products[2], redemptionNotesFa: null, skus: [] } });
   if (request.method === "GET" && url.pathname === "/api/catalog/services") return json(response, 200, { items: services, meta: { page: 1, pageSize: 20, total: services.length, totalPages: 1 } });
+  if (request.method === "GET" && url.pathname === "/api/catalog/top-ups") return json(response, 200, { items: topUpGames.map(topUpSummary) });
+  const topUpRoute = /^\/api\/catalog\/top-ups\/([^/]+)$/u.exec(url.pathname);
+  if (request.method === "GET" && topUpRoute) {
+    const game = topUpGames.find((item) => item.slug === decodeURIComponent(topUpRoute[1]));
+    return game ? json(response, 200, { game }) : json(response, 404, { code: "NOT_FOUND", message: "Not found" });
+  }
   if (request.method === "GET" && url.pathname === "/api/quotes/quote-e2e-001") return json(response, 200, { quote: quoteFor().quote });
   if (request.method === "POST" && url.pathname === "/api/quotes") {
     let text = "";

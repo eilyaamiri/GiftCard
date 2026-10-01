@@ -539,6 +539,43 @@ describe('CatalogService top-up quote targets', () => {
   });
 });
 
+describe('CatalogService public top-up list', () => {
+  function listHarness() {
+    const topUpGame = { findMany: vi.fn().mockResolvedValue([]) };
+    const db = { topUpGame } as unknown as CatalogDatabase;
+    return { service: new CatalogService(db, TEST_CONFIG), topUpGame };
+  }
+
+  it('lists only games the detail route would also sell', async () => {
+    const { service, topUpGame } = listHarness();
+
+    await service.listTopUpGames();
+
+    const { where } = topUpGame.findMany.mock.calls[0]?.[0] as { where: Record<string, unknown> };
+    expect(where).toMatchObject({
+      isActive: true,
+      isListed: true,
+      /* The detail route 404s such a game; listing it would link to nothing. */
+      requiresCredentials: false,
+      supplier: { isActive: true },
+      /* A game with no offer on sale has nothing for its page to offer. */
+      offers: { some: { isActive: true, isListed: true } },
+    });
+  });
+
+  it('counts offers with the same predicate it filters games by', async () => {
+    const { service, topUpGame } = listHarness();
+
+    await service.listTopUpGames();
+
+    const args = topUpGame.findMany.mock.calls[0]?.[0] as {
+      where: { offers: { some: unknown } };
+      select: { offers: { where: unknown } };
+    };
+    expect(args.select.offers.where).toEqual(args.where.offers.some);
+  });
+});
+
 describe('CatalogService admin product list', () => {
   /* The imported supplier catalog is ~2,400 products, all switched off. An
    * operator reaches one of them by searching for it, so these assert on the

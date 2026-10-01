@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CircleUserRound, Headphones, Home, ReceiptText } from "lucide-react";
+import { CircleUserRound, Gamepad2, Headphones, Home, ReceiptText } from "lucide-react";
 import type { SupportChannel } from "@/lib/support-channels";
 
 interface NavItem {
@@ -19,6 +19,15 @@ const CONTACT = "contact" as const;
 
 const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
   { href: "/", label: "خانه", icon: Home, requiresAuth: false, isActive: (path) => path === "/" },
+  /* Game top-ups are their own section, not a gift-card category: they credit
+   * the customer's account directly, so on a phone they get a tab of their own. */
+  {
+    href: "/games",
+    label: "شارژ بازی",
+    icon: Gamepad2,
+    requiresAuth: false,
+    isActive: (path) => path.startsWith("/games"),
+  },
   {
     href: "/orders",
     label: "سفارش‌ها",

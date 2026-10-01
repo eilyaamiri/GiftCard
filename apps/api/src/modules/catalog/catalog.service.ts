@@ -527,7 +527,7 @@ export class CatalogService {
   /**
    * The games a customer can currently top up.
    *
-   * Three conditions, and each one is load-bearing:
+   * Five conditions, and each one is load-bearing:
    *
    *   - the game is `isActive` — an operator has curated it. A newly synced
    *     game arrives inactive precisely so nothing goes on sale unreviewed.
@@ -535,6 +535,10 @@ export class CatalogService {
    *   - the supplier is active. An inactive supplier has no adapter wired, so
    *     listing its games would advertise something that cannot be bought and
    *     would fail at quote time instead of here.
+   *   - the game does not `requiresCredentials` — the detail route refuses
+   *     such a game, so listing it would link a customer to a 404.
+   *   - at least one offer is on sale. A game with none has nothing to buy,
+   *     and the detail page would have nothing to offer.
    *
    * The offer count and the «from» price are computed from the SAME predicate
    * the detail page uses, so the two can never disagree about what is on sale.
@@ -551,7 +555,9 @@ export class CatalogService {
       where: {
         isActive: true,
         isListed: true,
+        requiresCredentials: false,
         supplier: { isActive: true },
+        offers: { some: visible },
         ...(input.search === undefined || input.search === ''
           ? {}
           : {

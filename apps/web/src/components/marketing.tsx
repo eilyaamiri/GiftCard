@@ -10,6 +10,7 @@ import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
 import { getFaqs } from "@/lib/faq";
 import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
+import { gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
 
 /**
  * Every strip on the landing page is the same width — four cards — so the page
@@ -220,11 +221,12 @@ function TypewriterHeading({ text, className }: Readonly<{ text: string; classNa
 
 export async function HomePage() {
   const categories = await homeCategories();
-  const [shelves, services, faqs, telegramGames] = await Promise.all([
+  const [shelves, services, faqs, telegramGames, gameTopUps] = await Promise.all([
     homeShelves(categories),
     homeServices(),
     getFaqs(),
     listTelegramGames(),
+    listGameTopUps(),
   ]);
   return (
     <>
@@ -239,6 +241,7 @@ export async function HomePage() {
                 <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} /></Link>
                 <Link className="btn btn-outline" href="/services">پرداخت یک سرویس</Link>
                 <Link className="btn btn-ghost" href="/telegram">استارز و پرمیوم تلگرام</Link>
+                <Link className="btn btn-ghost" href="/games">شارژ مستقیم بازی</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>
@@ -300,6 +303,25 @@ export async function HomePage() {
               })}
             </div>
           </section>
+          {/* Only once something is on sale: a shelf of «coming soon» cards on
+              the landing page reads as a broken storefront. */}
+          {gameTopUps.length > 0 ? (
+            <section className="container section">
+              <ShelfHead eyebrow="شارژ مستقیم" title="شارژ بازی روی حساب خودتان" href="/games" />
+              <div className="grid tg-home-grid gt-home-grid">
+                {gameTopUps.slice(0, ROW_SIZE).map((game) => {
+                  const region = regionLabel(game.region);
+                  return (
+                    <Link href={`/games/${encodeURIComponent(game.slug)}`} className="card pad tg-home-card" key={game.id}>
+                      <strong>{gameTitle(game)}</strong>
+                      <span className="muted">شارژ مستقیم با شناسهٔ بازیکن{region !== null ? ` · ${region}` : ""}</span>
+                      <span className="section-head-link">انتخاب بسته <ArrowLeft size={14} aria-hidden="true" /></span>
+                    </Link>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
         </div>
         <section className="container section">
           <div className="section-head">
