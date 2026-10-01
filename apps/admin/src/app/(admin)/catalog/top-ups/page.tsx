@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/session";
 import { adminTopUpGameListSchema } from "../_lib/catalog-contracts";
 import { formatCount } from "../_lib/format";
 import { CatalogTabs } from "../_components/catalog-tabs";
+import { ImportTopUpButton } from "./_components/import-topup-button";
 import { SyncTopUpButton } from "./_components/sync-topup-button";
 
 export const metadata = { title: "شارژ مستقیم | پنل ادمین برات پی" };
@@ -45,6 +46,7 @@ export default async function TopUpCatalogPage() {
       <PageHeading count={list.meta.total} />
       <CatalogTabs active="topups" />
 
+      <ImportTopUpButton />
       <SyncTopUpButton />
 
       <div className="card list-card">
@@ -117,7 +119,7 @@ export default async function TopUpCatalogPage() {
         </div>
         {list.items.length === 0 ? (
           <p className="empty-hint">
-            هنوز بازی شارژ مستقیمی ثبت نشده است. ابتدا کاتالوگ تأمین‌کننده را همگام‌سازی کنید.
+            هنوز بازی شارژ مستقیمی ثبت نشده است. ابتدا بازی‌ها را از تأمین‌کننده وارد کنید.
           </p>
         ) : null}
       </div>

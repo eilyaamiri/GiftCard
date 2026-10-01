@@ -5,10 +5,12 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { buildSupplierProviders } from './supplier-providers.factory';
+import { buildSupplierProviders, buildTopUpCatalogReaders } from './supplier-providers.factory';
 import {
   providerSkuKey,
+  readFazerCardsCatalogEnv,
   readFazerCardsTelegramEnv,
+  readFazerCardsTopUpEnv,
   readProviderSkuMap,
   readReloadlyEnv,
 } from './suppliers.env';
@@ -29,6 +31,7 @@ const KEYS = [
   'RELOADLY_SENDER_NAME',
   'RELOADLY_TIMEOUT_MS',
   'FAZERCARDS_TELEGRAM_ENABLED',
+  'FAZERCARDS_TOPUP_ENABLED',
   'FAZERCARDS_API_KEY',
   'FAZERCARDS_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
@@ -227,6 +230,111 @@ describe('readFazerCardsTelegramEnv', () => {
   });
 });
 
+function configureFazerCardsTopUp(): void {
+  process.env['FAZERCARDS_TOPUP_ENABLED'] = 'true';
+  process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+}
+
+/* Game top-ups spend real money too, under a flag of their own. */
+describe('readFazerCardsTopUpEnv', () => {
+  it('is off when nothing is configured', () => {
+    expect(readFazerCardsTopUpEnv()).toEqual({ enabled: false, apiKey: '', timeoutMs: 20_000 });
+  });
+
+  it('stays off when only the shared key is present', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    expect(readFazerCardsTopUpEnv().enabled).toBe(false);
+  });
+
+  it('stays off when only Telegram is switched on', () => {
+    configureFazerCardsTelegram();
+
+    // Telegram going live says nothing about games.
+    expect(readFazerCardsTopUpEnv().enabled).toBe(false);
+  });
+
+  it('refuses a flag it cannot read as a decision', () => {
+    process.env['FAZERCARDS_TOPUP_ENABLED'] = 'yes';
+
+    expect(() => readFazerCardsTopUpEnv()).toThrow(/must be exactly/u);
+  });
+
+  it('reads a complete live configuration', () => {
+    configureFazerCardsTopUp();
+    process.env['FAZERCARDS_TIMEOUT_MS'] = '7000';
+
+    expect(readFazerCardsTopUpEnv()).toEqual({ enabled: true, apiKey: 'fzr-live-key', timeoutMs: 7000 });
+  });
+
+  it('refuses to go live without the API key', () => {
+    process.env['FAZERCARDS_TOPUP_ENABLED'] = 'true';
+
+    expect(() => readFazerCardsTopUpEnv()).toThrow('FAZERCARDS_API_KEY is required when FazerCards top-up');
+  });
+});
+
+describe('readFazerCardsCatalogEnv', () => {
+  it('has no key when none is deployed', () => {
+    expect(readFazerCardsCatalogEnv()).toEqual({ apiKey: undefined, timeoutMs: 20_000 });
+  });
+
+  it('reads the key without any product flag', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    expect(readFazerCardsCatalogEnv().apiKey).toBe('fzr-live-key');
+  });
+
+  it('ignores the timeout while there is no key', () => {
+    process.env['FAZERCARDS_TIMEOUT_MS'] = 'soon';
+
+    expect(readFazerCardsCatalogEnv().timeoutMs).toBe(20_000);
+  });
+
+  it('validates the timeout once a key is present', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+    process.env['FAZERCARDS_TIMEOUT_MS'] = 'soon';
+
+    expect(() => readFazerCardsCatalogEnv()).toThrow(/FAZERCARDS_TIMEOUT_MS/u);
+  });
+});
+
+describe('buildTopUpCatalogReaders', () => {
+  it('builds no reader without a key', () => {
+    expect(buildTopUpCatalogReaders({ isTest: false })).toEqual([]);
+  });
+
+  it('never builds a reader under NODE_ENV=test', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    expect(buildTopUpCatalogReaders({ isTest: true })).toEqual([]);
+  });
+
+  it('builds the game catalogue reader from the key alone, with the top-up flag off', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    const readers = buildTopUpCatalogReaders({ isTest: false });
+
+    expect(readers.map((reader) => reader.supplierCode)).toEqual(['fazercards-topup']);
+    // Reading is allowed before the release decision; spending is not.
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('exposes a catalogue read and nothing that can buy', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    const [reader] = buildTopUpCatalogReaders({ isTest: false });
+
+    expect(Object.keys(reader ?? {}).sort()).toEqual([
+      'defaultCurrency',
+      'readCatalog',
+      'supplierCode',
+      'supplierName',
+    ]);
+    expect(JSON.stringify(reader)).not.toContain('fzr-live-key');
+  });
+});
+
 describe('readProviderSkuMap', () => {
   it('is empty when unset', () => {
     expect(readProviderSkuMap().size).toBe(0);
@@ -410,6 +518,36 @@ describe('buildSupplierProviders', () => {
 
   it('does not log the FazerCards API key', () => {
     configureFazerCardsTelegram();
+    const log = vi.mocked(Logger.prototype.log);
+
+    buildSupplierProviders({ isTest: false });
+
+    expect(log.mock.calls.flat().join(' ')).not.toContain('fzr-live-key');
+  });
+
+  it('registers FazerCards top-up once it is switched on', () => {
+    configureFazerCardsTopUp();
+
+    expect(keysFor(false)).toEqual(['mock', 'fazercards-topup']);
+  });
+
+  it('never registers FazerCards top-up under NODE_ENV=test', () => {
+    configureFazerCardsTopUp();
+
+    expect(keysFor(true)).toEqual(['mock']);
+  });
+
+  it('registers FazerCards top-up and Telegram independently', () => {
+    configureFazerCardsTelegram();
+    expect(keysFor(false)).not.toContain('fazercards-topup');
+
+    delete process.env['FAZERCARDS_TELEGRAM_ENABLED'];
+    configureFazerCardsTopUp();
+    expect(keysFor(false)).not.toContain('fazercards-telegram');
+  });
+
+  it('does not log the API key when top-up is registered', () => {
+    configureFazerCardsTopUp();
     const log = vi.mocked(Logger.prototype.log);
 
     buildSupplierProviders({ isTest: false });

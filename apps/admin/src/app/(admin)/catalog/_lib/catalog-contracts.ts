@@ -823,3 +823,57 @@ export const topUpSyncResultSchema = z.object({
   unknownSkus: z.array(z.string()),
 });
 export type TopUpSyncResult = z.infer<typeof topUpSyncResultSchema>;
+
+/**
+ * `POST /operator/suppliers/topup/import` — pinned to `TopUpImportResult` in
+ * `apps/api/src/modules/suppliers/topup-catalog.import.ts`.
+ *
+ * `cost` is the venue's price at read time, shown so the operator can sanity-
+ * check the parse. It is never stored and is not what a customer pays.
+ */
+export const topUpImportGameSchema = z.object({
+  providerCategoryId: z.string(),
+  name: z.string(),
+  slug: z.string().nullable(),
+  status: z.enum(["NEW", "EXISTING", "SKIPPED"]),
+  skipReason: z.enum(["NO_OFFERS", "NO_ACCOUNT_FIELDS", "SERVED_BY_TELEGRAM_SUPPLIER"]).optional(),
+  requiresCredentials: z.boolean(),
+  fields: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      type: z.enum(["TEXT", "SELECT"]),
+      required: z.boolean(),
+      credential: z.boolean(),
+    }),
+  ),
+  newOffers: z.number().int().min(0),
+  offers: z.array(
+    z.object({
+      offerId: z.string(),
+      name: z.string(),
+      cost: z.object({ amount: z.string(), currency: z.string() }).nullable(),
+    }),
+  ),
+});
+export type TopUpImportGame = z.infer<typeof topUpImportGameSchema>;
+
+export const topUpImportResultSchema = z.object({
+  dryRun: z.boolean(),
+  supplierCode: z.string(),
+  supplierCreated: z.boolean(),
+  games: z.array(topUpImportGameSchema),
+  totals: z.object({
+    newGames: z.number().int().min(0),
+    newOffers: z.number().int().min(0),
+    credentialGames: z.number().int().min(0),
+    skipped: z.number().int().min(0),
+  }),
+});
+export type TopUpImportResult = z.infer<typeof topUpImportResultSchema>;
+
+export const TOP_UP_IMPORT_SKIP_LABELS: Record<NonNullable<TopUpImportGame["skipReason"]>, string> = {
+  NO_OFFERS: "بسته‌ای برای فروش ندارد",
+  NO_ACCOUNT_FIELDS: "فیلد حساب کاربری ندارد",
+  SERVED_BY_TELEGRAM_SUPPLIER: "تلگرام جداگانه فروخته می‌شود",
+};

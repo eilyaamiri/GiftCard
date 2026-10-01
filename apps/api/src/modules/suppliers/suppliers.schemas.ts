@@ -26,3 +26,13 @@ export const checkPurchaseStatusBodySchema = z.object({
   providerReference: z.string().trim().min(1).max(256),
 });
 export type CheckPurchaseStatusBody = z.infer<typeof checkPurchaseStatusBodySchema>;
+
+/**
+ * A top-up catalogue import. `dryRun` has no default on purpose: the caller
+ * states whether this run writes, rather than a missing field deciding it.
+ */
+export const importTopUpCatalogBodySchema = z.object({
+  supplierCode: z.string().trim().min(1).max(64).default('fazercards-topup'),
+  dryRun: z.boolean(),
+});
+export type ImportTopUpCatalogBody = z.infer<typeof importTopUpCatalogBodySchema>;

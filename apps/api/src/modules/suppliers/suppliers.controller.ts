@@ -5,13 +5,16 @@ import { Roles } from '../identity/rbac/roles.decorator';
 import { requireStaff } from '../workitems/staff-context';
 import {
   checkPurchaseStatusBodySchema,
+  importTopUpCatalogBodySchema,
   listOffersQuerySchema,
   purchaseBodySchema,
   type CheckPurchaseStatusBody,
+  type ImportTopUpCatalogBody,
   type ListOffersQuery,
   type PurchaseBody,
 } from './suppliers.schemas';
 import { SuppliersService } from './suppliers.service';
+import { TopUpCatalogImportService, type TopUpImportResult } from './topup-catalog.import';
 import { TopUpCatalogSyncService } from './topup-catalog.sync';
 import type {
   SupplierOfferView,
@@ -31,6 +34,7 @@ export class SuppliersController {
   constructor(
     @Inject(SuppliersService) private readonly suppliers: SuppliersService,
     @Inject(TopUpCatalogSyncService) private readonly topUpSync: TopUpCatalogSyncService,
+    @Inject(TopUpCatalogImportService) private readonly topUpImport: TopUpCatalogImportService,
   ) {}
 
   @Get()
@@ -104,5 +108,28 @@ export class SuppliersController {
   async syncTopUpCatalog(@Req() request: unknown): Promise<{ result: TopUpSyncResult }> {
     requireStaff(request);
     return { result: await this.topUpSync.sync() };
+  }
+
+  /**
+   * Imports the venue's game catalogue: new games, their account fields and
+   * their offers. Create-only, and nothing it creates is sellable — games and
+   * a newly created supplier start inactive, and selling still needs the
+   * human-set `FAZERCARDS_TOPUP_ENABLED`. Run with `dryRun: true` first to see
+   * what the venue's answer parsed into.
+   */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Post('topup/import')
+  async importTopUpCatalog(
+    @Body(zodPipe(importTopUpCatalogBodySchema)) body: ImportTopUpCatalogBody,
+    @Req() request: unknown,
+  ): Promise<{ result: TopUpImportResult }> {
+    const staff = requireStaff(request);
+    return {
+      result: await this.topUpImport.import({
+        supplierCode: body.supplierCode,
+        dryRun: body.dryRun,
+        actor: { id: staff.id, role: staff.role },
+      }),
+    };
   }
 }

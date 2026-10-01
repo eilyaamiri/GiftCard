@@ -1,12 +1,22 @@
 import { Logger } from '@nestjs/common';
 import {
   FazerCardsTelegramSupplierProvider,
+  FazerCardsTopUpSupplierProvider,
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
   type SupplierProvider,
 } from '@barat/suppliers';
 
-import { readFazerCardsTelegramEnv, readReloadlyEnv } from './suppliers.env';
+import {
+  readFazerCardsCatalogEnv,
+  readFazerCardsTelegramEnv,
+  readFazerCardsTopUpEnv,
+  readReloadlyEnv,
+} from './suppliers.env';
+import type { TopUpCatalogReader } from './suppliers.types';
+
+/** The `Supplier.code` game top-ups are sold under; the adapter's own key. */
+export const FAZERCARDS_TOPUP_SUPPLIER_CODE = 'fazercards-topup';
 
 /**
  * Turns the environment into the adapter list bound to `SUPPLIER_PROVIDERS`.
@@ -41,6 +51,21 @@ export function buildSupplierProviders(options: {
     logger.warn('FazerCards Telegram is not registered; its offers can only be fulfilled by an operator');
   }
 
+  /*
+   * Game top-ups: the same reasoning, under their own flag. Telegram being live
+   * says nothing about whether games may spend.
+   */
+  const topUp = readFazerCardsTopUpEnv();
+  if (topUp.enabled && !options.isTest) {
+    providers.push(
+      new FazerCardsTopUpSupplierProvider({ apiKey: topUp.apiKey, timeoutMs: topUp.timeoutMs }),
+    );
+    /* Environment only — never the API key. */
+    logger.log('FazerCards top-up registered');
+  } else {
+    logger.warn('FazerCards top-up is not registered; game top-ups escalate to an operator');
+  }
+
   const reloadly = readReloadlyEnv();
   if (!reloadly.enabled || options.isTest) {
     /*
@@ -67,4 +92,32 @@ export function buildSupplierProviders(options: {
   /* Environment only — never the client id, the secret or the mailbox. */
   logger.log(`Reloadly registered against the ${reloadly.environment} environment`);
   return providers;
+}
+
+/**
+ * The catalogue readers bound to `TOP_UP_CATALOG_READERS`.
+ *
+ * Independent of `FAZERCARDS_TOPUP_ENABLED` on purpose: games are imported and
+ * reviewed before anyone decides to sell them. The adapter built here is
+ * captured by the closure and never leaves it, so nothing that receives a
+ * reader can reach `purchase` — which is the whole difference between reading
+ * a catalogue and being registered to spend.
+ */
+export function buildTopUpCatalogReaders(options: {
+  readonly isTest: boolean;
+}): readonly TopUpCatalogReader[] {
+  const env = readFazerCardsCatalogEnv();
+  if (env.apiKey === undefined || options.isTest) {
+    return [];
+  }
+
+  const adapter = new FazerCardsTopUpSupplierProvider({ apiKey: env.apiKey, timeoutMs: env.timeoutMs });
+  return [
+    {
+      supplierCode: FAZERCARDS_TOPUP_SUPPLIER_CODE,
+      supplierName: 'FazerCards Top-up',
+      defaultCurrency: 'USD',
+      readCatalog: () => adapter.getTopUpCatalog(),
+    },
+  ];
 }

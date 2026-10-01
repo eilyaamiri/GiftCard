@@ -9,7 +9,8 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * and declares none of `RELOADLY_ENABLED`, `RELOADLY_ENVIRONMENT`,
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
  * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `FAZERCARDS_TELEGRAM_ENABLED`,
- * `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`, `SUPPLIER_PROVIDER_SKU_MAP` or
+ * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
+ * `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
  * scattered — so the Foundation agent can lift these entries into the
  * validated schema in a single pass.
@@ -32,29 +33,69 @@ export interface ReloadlyEnv {
   readonly timeoutMs: number;
 }
 
-export interface FazerCardsTelegramEnv {
+/** One FazerCards product behind its own flag. The API key is shared across products. */
+export interface FazerCardsProductEnv {
   readonly enabled: boolean;
   readonly apiKey: string;
   readonly timeoutMs: number;
 }
 
 /** Independently gated from every other FazerCards product; a key alone never enables buying. */
+export type FazerCardsTelegramEnv = FazerCardsProductEnv;
+
 export function readFazerCardsTelegramEnv(): FazerCardsTelegramEnv {
-  const enabled = readBoolean('FAZERCARDS_TELEGRAM_ENABLED', false);
+  return readFazerCardsProductEnv('FAZERCARDS_TELEGRAM_ENABLED', 'FazerCards Telegram');
+}
+
+export type FazerCardsTopUpEnv = FazerCardsProductEnv;
+
+/**
+ * Game top-ups, gated by their own flag. Turning it on registers the adapter,
+ * which is what lets fulfillment spend real money — a human release gate
+ * (AGENTS.md section 4.5), never inferred from the shared key.
+ */
+export function readFazerCardsTopUpEnv(): FazerCardsTopUpEnv {
+  return readFazerCardsProductEnv('FAZERCARDS_TOPUP_ENABLED', 'FazerCards top-up');
+}
+
+export interface FazerCardsCatalogEnv {
+  /** Undefined when no key is deployed; the catalogue import is then unavailable. */
+  readonly apiKey: string | undefined;
+  readonly timeoutMs: number;
+}
+
+/**
+ * What the read-only top-up catalogue import needs. Deliberately independent
+ * of `FAZERCARDS_TOPUP_ENABLED`: games have to be imported and reviewed before
+ * anyone decides to sell them, and reading a catalogue spends nothing. The key
+ * is handed to a reader that exposes the catalogue call alone — see
+ * `buildTopUpCatalogReaders`.
+ */
+export function readFazerCardsCatalogEnv(): FazerCardsCatalogEnv {
+  const apiKey = read('FAZERCARDS_API_KEY');
+  return { apiKey, timeoutMs: apiKey === undefined ? DEFAULT_TIMEOUT_MS : readFazerCardsTimeoutMs() };
+}
+
+function readFazerCardsProductEnv(flag: string, product: string): FazerCardsProductEnv {
+  const enabled = readBoolean(flag, false);
   if (!enabled) {
     return { enabled: false, apiKey: '', timeoutMs: DEFAULT_TIMEOUT_MS };
   }
 
   const apiKey = read('FAZERCARDS_API_KEY');
   if (apiKey === undefined) {
-    throw new Error('FAZERCARDS_API_KEY is required when FazerCards Telegram is enabled');
+    throw new Error(`FAZERCARDS_API_KEY is required when ${product} is enabled`);
   }
+  return { enabled: true, apiKey, timeoutMs: readFazerCardsTimeoutMs() };
+}
+
+function readFazerCardsTimeoutMs(): number {
   const raw = read('FAZERCARDS_TIMEOUT_MS');
   const timeoutMs = raw === undefined ? DEFAULT_TIMEOUT_MS : Number(raw);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
     throw new Error(`FAZERCARDS_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
   }
-  return { enabled: true, apiKey, timeoutMs };
+  return timeoutMs;
 }
 
 /** `supplierCode:skuId` -> the identifier that supplier knows the SKU by. */

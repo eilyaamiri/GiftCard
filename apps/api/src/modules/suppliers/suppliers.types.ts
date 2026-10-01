@@ -1,4 +1,9 @@
-import type { SupplierAvailability, SupplierDeliveryAsset, SupplierPrice } from '@barat/suppliers';
+import type {
+  SupplierAvailability,
+  SupplierDeliveryAsset,
+  SupplierPrice,
+  SupplierTopUpGame,
+} from '@barat/suppliers';
 
 /* ============================================================================
  * Injection tokens
@@ -376,4 +381,111 @@ export interface TopUpCatalogStore {
      */
     readonly listingEnabled?: boolean;
   }): Promise<void>;
+}
+
+/* ============================================================================
+ * Top-up catalogue import
+ * ==========================================================================*/
+
+/** The venues a catalogue import can read. Separate from `SUPPLIER_PROVIDERS`: see below. */
+export const TOP_UP_CATALOG_READERS = Symbol.for('barat.topup-catalog-readers');
+/** Persistence for the import. Separate from `TOP_UP_CATALOG_STORE`, which only ever writes availability. */
+export const TOP_UP_CATALOG_IMPORT_STORE = Symbol.for('barat.topup-catalog-import-store');
+
+/**
+ * One venue's top-up catalogue, and nothing else.
+ *
+ * Not a `SupplierProvider`: registering an adapter is what lets fulfillment
+ * spend, and that is gated by a human-set flag. Importing games has to happen
+ * *before* that decision — they are reviewed and activated first — so the
+ * import gets a reader that can list a catalogue and has no purchase method to
+ * call, rather than a provider that happens not to be asked to buy.
+ */
+export interface TopUpCatalogReader {
+  /** The `Supplier.code` the imported games belong to. */
+  readonly supplierCode: string;
+  /** Used only if the supplier row does not exist yet. */
+  readonly supplierName: string;
+  readonly defaultCurrency: string;
+  readCatalog(): Promise<readonly SupplierTopUpGame[]>;
+}
+
+/** What already exists, so an import creates only what is missing. */
+export interface TopUpImportSnapshot {
+  readonly supplier: { readonly id: string; readonly isActive: boolean } | null;
+  /** This supplier's games, keyed by the venue's category id. */
+  readonly games: readonly {
+    readonly id: string;
+    readonly providerCategoryId: string;
+    readonly providerOfferIds: readonly string[];
+  }[];
+  /** Every `TopUpGame.slug` in use, across all suppliers: the column is globally unique. */
+  readonly takenSlugs: readonly string[];
+}
+
+export interface NewTopUpField {
+  readonly key: string;
+  readonly label: string;
+  readonly labelFa: string | null;
+  readonly fieldType: 'TEXT' | 'SELECT';
+  readonly isRequired: boolean;
+  readonly options: readonly { readonly label: string; readonly value: string }[] | null;
+  readonly validationRegex: string | null;
+  readonly sortOrder: number;
+}
+
+/**
+ * An offer to create. There is no cost here on purpose: the quote reads the
+ * venue's price live, and the store writes the column's placeholder zero —
+ * the same thing the seed does — rather than a stale number that looks real.
+ */
+export interface NewTopUpOffer {
+  readonly providerOfferId: string;
+  readonly name: string;
+  readonly sortOrder: number;
+  readonly isActive: boolean;
+}
+
+export interface NewTopUpGame {
+  readonly providerCategoryId: string;
+  readonly slug: string;
+  readonly name: string;
+  readonly region: string;
+  readonly imageUrl: string | null;
+  readonly providerNote: string | null;
+  readonly requiresCredentials: boolean;
+  readonly sortOrder: number;
+  readonly fields: readonly NewTopUpField[];
+  readonly offers: readonly NewTopUpOffer[];
+}
+
+/**
+ * The import's persistence. Create-only by construction: there is no method
+ * that updates an existing game, field or offer, and nothing that writes
+ * `isActive` on a row that already exists.
+ */
+export interface TopUpCatalogImportStore {
+  snapshot(supplierCode: string): Promise<TopUpImportSnapshot>;
+  /**
+   * Creates the supplier if it is missing (always inactive), the new games
+   * with their fields and offers, and new offers on existing games — in one
+   * transaction.
+   */
+  applyImport(input: {
+    readonly supplier: { readonly code: string; readonly name: string; readonly defaultCurrency: string };
+    readonly newGames: readonly NewTopUpGame[];
+    readonly newOffers: readonly { readonly gameId: string; readonly offers: readonly NewTopUpOffer[] }[];
+    readonly importedAt: Date;
+  }): Promise<void>;
+}
+
+/**
+ * Two writers created the same game or slug at once. The import is refused
+ * as a whole — its transaction rolled back — and running it again is safe.
+ */
+export class TopUpImportRaceError extends Error {
+  constructor(options?: { cause?: unknown }) {
+    super('a concurrent write created the same top-up game or slug', options);
+    this.name = 'TopUpImportRaceError';
+  }
 }
