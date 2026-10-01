@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 // From the barrel, never `@barat/suppliers/providers/*`: the import-boundary
 // rule in eslint.config.mjs forbids domain code (tests included) from naming a
 // concrete adapter path.
-import { MockSupplierProvider } from '@barat/suppliers';
+import { MockSupplierProvider, type SupplierProvider } from '@barat/suppliers';
+
+import { BaratDomainException } from '../../common/errors/domain.exception';
 
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { InMemoryTopUpCatalogStore } from './testing/in-memory-topup-catalog.store';
@@ -347,7 +349,7 @@ describe('TopUpCatalogSyncService', () => {
       append: async () => undefined,
     }));
 
-    await expect(service.sync()).rejects.toThrow('venue unreachable');
+    await expect(service.sync()).rejects.toBeInstanceOf(BaratDomainException);
 
     expect(h.store.applied).toEqual([]);
     expect(h.store.isOfferListed(OFFER_STARS_50)).toBe(true);
@@ -374,8 +376,12 @@ describe('TopUpCatalogSyncService', () => {
     const h = harness({ catalog: [sku(OFFER_STARS_50)] });
 
     const first = h.service.sync();
-    await expect(h.service.sync()).rejects.toThrow('already running');
+    const overlap = await h.service.sync().catch((error: unknown) => error);
     await first;
+
+    /* A conflict the admin can show, not a bare Error the filter turns into a 500. */
+    expect(overlap).toBeInstanceOf(BaratDomainException);
+    expect((overlap as BaratDomainException).status).toBe(409);
   });
 
   it('records one audit entry naming what changed and what the venue sells that we do not', async () => {
@@ -406,8 +412,97 @@ describe('TopUpCatalogSyncService', () => {
       append: async () => undefined,
     }));
 
-    await expect(service.sync()).rejects.toThrow('venue unreachable');
+    await expect(service.sync()).rejects.toBeInstanceOf(BaratDomainException);
     shouldFail = false;
     await expect(service.sync()).resolves.toBeDefined();
+  });
+
+  describe('a supplier whose catalogue cannot be read', () => {
+    /** What an adapter throws: a normalised code, the venue's status, and prose that must not travel. */
+    const venueError = (code: string): Error =>
+      Object.assign(new Error('venue said: rate limited for key abc123'), {
+        name: 'VenueSupplierError',
+        code,
+        httpStatus: 429,
+      });
+
+    const failingProvider = (key: string, error: Error): SupplierProvider =>
+      ({ key, getCatalog: () => Promise.reject(error) }) as unknown as SupplierProvider;
+
+    it('answers 409 with the safe failure code — never the generic 500, never the venue prose', async () => {
+      const h = harness();
+      const service = new TopUpCatalogSyncService(
+        h.store,
+        [failingProvider(SUPPLIER_CODE, venueError('PROVIDER_RATE_LIMITED'))],
+        new AuditService({ append: async () => undefined }),
+      );
+
+      const error = await service.sync().catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(BaratDomainException);
+      const domain = error as BaratDomainException;
+      expect(domain.status).toBe(409);
+      expect(domain.safeMessage).toContain('PROVIDER_RATE_LIMITED');
+      expect(domain.safeMessage).not.toContain('abc123');
+      expect(domain.message).not.toContain('abc123');
+    });
+
+    it('does not echo a code that does not look like one of ours', async () => {
+      const h = harness();
+      const service = new TopUpCatalogSyncService(
+        h.store,
+        [failingProvider(SUPPLIER_CODE, venueError('key=abc123 <b>'))],
+        new AuditService({ append: async () => undefined }),
+      );
+
+      const error = (await service.sync().catch((caught: unknown) => caught)) as BaratDomainException;
+
+      expect(error.status).toBe(409);
+      expect(error.safeMessage).not.toContain('abc123');
+    });
+
+    it('still syncs the other suppliers and reports the one it could not read', async () => {
+      const other: TopUpSyncableSupplier = {
+        id: 'sup-other',
+        code: 'other',
+        games: [{ id: 'game-other', providerCategoryId: 'gems', providerOfferIds: ['offer-gems-1'] }],
+        offers: [{ id: 'offer-gems-1', providerOfferId: 'offer-gems-1', providerCategoryId: 'gems' }],
+      };
+      const audits: Record<string, unknown>[] = [];
+      const h = harness({ suppliers: [supplier(), other] });
+      const service = new TopUpCatalogSyncService(
+        h.store,
+        [
+          new MockSupplierProvider({ catalog: [sku(OFFER_STARS_50)] }),
+          failingProvider('other', venueError('PROVIDER_RATE_LIMITED')),
+        ],
+        new AuditService({
+          append: async (entry) => {
+            audits.push(entry as unknown as Record<string, unknown>);
+          },
+        }),
+      );
+
+      const result = await service.sync();
+
+      expect(result.suppliers).toEqual([SUPPLIER_CODE]);
+      expect(result.failed).toEqual([{ supplierCode: 'other', code: 'PROVIDER_RATE_LIMITED' }]);
+      /* The readable supplier was reconciled… */
+      expect(h.store.isOfferListed(OFFER_STARS_100)).toBe(false);
+      /* …and the unreadable one was not mistaken for a venue that lists nothing. */
+      expect(h.store.isOfferListed('offer-gems-1')).toBe(true);
+      expect(h.store.isGameListed('game-other')).toBe(true);
+      expect(h.store.applied).toHaveLength(1);
+      /* The audit entry exists; its fields are redacted by the audit layer (rule 10). */
+      expect(audits).toHaveLength(1);
+    });
+
+    it('reports no failures on a clean run', async () => {
+      const h = harness({ catalog: [sku(OFFER_STARS_50)] });
+
+      const result = await h.service.sync();
+
+      expect(result.failed).toEqual([]);
+    });
   });
 });

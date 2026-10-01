@@ -78,6 +78,17 @@ export function SyncTopUpButton() {
                 `${formatCount(result.offersListed)} بسته فهرست شد، ` +
                 `${formatCount(result.offersDelisted)} بسته برداشته شد.`}
           </p>
+          {result.failed.length > 0 ? (
+            <p className="muted" style={{ marginTop: 0, color: "var(--red)" }}>
+              {/* An unreadable venue is left as it was — never read as "lists nothing". */}
+              {`کاتالوگ ${formatCount(result.failed.length)} تأمین‌کننده دریافت نشد و وضعیتش تغییری نکرد: `}
+              <span className="bp-ltr">
+                {result.failed
+                  .map((failure) => (failure.code ? `${failure.supplierCode} (${failure.code})` : failure.supplierCode))
+                  .join("، ")}
+              </span>
+            </p>
+          ) : null}
           {result.unknownSkus.length > 0 ? (
             <div className="card panel" style={{ marginTop: 10, borderColor: "var(--amber, #d97706)" }}>
               {/* The one finding an operator cannot get anywhere else. */}
