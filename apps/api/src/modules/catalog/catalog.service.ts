@@ -1035,9 +1035,28 @@ export class CatalogService {
    * that is active but no longer listed is a curation mistake worth surfacing.
    */
   async adminListTopUpGames(query: AdminTopUpGameListInput) {
+    const status = query.status ?? (query.includeInactive ? 'ALL' : 'ACTIVE');
+    const listed = query.listed ?? 'ALL';
     const where: Prisma.TopUpGameWhereInput = {
-      ...(query.includeInactive ? {} : { isActive: true }),
+      ...(status === 'ACTIVE' ? { isActive: true } : {}),
+      ...(status === 'INACTIVE' ? { isActive: false } : {}),
+      ...(listed === 'LISTED' ? { isListed: true } : {}),
+      ...(listed === 'DELISTED' ? { isListed: false } : {}),
       ...(query.supplierId ? { supplierId: query.supplierId } : {}),
+      ...(query.requiresCredentials === undefined
+        ? {}
+        : { requiresCredentials: query.requiresCredentials }),
+      ...(query.search
+        ? {
+            OR: [
+              { name: { contains: query.search, mode: 'insensitive' } },
+              { nameFa: { contains: query.search } },
+              { slug: { contains: query.search, mode: 'insensitive' } },
+              { providerCategoryId: { contains: query.search, mode: 'insensitive' } },
+              { region: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
     };
     const [items, total] = await this.db.$transaction([
       this.db.topUpGame.findMany({

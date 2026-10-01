@@ -108,7 +108,9 @@ export type AdminProductListInput = Omit<z.infer<typeof adminProductListSchema>,
 export type AdminSkuListInput = z.infer<typeof adminSkuListSchema>;
 export type AdminSupplierOfferListInput = z.infer<typeof adminSupplierOfferListSchema>;
 export type AdminServiceFieldListInput = z.infer<typeof adminServiceFieldListSchema>;
-export type AdminTopUpGameListInput = z.infer<typeof adminTopUpGameListSchema>;
+export type AdminTopUpGameListInput = Omit<z.infer<typeof adminTopUpGameListSchema>, 'listed'> & {
+  listed?: z.infer<typeof adminTopUpGameListSchema>['listed'];
+};
 
 /* ------------------------------------------------------------- taxonomy */
 
@@ -355,8 +357,22 @@ export const updateSupplierOfferSchema = patchSchema(supplierOfferMutableShape);
  *     read of the venue's rate at quote time; a stored cost would look
  *     authoritative in this table while being stale the moment the rate moves.
  */
+/**
+ * Several hundred imported games, so the same filters as the product list:
+ * a free-text term and the operator's switch. `listed` filters on the venue's
+ * answer — read-only everywhere else, but the first thing an operator looks
+ * for when deciding what to put on sale.
+ */
 export const adminTopUpGameListSchema = adminCatalogListSchema.extend({
   supplierId: idSchema.optional(),
+  search: z.string().trim().max(120).optional(),
+  /** Omitted: falls back to `includeInactive`, so existing callers are unchanged. */
+  status: adminProductStatusSchema.optional(),
+  listed: z.enum(['ALL', 'LISTED', 'DELISTED']).default('ALL'),
+  requiresCredentials: z
+    .enum(['true', 'false'])
+    .transform((value) => value === 'true')
+    .optional(),
 });
 
 /** `slug` and `providerCategoryId` identify the game upstream and are not editable. */

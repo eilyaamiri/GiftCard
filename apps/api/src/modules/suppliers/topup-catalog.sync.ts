@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SUPPLIER_PROVIDERS, type SupplierCatalogItem, type SupplierProvider } from '@barat/suppliers';
 
+import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { TOP_UP_CATALOG_STORE } from './suppliers.types';
+import { describeCatalogReadFailure } from './topup-catalog.import';
 import type { TopUpCatalogStore, TopUpCatalogGame, TopUpCatalogOffer } from './suppliers.types';
 import { topUpProviderSku } from './topup-provider-sku';
 
@@ -42,8 +44,11 @@ import { topUpProviderSku } from './topup-provider-sku';
  * The catalogue is fetched in full before a single row is written. A venue that
  * answers halfway, or a network that drops mid-read, would otherwise leave us
  * with half a catalogue and mass-delist everything we did not get to — turning
- * a transient outage into a storefront that looks empty. If the read fails, the
- * database is not touched at all and the caller gets the error.
+ * a transient outage into a storefront that looks empty. If a supplier's read
+ * fails, none of that supplier's rows are touched: it is reported in `failed`
+ * and the other suppliers are still synced. When every read fails the caller
+ * gets a conflict carrying the adapter's safe failure code — never a bare 500,
+ * which would tell the operator nothing.
  */
 
 /** The audit actor for a sync run. There is no customer and no order. */
@@ -60,6 +65,11 @@ export interface TopUpSyncResult {
   readonly offersDelisted: number;
   /** Provider SKUs the venue returned that we have no local offer for. */
   readonly unknownSkus: readonly string[];
+  /**
+   * Suppliers whose catalogue could not be read. Their rows were left exactly
+   * as they were; `code` is the adapter's normalised failure code, if safe.
+   */
+  readonly failed: readonly { readonly supplierCode: string; readonly code: string | null }[];
 }
 
 interface AvailabilityPlan {
@@ -149,7 +159,7 @@ export class TopUpCatalogSyncService {
    */
   async sync(): Promise<TopUpSyncResult> {
     if (this.running) {
-      throw new Error('a top-up catalog sync is already running');
+      throw DomainErrors.conflict('یک همگام‌سازی در حال اجراست؛ چند لحظه بعد دوباره تلاش کنید.');
     }
     this.running = true;
     try {
@@ -168,6 +178,7 @@ export class TopUpCatalogSyncService {
       offersListed: 0,
       offersDelisted: 0,
       unknownSkus: [] as string[],
+      failed: [] as { supplierCode: string; code: string | null }[],
     };
 
     for (const supplier of suppliers) {
@@ -184,7 +195,16 @@ export class TopUpCatalogSyncService {
         continue;
       }
 
-      const catalog = await provider.getCatalog();
+      let catalog: readonly SupplierCatalogItem[];
+      try {
+        catalog = await provider.getCatalog();
+      } catch (error) {
+        /* An unreadable venue is not an empty one: nothing of this supplier's is written. */
+        const failure = describeCatalogReadFailure(error);
+        this.logger.warn(`top-up sync ${supplier.code}: catalogue read failed (${failure.detail}); left unchanged`);
+        totals.failed.push({ supplierCode: supplier.code, code: failure.code });
+        continue;
+      }
       const plan = planAvailability({
         supplierCode: supplier.code,
         catalog,
@@ -214,6 +234,17 @@ export class TopUpCatalogSyncService {
       );
     }
 
+    if (totals.suppliers.length === 0 && totals.failed.length > 0) {
+      /* Nothing was synced and nothing written: say why instead of reporting an empty success. */
+      const codes = [...new Set(totals.failed.map((f) => f.code).filter((code) => code !== null))];
+      throw DomainErrors.conflict(
+        codes.length === 0
+          ? 'دریافت کاتالوگ از تأمین‌کننده ناموفق بود. چند دقیقه بعد دوباره تلاش کنید.'
+          : `دریافت کاتالوگ از تأمین‌کننده ناموفق بود (کد خطا: ${codes.join('، ')}). چند دقیقه بعد دوباره تلاش کنید.`,
+        `top-up sync read failed for ${totals.failed.map((f) => f.supplierCode).join(', ')}`,
+      );
+    }
+
     await this.audit.record({
       actor: TOP_UP_SYNC_ACTOR,
       actorType: 'SYSTEM',
@@ -230,6 +261,7 @@ export class TopUpCatalogSyncService {
          * the venue sells and we do not. It usually means a ladder entry was
          * added upstream, and it is invisible from the storefront. */
         unknownSkus: totals.unknownSkus,
+        failed: totals.failed,
       },
     });
 

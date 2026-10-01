@@ -806,6 +806,94 @@ const topUpOfferMutableFields = {
 export const updateTopUpOfferRequestSchema = z.object(topUpOfferMutableFields).partial();
 export type UpdateTopUpOfferRequest = z.infer<typeof updateTopUpOfferRequestSchema>;
 
+/** `POST /admin/catalog/top-ups/bulk-active` — the API caps one call at 200 games. */
+export const bulkSetTopUpGameActiveRequestSchema = z.object({
+  gameIds: z.array(idSchema).min(1).max(200),
+  isActive: z.boolean(),
+});
+export type BulkSetTopUpGameActiveRequest = z.infer<typeof bulkSetTopUpGameActiveRequestSchema>;
+export const bulkSetTopUpGameActiveResultSchema = bulkSetProductActiveResultSchema;
+
+/*
+ * Top-up game list paging and filters — the product list's pattern: state in
+ * the URL, coerced here because `searchParams` is hand-typeable.
+ */
+
+export const TOP_UP_PAGE_SIZE = 50;
+
+export type TopUpListedFilter = "ALL" | "LISTED" | "DELISTED";
+export type TopUpCredentialsFilter = "ALL" | "YES" | "NO";
+
+export interface TopUpQuery {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly search?: string;
+  readonly supplierId?: string;
+  readonly status: "ALL" | "ACTIVE" | "INACTIVE";
+  readonly listed: TopUpListedFilter;
+  readonly credentials: TopUpCredentialsFilter;
+}
+
+export function readTopUpQuery(
+  params: Record<string, string | string[] | undefined>,
+  pageSize = TOP_UP_PAGE_SIZE,
+): TopUpQuery {
+  const first = (key: string): string | undefined => {
+    const value = params[key];
+    const single = Array.isArray(value) ? value[0] : value;
+    return single !== undefined && single.trim() !== "" ? single.trim() : undefined;
+  };
+  const oneOf = <T extends string>(key: string, allowed: readonly T[], fallback: T): T => {
+    const value = first(key);
+    return allowed.find((candidate) => candidate === value) ?? fallback;
+  };
+
+  const rawPage = Number.parseInt(first("page") ?? "1", 10);
+  const search = first("search");
+  const supplierId = first("supplierId")?.slice(0, 64);
+
+  return {
+    page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
+    pageSize,
+    status: oneOf("status", ["ALL", "ACTIVE", "INACTIVE"] as const, "ALL"),
+    listed: oneOf("listed", ["ALL", "LISTED", "DELISTED"] as const, "ALL"),
+    credentials: oneOf("credentials", ["ALL", "YES", "NO"] as const, "ALL"),
+    ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
+    ...(supplierId !== undefined ? { supplierId } : {}),
+  };
+}
+
+/** The API query for a `TopUpQuery`. `status` is always sent, so inactive games are never hidden by default. */
+export function topUpListSearch(query: TopUpQuery): string {
+  return buildListSearch({
+    page: query.page,
+    pageSize: query.pageSize,
+    status: query.status,
+    listed: query.listed,
+    ...(query.search ? { search: query.search } : {}),
+    ...(query.supplierId ? { supplierId: query.supplierId } : {}),
+    ...(query.credentials === "ALL" ? {} : { requiresCredentials: query.credentials === "YES" }),
+  });
+}
+
+/** Href for the same list with part of the query replaced; `page` resets to 1 unless given. */
+export function topUpHref(
+  basePath: string,
+  query: TopUpQuery,
+  overrides: Partial<Omit<TopUpQuery, "pageSize">> = {},
+): string {
+  const merged = { ...query, ...overrides, page: overrides.page ?? 1 };
+  const params = new URLSearchParams();
+  if (merged.search) params.set("search", merged.search);
+  if (merged.supplierId) params.set("supplierId", merged.supplierId);
+  if (merged.status !== "ALL") params.set("status", merged.status);
+  if (merged.listed !== "ALL") params.set("listed", merged.listed);
+  if (merged.credentials !== "ALL") params.set("credentials", merged.credentials);
+  if (merged.page > 1) params.set("page", String(merged.page));
+  const suffix = params.toString();
+  return suffix ? `${basePath}?${suffix}` : basePath;
+}
+
 /**
  * What a sync run reports back.
  *
@@ -821,6 +909,10 @@ export const topUpSyncResultSchema = z.object({
   offersListed: z.number().int().min(0),
   offersDelisted: z.number().int().min(0),
   unknownSkus: z.array(z.string()),
+  /** Suppliers whose catalogue could not be read; their rows were left untouched. */
+  failed: z
+    .array(z.object({ supplierCode: z.string(), code: z.string().nullable() }))
+    .default([]),
 });
 export type TopUpSyncResult = z.infer<typeof topUpSyncResultSchema>;
 

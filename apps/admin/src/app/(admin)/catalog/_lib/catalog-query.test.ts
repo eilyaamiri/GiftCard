@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   CATALOG_PAGE_SIZE,
+  TOP_UP_PAGE_SIZE,
   buildListSearch,
   catalogHref,
   readCatalogQuery,
+  readTopUpQuery,
+  topUpHref,
+  topUpListSearch,
 } from "./catalog-contracts";
 
 /**
@@ -131,5 +135,73 @@ describe("catalog list URLs", () => {
       "/catalog?status=ACTIVE&needsReview=true&page=2",
     );
     expect(catalogHref("/catalog", query, { needsReview: false })).toBe("/catalog?status=ACTIVE");
+  });
+});
+
+describe("readTopUpQuery", () => {
+  it("shows every game, fifty to a page, by default", () => {
+    expect(readTopUpQuery({})).toEqual({
+      page: 1,
+      pageSize: TOP_UP_PAGE_SIZE,
+      status: "ALL",
+      listed: "ALL",
+      credentials: "ALL",
+    });
+  });
+
+  it("drops anything outside the known filter values", () => {
+    const query = readTopUpQuery({ status: "DELETED", listed: "maybe", credentials: "true", page: "-2" });
+    expect(query).toMatchObject({ page: 1, status: "ALL", listed: "ALL", credentials: "ALL" });
+  });
+
+  it("keeps the filters it recognises and trims the free-text ones", () => {
+    const query = readTopUpQuery({
+      search: "  pubg ",
+      supplierId: "sup_1",
+      status: "INACTIVE",
+      listed: "DELISTED",
+      credentials: "YES",
+      page: "3",
+    });
+    expect(query).toEqual({
+      page: 3,
+      pageSize: TOP_UP_PAGE_SIZE,
+      search: "pubg",
+      supplierId: "sup_1",
+      status: "INACTIVE",
+      listed: "DELISTED",
+      credentials: "YES",
+    });
+    expect(readTopUpQuery({ search: "x".repeat(200) }).search).toHaveLength(120);
+    expect(readTopUpQuery({ supplierId: "s".repeat(100) }).supplierId).toHaveLength(64);
+  });
+});
+
+describe("topUpListSearch", () => {
+  it("always sends status so inactive games are not hidden by the API default", () => {
+    expect(topUpListSearch(readTopUpQuery({}))).toBe("?page=1&pageSize=50&status=ALL&listed=ALL");
+  });
+
+  it("maps the credentials filter onto the API's boolean", () => {
+    expect(topUpListSearch(readTopUpQuery({ credentials: "YES" }))).toContain("requiresCredentials=true");
+    expect(topUpListSearch(readTopUpQuery({ credentials: "NO" }))).toContain("requiresCredentials=false");
+    expect(topUpListSearch(readTopUpQuery({}))).not.toContain("requiresCredentials");
+  });
+});
+
+describe("topUpHref", () => {
+  const query = readTopUpQuery({ search: "free fire", status: "ACTIVE", page: "4" });
+
+  it("keeps the filters and leaves defaults out of the URL", () => {
+    expect(topUpHref("/catalog/top-ups", query, { page: 5 })).toBe(
+      "/catalog/top-ups?search=free+fire&status=ACTIVE&page=5",
+    );
+  });
+
+  it("goes back to the first page when a filter changes", () => {
+    expect(topUpHref("/catalog/top-ups", query, { listed: "LISTED" })).toBe(
+      "/catalog/top-ups?search=free+fire&status=ACTIVE&listed=LISTED",
+    );
+    expect(topUpHref("/catalog/top-ups", readTopUpQuery({}))).toBe("/catalog/top-ups");
   });
 });

@@ -13,6 +13,7 @@ vi.mock('@barat/database', () => ({
 import type { AppConfigService } from '../../common/config/app-config.service';
 import type { CatalogDatabase } from './catalog.tokens';
 import { CatalogService } from './catalog.service';
+import { adminTopUpGameListSchema } from './catalog.schemas';
 
 const TEST_CONFIG = { productImageDir: '/tmp/baratpay-catalog-tests' } as AppConfigService;
 
@@ -1146,6 +1147,72 @@ describe('CatalogService admin top-up catalogue', () => {
 
     expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({
       supplierId: 'sup-fazercards',
+    });
+  });
+
+  it('filters on the operator switch, the venue listing and the credentials flag', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      status: 'INACTIVE',
+      listed: 'LISTED',
+      requiresCredentials: false,
+    });
+
+    const where = topUpGame.findMany.mock.calls[0]?.[0]?.where;
+    expect(where).toEqual({ isActive: false, isListed: true, requiresCredentials: false });
+    /* The count must see the same filter, or the pager lies. */
+    expect(topUpGame.count.mock.calls[0]?.[0]?.where).toEqual(where);
+  });
+
+  it('parses the query string the admin list sends', () => {
+    expect(
+      adminTopUpGameListSchema.parse({
+        includeInactive: 'true',
+        status: 'ACTIVE',
+        listed: 'DELISTED',
+        requiresCredentials: 'true',
+        search: '  pubg  ',
+      }),
+    ).toMatchObject({ status: 'ACTIVE', listed: 'DELISTED', requiresCredentials: true, search: 'pubg' });
+    /* An older caller that sends none of the new filters gets the old behaviour. */
+    expect(adminTopUpGameListSchema.parse({})).toMatchObject({ listed: 'ALL', includeInactive: false });
+    expect(adminTopUpGameListSchema.parse({}).status).toBeUndefined();
+    expect(() => adminTopUpGameListSchema.parse({ listed: 'MAYBE' })).toThrow();
+  });
+
+  it('an explicit status wins over includeInactive', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({ page: 1, pageSize: 20, includeInactive: false, status: 'ALL' });
+
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({});
+  });
+
+  it('hides inactive games when neither status nor includeInactive asks for them', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({ page: 1, pageSize: 20, includeInactive: false });
+
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({ isActive: true });
+  });
+
+  it('searches the name, Persian name, slug, venue id and region', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({ page: 1, pageSize: 20, includeInactive: true, search: 'pubg' });
+
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      OR: [
+        { name: { contains: 'pubg', mode: 'insensitive' } },
+        { nameFa: { contains: 'pubg' } },
+        { slug: { contains: 'pubg', mode: 'insensitive' } },
+        { providerCategoryId: { contains: 'pubg', mode: 'insensitive' } },
+        { region: { contains: 'pubg', mode: 'insensitive' } },
+      ],
     });
   });
 
