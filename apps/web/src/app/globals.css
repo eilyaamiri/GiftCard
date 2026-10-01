@@ -443,6 +443,10 @@ a { color:inherit; text-decoration:none; }
  * payment block, and stretching a 44px link to the height of its tallest
  * neighbour is what left the earlier buttons half empty. */
 .hero-actions { display:flex; align-items:center; justify-content:center; gap:12px; margin-top:28px; flex-wrap:wrap; }
+/* One red buy button and three outlined siblings of equal weight. A label never
+ * breaks inside its button: the row reflows into a grid below 900px instead. */
+.hero-actions .btn { white-space:nowrap; }
+.hero-actions .btn-outline svg { flex:none; opacity:.78; }
 .hero .btn-outline { background:transparent; border-color:color-mix(in srgb,var(--text-primary) 34%,transparent); color:var(--text-primary); }
 .hero .btn-outline:hover { border-color:color-mix(in srgb,var(--text-primary) 60%,transparent); background:var(--background-contrast); }
 .trust-row { display:flex; justify-content:center; gap:22px; flex-wrap:wrap; margin-top:32px; color:var(--text-secondary); font-size:12px; }
@@ -709,6 +713,9 @@ a { color:inherit; text-decoration:none; }
   .faq-intro { position:static; }
   .faq-question { padding:17px 18px; font-size:14px; }
   .faq-answer { padding:0 18px 19px; }
+  /* Four buttons no longer fit one row: two equal columns, so the row never
+   * wraps three-and-one with an orphan on the second line. */
+  .hero-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; width:min(100%,540px); margin-inline:auto; }
 }
 /* The header nav gives way to the bottom bar, and only once the bottom bar is
  * actually there. It used to disappear at 900px while the bar starts at 767px,
@@ -780,6 +787,9 @@ a { color:inherit; text-decoration:none; }
   .header-actions .btn { padding:8px 12px; font-size:13px; }
   .hero-inner { min-height:0; padding-block:44px; }
   .hero-copy { font-size:15px; }
+  /* Half a phone is narrower than «استارز و پرمیوم تلگرام», so the buttons stack
+   * full width, the buy button first. */
+  .hero-actions { grid-template-columns:1fr; gap:10px; width:min(100%,400px); margin-top:24px; }
   .h1 { font-size:34px; }
   .section { padding-block:42px; }
   .section-head { align-items:start; flex-direction:column; }
