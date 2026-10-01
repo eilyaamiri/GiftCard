@@ -1049,3 +1049,131 @@ describe('CatalogService admin brand list', () => {
     });
   });
 });
+
+describe('CatalogService admin top-up catalogue', () => {
+  function topUpHarness() {
+    const topUpGame = {
+      findMany: vi.fn().mockResolvedValue([]),
+      count: vi.fn().mockResolvedValue(0),
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    };
+    const topUpOffer = {
+      count: vi.fn().mockResolvedValue(0),
+      update: vi.fn().mockResolvedValue({}),
+    };
+    const db = {
+      topUpGame,
+      topUpOffer,
+      $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
+    } as unknown as CatalogDatabase;
+    return { service: new CatalogService(db, TEST_CONFIG), topUpGame, topUpOffer };
+  }
+
+  it('lists inactive games unless the caller filters them out', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({ page: 1, pageSize: 20, includeInactive: true });
+
+    /* A freshly synced game arrives inactive on purpose, so a list that hid
+     * inactive rows would hide the entire queue this screen exists to show. */
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({});
+    expect(topUpGame.count.mock.calls[0]?.[0]?.where).toEqual({});
+  });
+
+  it('carries the supplier and the offer count onto every row', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({ page: 1, pageSize: 20, includeInactive: true });
+
+    /* The three flags that together decide sellability — game `isActive`,
+     * supplier `isActive` and the per-offer switch — have to be visible in one
+     * place, which is why the supplier comes along rather than being looked up
+     * per row by the caller. */
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.include).toMatchObject({
+      supplier: { select: { id: true, code: true, name: true, isActive: true } },
+      _count: { select: { offers: true } },
+    });
+  });
+
+  it('scopes to one supplier when asked', async () => {
+    const { service, topUpGame } = topUpHarness();
+
+    await service.adminListTopUpGames({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      supplierId: 'sup-fazercards',
+    });
+
+    expect(topUpGame.findMany.mock.calls[0]?.[0]?.where).toEqual({
+      supplierId: 'sup-fazercards',
+    });
+  });
+
+  it('reports a missing game as not found rather than updating nothing', async () => {
+    const { service } = topUpHarness();
+
+    await expect(service.adminUpdateTopUpGame('gone', { isActive: true })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it('refuses to let an operator write isListed, which belongs to the sync', async () => {
+    const { service, topUpGame } = topUpHarness();
+    topUpGame.count.mockResolvedValue(1);
+
+    /* `isListed` says "the venue still offers it". An operator able to set it
+     * would be able to put a withdrawn product on sale, and the customer would
+     * meet the failure at quote time instead of here. */
+    await expect(
+      service.adminUpdateTopUpGame('game-1', { isListed: true } as never),
+    ).rejects.toThrow();
+
+    expect(topUpGame.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses to let an operator write a stored cost, which is never authoritative', async () => {
+    const { service, topUpOffer } = topUpHarness();
+    topUpOffer.count.mockResolvedValue(1);
+
+    /* A top-up's price is a live read of the venue's rate at quote time. A
+     * column here would look authoritative in the admin table while being stale
+     * the moment the rate moved. */
+    await expect(
+      service.adminUpdateTopUpOffer('offer-1', { costAmount: '9.99' } as never),
+    ).rejects.toThrow();
+
+    expect(topUpOffer.update).not.toHaveBeenCalled();
+  });
+
+  it('writes curation fields through', async () => {
+    const { service, topUpGame } = topUpHarness();
+    topUpGame.count.mockResolvedValue(1);
+
+    await service.adminUpdateTopUpGame('game-1', { isActive: true, sortOrder: 3 });
+
+    expect(topUpGame.update.mock.calls[0]?.[0]).toEqual({
+      where: { id: 'game-1' },
+      data: { isActive: true, sortOrder: 3 },
+    });
+  });
+
+  it('dedupes ids before the bulk write', async () => {
+    const { service, topUpGame } = topUpHarness();
+    topUpGame.updateMany.mockResolvedValue({ count: 2 });
+
+    const result = await service.adminBulkSetTopUpGameActive({
+      gameIds: ['game-1', 'game-1', 'game-2'],
+      isActive: true,
+    });
+
+    /* `requested` counts what the operator meant, not what they typed: a
+     * duplicate id in the payload must not report three rows updated two. */
+    expect(topUpGame.updateMany.mock.calls[0]?.[0]?.where).toEqual({
+      id: { in: ['game-1', 'game-2'] },
+    });
+    expect(result).toEqual({ requested: 2, updated: 2 });
+  });
+});

@@ -24,11 +24,13 @@ import {
   adminProductListSchema,
   assignCategorySchema,
   bulkSetProductActiveSchema,
+  bulkSetTopUpGameActiveSchema,
   createBrandSchema,
   createCategorySchema,
   adminServiceFieldListSchema,
   adminSkuListSchema,
   adminSupplierOfferListSchema,
+  adminTopUpGameListSchema,
   createInternationalServiceSchema,
   createProductSchema,
   createServiceFieldSchema,
@@ -44,6 +46,8 @@ import {
   updateSkuSchema,
   updateSupplierOfferSchema,
   updateSupplierSchema,
+  updateTopUpGameSchema,
+  updateTopUpOfferSchema,
 } from './catalog.schemas';
 import type {
   AdminBrandListInput,
@@ -52,8 +56,10 @@ import type {
   AdminServiceFieldListInput,
   AdminSkuListInput,
   AdminSupplierOfferListInput,
+  AdminTopUpGameListInput,
   AssignCategoryInput,
   BulkSetProductActiveInput,
+  BulkSetTopUpGameActiveInput,
   CreateBrandInput,
   CreateCategoryInput,
   CreateInternationalServiceInput,
@@ -71,6 +77,8 @@ import type {
   UpdateSkuInput,
   UpdateSupplierInput,
   UpdateSupplierOfferInput,
+  UpdateTopUpGameInput,
+  UpdateTopUpOfferInput,
 } from './catalog.schemas';
 
 const idParamSchema = z.object({ id: z.string().min(1).max(64) });
@@ -349,6 +357,50 @@ export class CatalogAdminController {
     @Body(zodPipe(updateSupplierOfferSchema)) body: UpdateSupplierOfferInput,
   ) {
     return this.catalog.adminUpdateOffer(params.id, body);
+  }
+
+  /* ------------------------------------------------- direct top-up */
+
+  /**
+   * The games a customer can be charged for, and the switch that puts each one
+   * on sale.
+   *
+   * Read and written here rather than through `CatalogService.public…`: a game
+   * is only sellable when the game, its supplier and the specific offer are all
+   * active, so an operator needs to see all three flags side by side. A synced
+   * game arrives inactive on purpose — that is the review step this screen is.
+   */
+  @Get('top-ups')
+  listTopUpGames(@Query(zodPipe(adminTopUpGameListSchema)) query: AdminTopUpGameListInput) {
+    return this.catalog.adminListTopUpGames(query);
+  }
+
+  @Get('top-ups/:id')
+  getTopUpGame(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminGetTopUpGame(params.id);
+  }
+
+  @Put('top-ups/:id')
+  updateTopUpGame(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(updateTopUpGameSchema)) body: UpdateTopUpGameInput,
+  ) {
+    return this.catalog.adminUpdateTopUpGame(params.id, body);
+  }
+
+  @Post('top-ups/bulk-active')
+  bulkSetTopUpGameActive(
+    @Body(zodPipe(bulkSetTopUpGameActiveSchema)) body: BulkSetTopUpGameActiveInput,
+  ) {
+    return this.catalog.adminBulkSetTopUpGameActive(body);
+  }
+
+  @Put('top-up-offers/:id')
+  updateTopUpOffer(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(updateTopUpOfferSchema)) body: UpdateTopUpOfferInput,
+  ) {
+    return this.catalog.adminUpdateTopUpOffer(params.id, body);
   }
 
   @Post('services')

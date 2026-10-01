@@ -9,6 +9,9 @@ const TABS = [
   { key: "products", href: "/catalog", label: "محصول‌ها" },
   { key: "categories", href: "/catalog/categories", label: "دسته‌بندی‌ها" },
   { key: "brands", href: "/catalog/brands", label: "برندها" },
+  /* A separate catalogue with its own models, but the same question — what is
+   * on sale — so it belongs in this strip rather than a fourth sidebar entry. */
+  { key: "topups", href: "/catalog/top-ups", label: "شارژ مستقیم" },
 ] as const;
 
 export type CatalogTab = (typeof TABS)[number]["key"];

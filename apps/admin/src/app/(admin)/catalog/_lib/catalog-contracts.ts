@@ -698,3 +698,128 @@ export function catalogHref(basePath: string, query: CatalogQuery, overrides: Ca
   const suffix = params.toString();
   return suffix ? `${basePath}?${suffix}` : basePath;
 }
+
+/* ============================================================================
+ * Direct top-up
+ *
+ * A second catalogue with its own models. It is not a SKU: there is no code to
+ * deliver and no stored cost. What the customer pays is read live from the
+ * venue at quote time, so `costAmount` appears in no schema below — a shape
+ * that could carry one would let this screen display a number that is already
+ * stale, next to an operator making a decision about it.
+ *
+ * `isListed` is the venue's answer rather than ours and is shown read-only:
+ * only the sync may write it, which is why no update request accepts it.
+ * ==========================================================================*/
+
+const topUpSupplierSchema = z.object({
+  id: idSchema,
+  code: z.string().min(1),
+  name: z.string().min(1),
+  /** The supplier's own switch. A game cannot be bought while this is false. */
+  isActive: z.boolean(),
+});
+
+export const adminTopUpGameSchema = z.object({
+  id: idSchema,
+  slug: z.string().min(1),
+  supplierId: idSchema,
+  providerCategoryId: z.string().min(1),
+  name: z.string().min(1),
+  nameFa: z.string().nullable(),
+  brandName: z.string().nullable(),
+  region: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  descriptionFa: z.string().nullable(),
+  providerNote: z.string().nullable(),
+  /** The operator's curation switch — what this screen is for. */
+  isActive: z.boolean(),
+  /** The venue's answer. Read-only here; the sync owns it. */
+  isListed: z.boolean(),
+  requiresCredentials: z.boolean(),
+  sortOrder: z.number().int(),
+  lastSyncedAt: isoDateTimeSchema.nullable(),
+  createdAt: isoDateTimeSchema,
+  updatedAt: isoDateTimeSchema,
+  supplier: topUpSupplierSchema.optional(),
+  _count: z.object({ offers: z.number().int() }).optional(),
+});
+export type AdminTopUpGame = z.infer<typeof adminTopUpGameSchema>;
+
+export const adminTopUpGameListSchema = paginatedSchema(adminTopUpGameSchema);
+
+export const adminTopUpFieldSchema = z.object({
+  id: idSchema,
+  gameId: idSchema,
+  key: z.string().min(1),
+  label: z.string().min(1),
+  labelFa: z.string().nullable(),
+  fieldType: z.string().min(1),
+  isRequired: z.boolean(),
+  helpTextFa: z.string().nullable(),
+  sortOrder: z.number().int(),
+});
+export type AdminTopUpField = z.infer<typeof adminTopUpFieldSchema>;
+
+export const adminTopUpOfferSchema = z.object({
+  id: idSchema,
+  gameId: idSchema,
+  providerOfferId: z.string().min(1),
+  name: z.string().min(1),
+  nameFa: z.string().nullable(),
+  /**
+   * Always zero in practice and never authoritative: the customer's price is a
+   * live read at quote time. Carried because the API returns the row, and
+   * labelled as unused wherever it is rendered.
+   */
+  costAmount: decimalStringSchema,
+  costCurrency: currencySchema,
+  isActive: z.boolean(),
+  isListed: z.boolean(),
+  sortOrder: z.number().int(),
+});
+export type AdminTopUpOffer = z.infer<typeof adminTopUpOfferSchema>;
+
+export const adminTopUpGameDetailSchema = adminTopUpGameSchema.extend({
+  fields: z.array(adminTopUpFieldSchema),
+  offers: z.array(adminTopUpOfferSchema),
+});
+export type AdminTopUpGameDetail = z.infer<typeof adminTopUpGameDetailSchema>;
+
+const topUpGameMutableFields = {
+  nameFa: z.string().trim().min(1).max(240),
+  brandName: z.string().trim().min(1).max(240).nullable(),
+  descriptionFa: z.string().max(4_000).nullable(),
+  providerNote: z.string().max(4_000).nullable(),
+  imageUrl: z.string().max(2_000).nullable(),
+  isActive: z.boolean(),
+  sortOrder: z.coerce.number().int().min(0),
+};
+export const updateTopUpGameRequestSchema = z.object(topUpGameMutableFields).partial();
+export type UpdateTopUpGameRequest = z.infer<typeof updateTopUpGameRequestSchema>;
+
+const topUpOfferMutableFields = {
+  nameFa: z.string().trim().min(1).max(240).nullable(),
+  isActive: z.boolean(),
+  sortOrder: z.coerce.number().int().min(0),
+};
+export const updateTopUpOfferRequestSchema = z.object(topUpOfferMutableFields).partial();
+export type UpdateTopUpOfferRequest = z.infer<typeof updateTopUpOfferRequestSchema>;
+
+/**
+ * What a sync run reports back.
+ *
+ * `unknownSkus` is the reason this shape exists at all: it is a package the
+ * venue sells and our catalogue does not hold, which usually means a ladder
+ * entry was added upstream. Nothing on the storefront can reveal it, so it is
+ * surfaced to the operator or it is lost.
+ */
+export const topUpSyncResultSchema = z.object({
+  suppliers: z.array(z.string()),
+  gamesListed: z.number().int().min(0),
+  gamesDelisted: z.number().int().min(0),
+  offersListed: z.number().int().min(0),
+  offersDelisted: z.number().int().min(0),
+  unknownSkus: z.array(z.string()),
+});
+export type TopUpSyncResult = z.infer<typeof topUpSyncResultSchema>;
