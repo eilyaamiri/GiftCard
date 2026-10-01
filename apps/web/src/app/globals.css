@@ -348,13 +348,17 @@ a { color:inherit; text-decoration:none; }
 .nav-dropdown-trigger:hover,.nav-dropdown-trigger[aria-expanded=true] { color:var(--text-primary); }
 .nav-dropdown-trigger svg { transition:transform .18s ease; }
 .nav-dropdown-trigger[aria-expanded=true] svg { transform:rotate(180deg); }
-/* Positioned against `.nav` (the whole bar), not the individual trigger: a
- * trigger near either edge of the bar would otherwise center a wide panel
- * partly off-screen, which is what forced the page to scroll sideways. */
+/* Anchored to its own trigger and opening from the trigger's inline-start
+ * (right) edge, so each menu drops directly under the item that opened it.
+ * Centering every panel on the whole bar used to open «دسته‌بندی‌ها» in the
+ * middle of the page, far from its button. A wide panel near either edge
+ * would run off-screen from here; `--nav-dropdown-shift` (measured in
+ * nav-dropdown.tsx) nudges it back inside the viewport instead. */
+.nav-dropdown { position:relative; }
 /* Sized to its content (the trending column plus however many menu columns
  * `--nav-dropdown-cols` resolves to) rather than a fixed 720px — a short
  * list gets a compact panel, a long one grows up to the viewport cap below. */
-.nav-dropdown-panel { position:absolute; z-index:30; top:calc(100% + 10px); left:50%; transform:translateX(-50%); display:flex; align-items:flex-start; width:max-content; max-width:calc(100vw - 32px); max-height:74vh; overflow-y:auto; overflow-x:auto; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:16px; box-shadow:var(--shadow-lg); }
+.nav-dropdown-panel { position:absolute; z-index:30; top:calc(100% + 10px); inset-inline-start:0; transform:translateX(var(--nav-dropdown-shift,0px)); display:flex; align-items:flex-start; width:max-content; max-width:calc(100vw - 32px); max-height:74vh; overflow-y:auto; overflow-x:auto; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:16px; box-shadow:var(--shadow-lg); }
 .nav-dropdown-trending { flex:0 0 190px; min-width:0; padding:16px; background:var(--background-secondary); border-left:1px solid var(--border-primary); }
 .nav-dropdown-trending-heading { margin:0 0 8px; padding:0 6px; color:var(--text-secondary); font-size:11px; font-weight:800; }
 .nav-dropdown-trending-list { display:flex; flex-direction:column; gap:2px; margin:0; padding:0; list-style:none; }

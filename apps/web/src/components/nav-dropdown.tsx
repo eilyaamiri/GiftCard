@@ -7,6 +7,8 @@ import { ChevronDown } from "lucide-react";
 
 const MAX_MENU_COLUMNS = 3;
 const ITEMS_PER_COLUMN = 8;
+/** Matches the panel's `max-width: calc(100vw - 32px)` — 16px clear of each edge. */
+const VIEWPORT_GUTTER = 16;
 
 /**
  * Fewer items should never sit in a panel sized for a much longer list — the
@@ -57,6 +59,7 @@ export function NavDropdown({
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const trendingRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
 
   useEffect(() => {
@@ -97,6 +100,36 @@ export function NavDropdown({
     return () => observer.disconnect();
   }, [open]);
 
+  /*
+   * The panel opens under its own trigger, which leaves a wide one (برندها,
+   * پرداخت بین‌المللی) free to run past the viewport edge. Measure it unshifted
+   * and slide it back inside, keeping the same gutter `max-width` leaves.
+   * Written straight to the element before paint, so there is no flash at the
+   * overflowing position and no re-render loop.
+   */
+  useLayoutEffect(() => {
+    const panel = panelRef.current;
+    if (!open || !panel) return;
+    function clamp() {
+      if (!panel) return;
+      panel.style.setProperty("--nav-dropdown-shift", "0px");
+      const rect = panel.getBoundingClientRect();
+      const viewport = document.documentElement.clientWidth;
+      let shift = 0;
+      if (rect.left < VIEWPORT_GUTTER) shift = VIEWPORT_GUTTER - rect.left;
+      else if (rect.right > viewport - VIEWPORT_GUTTER) shift = viewport - VIEWPORT_GUTTER - rect.right;
+      panel.style.setProperty("--nav-dropdown-shift", `${Math.round(shift)}px`);
+    }
+    clamp();
+    const observer = new ResizeObserver(clamp);
+    observer.observe(panel);
+    window.addEventListener("resize", clamp);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", clamp);
+    };
+  }, [open]);
+
   return (
     <div className="nav-dropdown" ref={rootRef}>
       <button
@@ -110,7 +143,7 @@ export function NavDropdown({
         <ChevronDown size={14} aria-hidden="true" />
       </button>
       {open ? (
-        <div className="nav-dropdown-panel" role="menu">
+        <div className="nav-dropdown-panel" role="menu" ref={panelRef}>
           {trending && trending.items.length > 0 ? (
             <div className="nav-dropdown-trending" ref={trendingRef}>
               <div className="nav-dropdown-trending-heading">{trending.heading}</div>
