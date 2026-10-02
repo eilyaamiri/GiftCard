@@ -302,7 +302,17 @@ export async function HomePage() {
                 const game = telegramGames.find((item) => telegramProductOf(item) === product);
                 return (
                   <Link href={`/telegram/${product}`} className="card pad tg-home-card" key={product}>
-                    <strong>{game?.nameFa ?? (product === "stars" ? "استارز تلگرام" : "پرمیوم تلگرام")}</strong>
+                    <span className="tg-home-card-head">
+                      <img
+                        className="tg-home-card-icon"
+                        src={product === "stars" ? "/telegram-stars.png" : "/telegram-premium.png"}
+                        alt=""
+                        width={28}
+                        height={28}
+                        aria-hidden="true"
+                      />
+                      <strong>{game?.nameFa ?? (product === "stars" ? "استارز تلگرام" : "پرمیوم تلگرام")}</strong>
+                    </span>
                     <span className="muted">قیمت نهایی پیش از پرداخت؛ تحویل مستقیم روی حساب شما</span>
                     <span className="section-head-link">مشاهده جزئیات <ArrowLeft size={14} aria-hidden="true" /></span>
                   </Link>
