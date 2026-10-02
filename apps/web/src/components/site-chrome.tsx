@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { CircleUserRound, Headphones, Phone, Search, ShoppingBag } from "lucide-react";
 import type { CustomerDto } from "@barat/contracts";
+import { AssistantWidget } from "@/components/assistant/assistant-widget";
 import { CategoryIcon } from "@/components/category-icon";
 import { ContactSheet } from "@/components/contact-sheet";
 import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
@@ -76,6 +77,7 @@ export function SiteChrome({
         isSignedIn={customer !== null}
         onClose={() => setContactOpen(false)}
       />
+      <AssistantWidget />
     </>
   );
 
