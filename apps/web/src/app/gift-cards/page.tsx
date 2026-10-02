@@ -76,6 +76,9 @@ export default async function GiftCardsPage({
   }
 
   const { items, meta, regions } = products;
+  /* After the list, because it needs the page's ids; fail-open by design, so a
+   * pricing hiccup costs the cards their «از ...» label and nothing more. */
+  const fromPrices = await api.fromPrices(items.map((product) => product.id));
   const activeCategory = categories.find((category) => category.slug === filters.category);
   const activeBrand = brands.find((brand) => brand.slug === filters.brand);
   const filtered = hasActiveFilter(filters);
@@ -217,7 +220,12 @@ export default async function GiftCardsPage({
           ) : (
             <div className="grid catalog-grid">
               {items.map((product) => (
-                <CatalogProductCard key={product.id} product={product} region={filters.region} />
+                <CatalogProductCard
+                  key={product.id}
+                  product={product}
+                  region={filters.region}
+                  fromPriceIrr={fromPrices[product.id]}
+                />
               ))}
             </div>
           )}

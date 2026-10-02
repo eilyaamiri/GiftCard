@@ -2,10 +2,12 @@ import { z } from "zod";
 import type { CustomerDto, ListServicesResponse, GetQuoteResponse, GetOrderResponse, LogoutResponse, MeResponse, RequestOtpRequest, RequestOtpResponse, VerifyOtpRequest, VerifyOtpResponse } from "@barat/contracts";
 import { listServicesResponseSchema, getQuoteResponseSchema, getOrderResponseSchema, logoutResponseSchema, meResponseSchema, requestOtpResponseSchema, verifyOtpResponseSchema, customerDtoSchema, idSchema, isoDateTimeSchema, orderStatusSchema, paymentStatusSchema, positiveIrrStringSchema, currencyCodeSchema } from "@barat/contracts";
 import {
+  fromPricesResponseSchema,
   getCatalogProductResponseSchema,
   listBrandsResponseSchema,
   listCatalogProductsResponseSchema,
   listCategoriesResponseSchema,
+  type FromPricesResponse,
   type GetCatalogProductResponse,
   type ListBrandsResponse,
   type ListCatalogProductsResponse,
@@ -345,6 +347,24 @@ function serviceQuery(params?: { readonly search?: string; readonly page?: numbe
 
 export const api = {
   products: (query = "") => request<ListCatalogProductsResponse>(`/api/catalog/products${query ? `?${query}` : ""}`, undefined, listCatalogProductsResponseSchema),
+  /**
+   * The advertised «از ...» floors for a grid of cards. Display sugar, never a
+   * payable amount, and therefore fail-open: any failure returns an empty map
+   * and the cards keep their «دریافت قیمت» call to action.
+   */
+  fromPrices: async (productIds: readonly string[]): Promise<Record<string, string>> => {
+    if (productIds.length === 0) return {};
+    try {
+      const response = await request<FromPricesResponse>(
+        `/api/quotes/from-prices?productIds=${encodeURIComponent(productIds.join(","))}`,
+        undefined,
+        fromPricesResponseSchema,
+      );
+      return response.prices;
+    } catch {
+      return {};
+    }
+  },
   product: (slug: string) => request<GetCatalogProductResponse>(`/api/catalog/products/${encodeURIComponent(slug)}`, undefined, getCatalogProductResponseSchema),
   categories: (query = "") => request<ListCategoriesResponse>(`/api/catalog/categories${query ? `?${query}` : ""}`, undefined, listCategoriesResponseSchema),
   brands: (query = "") => request<ListBrandsResponse>(`/api/catalog/brands${query ? `?${query}` : ""}`, undefined, listBrandsResponseSchema),

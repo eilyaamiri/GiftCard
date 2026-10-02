@@ -213,6 +213,21 @@ const SERVICE_PUBLIC_SELECT = {
   fields: { orderBy: { sortOrder: 'asc' }, select: SERVICE_FIELD_PUBLIC_SELECT },
 } satisfies Prisma.InternationalServiceSelect;
 
+/**
+ * One SKU's contribution to a product's advertised «از ...» price: the
+ * denomination plus the effective cost of the offer we would buy it from.
+ * Quote-facing like `SkuQuoteTarget`; never projected into a customer DTO.
+ */
+export interface FromPriceCandidate {
+  readonly productId: string;
+  readonly skuId: string;
+  /** Face value as a decimal string, in `currency`. */
+  readonly faceValue: string;
+  readonly currency: string;
+  /** Effective supplier cost per unit, after the supplier discount. */
+  readonly effectiveCost: string;
+}
+
 /** A SKU plus the offer the quote engine should price against. */
 export interface SkuQuoteTarget {
   readonly sku: Prisma.SkuGetPayload<Record<string, never>>;
@@ -746,6 +761,53 @@ export class CatalogService {
       discountBps: selection.offer.discountBps,
       effectiveCost: selection.effectiveCost,
     };
+  }
+
+  /**
+   * The SKU candidates behind each product's advertised «از ...» price.
+   *
+   * The same gates as `getSkuQuoteTarget` — an inactive or needs-review product
+   * yields nothing, and each SKU is paired with the offer `selectBestOffer`
+   * would buy from — so the advertised floor is always a price the quote
+   * endpoint would actually produce. A SKU with no buyable offer is skipped
+   * rather than reported: a "from" price built on a card nobody can order is an
+   * advertisement for the conflict screen.
+   *
+   * Which candidate is cheapest is NOT decided here. The final rial amount
+   * depends on the pricing rule and the FX legs, which belong to the quote
+   * side; this returns every priceable denomination and lets the caller run
+   * the one pricing formula over each.
+   */
+  async getFromPriceCandidates(
+    productIds: readonly string[],
+    currency: string,
+  ): Promise<readonly FromPriceCandidate[]> {
+    if (productIds.length === 0) {
+      return [];
+    }
+    const skus = await this.db.sku.findMany({
+      where: {
+        productId: { in: [...productIds] },
+        isActive: true,
+        product: { isActive: true, needsReview: false },
+      },
+      include: { supplierOffers: { include: { supplier: { select: { isActive: true } } } } },
+    });
+    const candidates: FromPriceCandidate[] = [];
+    for (const sku of skus) {
+      const selection = selectBestOffer(sku.supplierOffers.map(toSelectableOffer), currency);
+      if (selection === null) {
+        continue;
+      }
+      candidates.push({
+        productId: sku.productId,
+        skuId: sku.id,
+        faceValue: decimalString(sku.faceValue),
+        currency: sku.currency,
+        effectiveCost: selection.effectiveCost,
+      });
+    }
+    return candidates;
   }
 
   async getServiceForQuote(serviceId: string) {

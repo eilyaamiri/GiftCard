@@ -106,6 +106,17 @@ export const listCatalogProductsResponseSchema = z.object({
 });
 export const getCatalogProductResponseSchema = z.object({ product: catalogProductDetailSchema });
 
+/**
+ * `GET /api/quotes/from-prices` — product id to its advertised «از ...» floor,
+ * an integer rial amount as a string (rial is BigInt territory; a JS number
+ * would corrupt it past 2^53). A product the API could not price is simply
+ * absent, and the card falls back to its «دریافت قیمت» call to action.
+ */
+export const fromPricesResponseSchema = z.object({
+  prices: z.record(z.string(), z.string().regex(/^\d+$/u)),
+});
+export type FromPricesResponse = z.infer<typeof fromPricesResponseSchema>;
+
 export type Category = z.infer<typeof categorySchema>;
 export type Brand = z.infer<typeof brandSchema>;
 export type CatalogProduct = z.infer<typeof catalogProductSchema>;

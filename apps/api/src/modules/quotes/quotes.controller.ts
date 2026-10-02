@@ -7,6 +7,7 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common';
 import {
@@ -22,8 +23,8 @@ import { IDEMPOTENCY_HEADER } from '../../common/interceptors/idempotency-header
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import type { ActorRequest } from '../identity';
 import { actorMetadata, AuthContextService, Public } from '../identity';
-import { acceptQuoteBodySchema, quoteIdParamSchema } from './quotes.schemas';
-import type { AcceptQuoteBody, QuoteIdParam } from './quotes.schemas';
+import { acceptQuoteBodySchema, fromPricesQuerySchema, quoteIdParamSchema } from './quotes.schemas';
+import type { AcceptQuoteBody, FromPricesQuery, QuoteIdParam } from './quotes.schemas';
 import { QuotesService, type QuoteActor } from './quotes.service';
 
 /** The idempotency interceptor leaves the normalised header here. */
@@ -55,6 +56,19 @@ export class QuotesController {
   ): Promise<CreateQuoteResponse> {
     const actor = await this.actor(request, body.commerceSessionToken);
     return this.quotes.createQuote(body, actor);
+  }
+
+  /**
+   * Declared before `GET :id` — Nest matches in declaration order, and
+   * `from-prices` is otherwise a perfectly valid quote id. Anonymous like the
+   * rest of the controller and owner-less by nature: the response holds only
+   * the advertised floors the storefront prints on its cards.
+   */
+  @Get('from-prices')
+  async fromPrices(
+    @Query(zodPipe(fromPricesQuerySchema)) query: FromPricesQuery,
+  ): Promise<{ prices: Record<string, string> }> {
+    return { prices: await this.quotes.fromPrices(query.productIds) };
   }
 
   @Get(':id')

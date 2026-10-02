@@ -62,6 +62,8 @@ export default async function SearchPage({
   }
 
   const totalCount = products.meta.total + services.meta.total;
+  /* Fail-open: a pricing hiccup costs the cards their «از ...» label only. */
+  const fromPrices = await api.fromPrices(products.items.map((product) => product.id));
 
   return (
     <main className="page container">
@@ -91,7 +93,7 @@ export default async function SearchPage({
               </div>
               <div className="grid catalog-grid">
                 {products.items.map((product) => (
-                  <CatalogProductCard key={product.id} product={product} />
+                  <CatalogProductCard key={product.id} product={product} fromPriceIrr={fromPrices[product.id]} />
                 ))}
               </div>
             </section>
