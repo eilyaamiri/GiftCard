@@ -1339,7 +1339,7 @@ a { color:inherit; text-decoration:none; }
 .tg-home-card { display:grid; gap:8px; min-height:145px; align-content:start; }
 .tg-home-card strong { font-size:18px; }
 .tg-home-card-head { display:flex; align-items:center; gap:10px; }
-.tg-home-card-icon { width:28px; height:28px; flex:0 0 auto; }
+.tg-home-card-icon { width:26px; height:26px; flex:0 0 auto; }
 .tg-home-card .section-head-link { display:inline-flex; align-items:center; gap:6px; margin-top:auto; }
 .tg-breadcrumb { display:flex; gap:10px; align-items:center; margin-bottom:24px; color:var(--text-secondary); font-size:13px; }
 .tg-breadcrumb a:hover { color:var(--interactive-accent); }

@@ -307,8 +307,8 @@ export async function HomePage() {
                         className="tg-home-card-icon"
                         src={product === "stars" ? "/telegram-stars.png" : "/telegram-premium.png"}
                         alt=""
-                        width={28}
-                        height={28}
+                        width={26}
+                        height={26}
                         aria-hidden="true"
                       />
                       <strong>{game?.nameFa ?? (product === "stars" ? "استارز تلگرام" : "پرمیوم تلگرام")}</strong>
