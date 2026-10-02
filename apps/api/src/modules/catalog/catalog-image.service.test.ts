@@ -17,12 +17,15 @@ const PNG = Buffer.from(
 describe('CatalogService product images', () => {
   let root: string;
   let update: ReturnType<typeof vi.fn>;
+  let gameUpdate: ReturnType<typeof vi.fn>;
   let service: CatalogService;
 
   beforeEach(async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'barat-product-image-'));
     update = vi.fn().mockResolvedValue({ id: 'product-1', imageUrl: '/api/catalog/products/product-1/image' });
+    gameUpdate = vi.fn().mockResolvedValue({ id: 'game-1' });
     const db = {
+      topUpGame: { count: vi.fn().mockResolvedValue(1), update: gameUpdate },
       product: {
         count: vi.fn().mockResolvedValue(1),
         update,
@@ -70,5 +73,29 @@ describe('CatalogService product images', () => {
 
     await expect(fs.stat(path.join(root, 'product-1.jpg'))).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.readFile(path.join(root, 'product-1.png'))).resolves.toEqual(PNG);
+  });
+
+  it('stores a top-up game cover under its own key and points the game at it', async () => {
+    await service.adminUploadTopUpGameImage('game-1', { mimetype: 'image/png', buffer: PNG });
+
+    expect(gameUpdate).toHaveBeenCalledWith({
+      where: { id: 'game-1' },
+      data: { imageUrl: '/api/catalog/top-ups/game-1/image' },
+    });
+    await expect(fs.readFile(path.join(root, 'topup-game-1.png'))).resolves.toEqual(PNG);
+    await expect(service.topUpGameImage('game-1')).resolves.toEqual({
+      buffer: PNG,
+      contentType: 'image/png',
+    });
+  });
+
+  it('refuses a forged top-up game cover without touching the game', async () => {
+    await expect(
+      service.adminUploadTopUpGameImage('game-1', {
+        mimetype: 'image/png',
+        buffer: Buffer.from('<svg onload="alert(1)"></svg>'),
+      }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(gameUpdate).not.toHaveBeenCalled();
   });
 });

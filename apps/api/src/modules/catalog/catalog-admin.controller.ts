@@ -388,6 +388,25 @@ export class CatalogAdminController {
     return this.catalog.adminUpdateTopUpGame(params.id, body);
   }
 
+  @Post('top-ups/:id/image')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_request, file, callback) => {
+        callback(null, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype));
+      },
+    }),
+  )
+  uploadTopUpGameImage(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @UploadedFile() file: { mimetype: string; buffer: Buffer } | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException('A valid image file is required');
+    }
+    return this.catalog.adminUploadTopUpGameImage(params.id, file);
+  }
+
   @Post('top-ups/bulk-active')
   bulkSetTopUpGameActive(
     @Body(zodPipe(bulkSetTopUpGameActiveSchema)) body: BulkSetTopUpGameActiveInput,

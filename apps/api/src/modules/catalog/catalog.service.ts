@@ -283,6 +283,10 @@ function brandImageKey(brandId: string): string {
   return `brand-${brandId}`;
 }
 
+function topUpGameImageKey(gameId: string): string {
+  return `topup-${gameId}`;
+}
+
 function imageExtension(file: { mimetype: string; buffer: Buffer }): (typeof IMAGE_VARIANTS)[number]['extension'] | null {
   const signatures: Record<string, readonly number[]> = {
     'image/jpeg': [0xff, 0xd8, 0xff],
@@ -1549,6 +1553,23 @@ export class CatalogService {
   async brandLogo(id: string): Promise<{ buffer: Buffer; contentType: string }> {
     await this.assertExists(this.db.brand.count({ where: { id } }), 'brand');
     return this.readImage(brandImageKey(id), 'brand logo');
+  }
+
+  /** A game's cover, stored beside product images. The sync only writes
+   * `imageUrl` when it creates a game, so an uploaded cover is never replaced
+   * by the venue's own picture later. */
+  async adminUploadTopUpGameImage(id: string, file: { mimetype: string; buffer: Buffer }) {
+    await this.assertExists(this.db.topUpGame.count({ where: { id } }), 'top-up game');
+    await this.storeImage(topUpGameImageKey(id), file);
+    return this.db.topUpGame.update({
+      where: { id },
+      data: { imageUrl: `/api/catalog/top-ups/${id}/image` },
+    });
+  }
+
+  async topUpGameImage(id: string): Promise<{ buffer: Buffer; contentType: string }> {
+    await this.assertExists(this.db.topUpGame.count({ where: { id } }), 'top-up game');
+    return this.readImage(topUpGameImageKey(id), 'top-up game image');
   }
 
   /** Store a validated raster image outside the database and expose only its

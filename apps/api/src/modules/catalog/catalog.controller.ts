@@ -138,6 +138,13 @@ export class CatalogController {
     return new StreamableFile(image.buffer, { type: image.contentType });
   }
 
+  @Get('top-ups/:id/image')
+  @Header('Cache-Control', 'public, max-age=0, must-revalidate')
+  async topUpGameImage(@Param('id') id: string): Promise<StreamableFile> {
+    const image = await this.catalog.topUpGameImage(id);
+    return new StreamableFile(image.buffer, { type: image.contentType });
+  }
+
   @Get('products/:id/image')
   @Header('Cache-Control', 'public, max-age=0, must-revalidate')
   async productImage(@Param('id') id: string): Promise<StreamableFile> {

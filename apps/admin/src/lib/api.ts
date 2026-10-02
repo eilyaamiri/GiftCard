@@ -161,6 +161,14 @@ export const api = {
       body: form,
     });
   },
+  uploadTopUpGameImage: (gameId: string, file: File) => {
+    const form = new FormData();
+    form.append("image", file);
+    return request<unknown>(`/api/admin/catalog/top-ups/${gameId}/image`, {
+      method: "POST",
+      body: form,
+    });
+  },
   del: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, { method: "DELETE" }, schema),
 };
 
