@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CircleUserRound, Gamepad2, Headphones, Home, ReceiptText } from "lucide-react";
+import { CircleUserRound, Gamepad2, Headphones, Home, MessagesSquare } from "lucide-react";
 import type { SupportChannel } from "@/lib/support-channels";
 
 interface NavItem {
@@ -28,14 +28,15 @@ const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
     requiresAuth: false,
     isActive: (path) => path.startsWith("/games"),
   },
+  /* The assistant took the orders tab's place. Orders are still one tap away
+   * inside it («📦 سفارش‌های من»), at /orders, and in the account panel. It needs
+   * no sign-in to open: the conversation asks for one only when an order does. */
   {
-    href: "/orders",
-    label: "سفارش‌ها",
-    icon: ReceiptText,
-    requiresAuth: true,
-    /* The two order surfaces — public tracking and the panel list — are one tab
-     * as far as a customer is concerned, so both light it up. */
-    isActive: (path) => path.startsWith("/orders") || path.startsWith("/account/orders"),
+    href: "/assistant",
+    label: "دستیار",
+    icon: MessagesSquare,
+    requiresAuth: false,
+    isActive: (path) => path.startsWith("/assistant"),
   },
   CONTACT,
   {
@@ -43,7 +44,7 @@ const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
     label: "حساب کاربری",
     icon: CircleUserRound,
     requiresAuth: true,
-    isActive: (path) => path.startsWith("/account") && !path.startsWith("/account/orders"),
+    isActive: (path) => path.startsWith("/account"),
   },
 ];
 
