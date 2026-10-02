@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Ltr } from "@barat/ui";
+import { formatTomanCompact, Ltr } from "@barat/ui";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 import type { CatalogProduct } from "@/lib/catalog";
@@ -18,10 +18,19 @@ const REGIONS_SHOWN = 3;
 export function CatalogProductCard({
   product,
   region,
+  fromPriceIrr,
 }: {
   readonly product: CatalogProduct;
   /** The region filter the customer was browsing under, if the product still offers it. */
   readonly region?: string | undefined;
+  /**
+   * The cheapest denomination's live quote, as an integer rial string, when the
+   * API could price one. Shown as «از ...» — a floor, not a payable amount; the
+   * real number still comes from the quote the customer asks for. Absent, the
+   * card keeps its «دریافت قیمت» call to action, so a pricing outage degrades
+   * the label and nothing else.
+   */
+  readonly fromPriceIrr?: string | undefined;
 }) {
   const brand = product.brandNameFa ?? product.brand;
   const orderable = !product.needsReview && product.regions.length > 0;
@@ -60,7 +69,11 @@ export function CatalogProductCard({
             )}
           </span>
           <span className={orderable ? "catalog-card-cta" : "catalog-card-cta is-off"}>
-            {orderable ? "دریافت قیمت" : "فعلاً قابل سفارش نیست"}
+            {!orderable
+              ? "فعلاً قابل سفارش نیست"
+              : fromPriceIrr !== undefined
+                ? `از ${formatTomanCompact(BigInt(fromPriceIrr))}`
+                : "دریافت قیمت"}
           </span>
         </div>
       </div>

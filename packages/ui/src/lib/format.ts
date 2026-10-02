@@ -30,6 +30,46 @@ export function formatToman(irr: bigint, options?: { readonly withSuffix?: boole
   return options?.withSuffix === false ? persian : `${persian} تومان`;
 }
 
+const TOMAN_PER_THOUSAND = 1_000n;
+const TOMAN_PER_MILLION = 1_000_000n;
+/** The Persian decimal separator (U+066B), e.g. «۲٫۵ میلیون». */
+const DECIMAL_SEPARATOR = "٫";
+
+/**
+ * Format a Rial amount (bigint) as compact Toman — «۱۰ هزار تومان»,
+ * «۲٫۵ میلیون تومان» — the way a price is said out loud on a product card.
+ *
+ * Compacts ONLY when the amount survives it exactly: millions when the amount
+ * is a whole tenth of a million, thousands when it is a whole thousand.
+ * Anything else falls back to the full `formatToman` digits, because a price
+ * label may never show a rounded amount — «از ۲٫۴ میلیون» for ۲٬۴۵۰٬۰۰۰ would
+ * understate what the customer will actually be quoted.
+ */
+export function formatTomanCompact(irr: bigint): string {
+  if (typeof irr !== "bigint") {
+    throw new TypeError("formatTomanCompact: irr must be a bigint");
+  }
+  if (irr < 0n || irr % IRR_PER_TOMAN !== 0n) {
+    return formatToman(irr);
+  }
+  const toman = irr / IRR_PER_TOMAN;
+  if (toman >= TOMAN_PER_MILLION && toman % (TOMAN_PER_MILLION / 10n) === 0n) {
+    const tenths = toman / (TOMAN_PER_MILLION / 10n);
+    const whole = groupThousands((tenths / 10n).toString());
+    const fraction = tenths % 10n;
+    const digits = fraction === 0n ? whole : `${whole}${DECIMAL_SEPARATOR}${fraction.toString()}`;
+    return `${toPersianDigits(digits)} میلیون تومان`;
+  }
+  /* «هزار» only below a million: «۲,۴۵۰ هزار تومان» is exact but nobody says
+   * a price that way — past a million it is either a clean «میلیون» or the
+   * full digits. */
+  if (toman >= TOMAN_PER_THOUSAND && toman < TOMAN_PER_MILLION && toman % TOMAN_PER_THOUSAND === 0n) {
+    const thousands = groupThousands((toman / TOMAN_PER_THOUSAND).toString());
+    return `${toPersianDigits(thousands)} هزار تومان`;
+  }
+  return formatToman(irr);
+}
+
 /** Format a Rial amount (bigint) as IRR for display, with Persian digits and separators. */
 export function formatIrr(irr: bigint, options?: { readonly withSuffix?: boolean }): string {
   if (typeof irr !== "bigint") {

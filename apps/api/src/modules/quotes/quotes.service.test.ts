@@ -28,7 +28,7 @@ import { open } from '../../common/crypto/aead-envelope';
 import type { AuditService } from '../audit/audit.service';
 import type { CatalogService } from '../catalog/catalog.service';
 import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-rate.types';
-import type { PricingRuleService } from '../pricing/pricing-rule.service';
+import { toEnginePricingRule, type PricingRuleService } from '../pricing/pricing-rule.service';
 import { PricingService } from '../pricing/pricing.service';
 import type { QuotesDatabase } from './quote.ports';
 import { QuotesService, type QuoteActor } from './quotes.service';
@@ -457,6 +457,7 @@ interface Harness {
   readonly getRateSnapshot: ReturnType<typeof vi.fn>;
   readonly getCrossRate: ReturnType<typeof vi.fn>;
   readonly getSkuQuoteTarget: ReturnType<typeof vi.fn>;
+  readonly getFromPriceCandidates: ReturnType<typeof vi.fn>;
   readonly getServiceForQuote: ReturnType<typeof vi.fn>;
   readonly getTopUpOfferForQuote: ReturnType<typeof vi.fn>;
   readonly getLivePrice: ReturnType<typeof vi.fn>;
@@ -470,6 +471,7 @@ function harness(
     readonly skuTarget?: unknown;
     readonly topUpTarget?: unknown;
     readonly liveTopUpPrice?: unknown | null;
+    readonly fromPriceCandidates?: readonly unknown[];
   } = {},
 ): Harness {
   const db = new FakeQuoteDatabase();
@@ -486,6 +488,7 @@ function harness(
   const pricingRules = { list: async () => rules.value } as unknown as PricingRuleService;
   const getServiceForQuote = vi.fn();
   const getSkuQuoteTarget = vi.fn(async () => options.skuTarget ?? SKU_TARGET);
+  const getFromPriceCandidates = vi.fn(async () => options.fromPriceCandidates ?? []);
   const getTopUpOfferForQuote = vi.fn(async () => options.topUpTarget ?? topUpTarget());
   const getLivePrice = vi.fn(async () =>
     options.liveTopUpPrice === undefined
@@ -498,6 +501,7 @@ function harness(
   );
   const catalog = {
     getSkuQuoteTarget,
+    getFromPriceCandidates,
     getServiceForQuote,
     getTopUpOfferForQuote,
   } as unknown as CatalogService;
@@ -526,6 +530,7 @@ function harness(
     getRateSnapshot,
     getCrossRate,
     getSkuQuoteTarget,
+    getFromPriceCandidates,
     getServiceForQuote,
     getTopUpOfferForQuote,
     getLivePrice,
@@ -1549,5 +1554,118 @@ describe('QuotesService.expireQuotes', () => {
 
     expect(await context.service.expireQuotes()).toBe(0);
     expect(context.db.only()['status']).toBe('ACCEPTED');
+  });
+});
+
+/* ============================================================================
+ * fromPrices — the advertised «از ...» floor on a product card
+ * ==========================================================================*/
+
+describe('QuotesService.fromPrices', () => {
+  /** A dollar-faced, dollar-billed denomination; the catalog's majority case. */
+  function candidate(overrides: Partial<Record<string, string>> = {}) {
+    return {
+      productId: 'product-1',
+      skuId: 'sku-1',
+      faceValue: '10',
+      currency: 'USD',
+      effectiveCost: '10',
+      ...overrides,
+    };
+  }
+
+  /** What the real engine says the card should advertise. */
+  function expectedFinal(effectiveCost: string, faceValue: string): string {
+    const engine = new PricingService();
+    return engine
+      .computeQuote(
+        {
+          supplierCostUsd: new Decimal(effectiveCost),
+          customerForeignAmount: new Decimal(faceValue),
+          quantity: 1,
+        },
+        toEnginePricingRule(GLOBAL_RULE as unknown as Parameters<typeof toEnginePricingRule>[0]),
+        fxSnapshot(),
+      )
+      .finalAmountIrr.toString();
+  }
+
+  it('advertises each product at its cheapest denomination, priced by the real engine', async () => {
+    const context = harness({
+      fromPriceCandidates: [
+        candidate({ skuId: 'sku-50', effectiveCost: '46.512345', faceValue: '50' }),
+        candidate({ skuId: 'sku-10' }),
+        candidate({ productId: 'product-2', skuId: 'sku-other', effectiveCost: '20', faceValue: '20' }),
+      ],
+    });
+
+    const prices = await context.service.fromPrices(['product-1', 'product-2']);
+
+    /* The $10 card is the floor for product-1, and the amount is exactly what
+     * createQuote would produce for it — same engine, same rule, same FX. */
+    expect(prices).toEqual({
+      'product-1': expectedFinal('10', '10'),
+      'product-2': expectedFinal('20', '20'),
+    });
+    /* The quote path's cost-currency filter is reused verbatim. */
+    expect(context.getFromPriceCandidates).toHaveBeenCalledWith(['product-1', 'product-2'], 'USD');
+  });
+
+  it('returns nothing at all on a stale dollar rate, and does not cache the outage', async () => {
+    const context = harness({ fromPriceCandidates: [candidate()] });
+    context.getRateSnapshot.mockResolvedValueOnce({ ...fxSnapshot(), isStale: true });
+
+    expect(await context.service.fromPrices(['product-1'])).toEqual({});
+
+    /* The next call sees the recovered rate instead of a 60-second blackout. */
+    expect(await context.service.fromPrices(['product-1'])).toEqual({
+      'product-1': expectedFinal('10', '10'),
+    });
+  });
+
+  it('omits a product whose scope ladder matches no rule', async () => {
+    const context = harness({ fromPriceCandidates: [candidate()] });
+    context.rules.value = [{ ...GLOBAL_RULE, scope: 'SKU', targetId: 'some-other-sku' }];
+
+    expect(await context.service.fromPrices(['product-1'])).toEqual({});
+  });
+
+  it('drops a face currency with no usable cross rate and keeps the rest', async () => {
+    const context = harness({
+      fromPriceCandidates: [
+        candidate(),
+        candidate({ productId: 'product-gbp', skuId: 'sku-gbp', currency: 'GBP', faceValue: '25', effectiveCost: '33.44' }),
+      ],
+    });
+    context.getCrossRate.mockImplementation(async (currency: string) => {
+      if (currency === 'GBP') throw new CrossRateUnavailableError('GBP', 'UNSUPPORTED_CURRENCY');
+      return crossRate(currency);
+    });
+
+    expect(await context.service.fromPrices(['product-1', 'product-gbp'])).toEqual({
+      'product-1': expectedFinal('10', '10'),
+    });
+  });
+
+  it('serves repeat lookups from the cache instead of re-running the engine', async () => {
+    const context = harness({ fromPriceCandidates: [candidate()] });
+
+    const first = await context.service.fromPrices(['product-1']);
+    const second = await context.service.fromPrices(['product-1']);
+
+    expect(second).toEqual(first);
+    expect(context.getFromPriceCandidates).toHaveBeenCalledTimes(1);
+  });
+
+  it('never surfaces supplier identity or cost in the response', async () => {
+    const context = harness({ fromPriceCandidates: [candidate({ effectiveCost: '46.512345', faceValue: '50' })] });
+
+    const prices = await context.service.fromPrices(['product-1']);
+
+    const serialized = JSON.stringify(prices);
+    expect(serialized).not.toContain(SUPPLIER_ID);
+    expect(serialized).not.toContain('46.512345');
+    /* Only the final rial figure crosses the boundary. */
+    expect(Object.values(prices)).toEqual([expectedFinal('46.512345', '50')]);
   });
 });

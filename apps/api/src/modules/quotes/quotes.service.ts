@@ -107,6 +107,22 @@ const QUOTE_COST_CURRENCY = 'USD';
 /** `Quote.supplierCostUsd` and the FX columns are `Decimal(18,6)`. */
 const USD_DECIMAL_PLACES = 6;
 
+/**
+ * How long an advertised «از ...» price may be served from memory.
+ *
+ * Short enough that a rule or FX change reaches the storefront within a
+ * minute, long enough that a browsing session does not re-run the pricing
+ * engine over the same grid on every page view. Real quotes never touch this
+ * cache — `createQuote` prices from live inputs every time.
+ */
+const FROM_PRICE_CACHE_TTL_MS = 60_000;
+
+/** `null` records a product we priced and found nothing for. */
+interface FromPriceCacheEntry {
+  readonly amountIrr: string | null;
+  readonly expiresAt: number;
+}
+
 export const QUOTE_CREATED = 'QUOTE_CREATED';
 export const QUOTE_ACCEPTED = 'QUOTE_ACCEPTED';
 export const QUOTE_AMOUNT_MISMATCH = 'QUOTE_AMOUNT_MISMATCH';
@@ -118,6 +134,9 @@ export const QUOTE_AMOUNT_MISMATCH = 'QUOTE_AMOUNT_MISMATCH';
  */
 @Injectable()
 export class QuotesService {
+  /** Keyed by product id; see `FROM_PRICE_CACHE_TTL_MS`. */
+  private readonly fromPriceCache = new Map<string, FromPriceCacheEntry>();
+
   constructor(
     @Inject(QUOTES_DATABASE) private readonly db: QuotesDatabase,
     @Inject(CatalogService) private readonly catalog: CatalogService,
@@ -791,12 +810,150 @@ export class QuotesService {
               ['SERVICE', target.id],
               ['GLOBAL', null],
             ] as const);
-    for (const [scope, targetId] of candidates) {
-      const matched = rules.find((rule) => rule.scope === scope && rule.targetId === targetId);
-      if (matched) return matched;
-    }
-    return null;
+    return firstMatchingRule(rules, candidates) ?? null;
   }
+
+  /**
+   * The advertised «از ...» price for each product, in rial, as strings.
+   *
+   * The same engine run the quote endpoint would do for the product's cheapest
+   * orderable denomination at quantity 1 — same offer selection, same rule
+   * scopes, same FX legs — so the floor on the card is a price `createQuote`
+   * would actually reproduce a moment later. It is display-only: nothing here
+   * is payable, and `Quote.finalAmountIrr` stays the only number a customer
+   * can act on.
+   *
+   * Fail-open, per product and as a whole. A product with no rule, no buyable
+   * offer or an unusable cross rate is simply absent from the result, and a
+   * stale dollar rate or a failed read empties it — the card then falls back
+   * to its «دریافت قیمت» call to action instead of advertising a number we no
+   * longer stand behind. The quote path keeps failing closed; this path only
+   * ever withholds a label.
+   */
+  async fromPrices(productIds: readonly string[]): Promise<Record<string, string>> {
+    const unique = [...new Set(productIds)];
+    const now = Date.now();
+    const prices: Record<string, string> = {};
+    const missing: string[] = [];
+    for (const productId of unique) {
+      const cached = this.fromPriceCache.get(productId);
+      if (cached !== undefined && cached.expiresAt > now) {
+        if (cached.amountIrr !== null) {
+          prices[productId] = cached.amountIrr;
+        }
+      } else {
+        missing.push(productId);
+      }
+    }
+    if (missing.length === 0) {
+      return prices;
+    }
+
+    const computed = await this.computeFromPrices(missing);
+    if (computed === null) {
+      /* A whole-run failure (stale dollar rate, a failed read) is not cached:
+       * the next request should see the recovery, not a 60-second blackout. */
+      return prices;
+    }
+    const expiresAt = now + FROM_PRICE_CACHE_TTL_MS;
+    for (const productId of missing) {
+      const amountIrr = computed.get(productId) ?? null;
+      this.fromPriceCache.set(productId, { amountIrr, expiresAt });
+      if (amountIrr !== null) {
+        prices[productId] = amountIrr;
+      }
+    }
+    return prices;
+  }
+
+  private async computeFromPrices(
+    productIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string> | null> {
+    let candidates;
+    let rules;
+    let fx;
+    try {
+      [candidates, rules, fx] = await Promise.all([
+        this.catalog.getFromPriceCandidates(productIds, QUOTE_COST_CURRENCY),
+        this.pricingRules.list(),
+        this.fx.getRateSnapshot('USD_IRR'),
+      ]);
+    } catch {
+      return null;
+    }
+    if (fx.isStale) {
+      return null;
+    }
+
+    /* One snapshot per face currency for the whole batch; `null` records a
+     * currency we asked about and could not use, so it is not asked twice. */
+    const faceRates = new Map<string, CrossRateSnapshot | null>();
+    const floors = new Map<string, bigint>();
+    for (const candidate of candidates) {
+      const rule = firstMatchingRule(rules, [
+        ['SKU', candidate.skuId],
+        ['PRODUCT', candidate.productId],
+        ['GLOBAL', null],
+      ]);
+      if (rule === undefined) {
+        continue;
+      }
+      let faceRate = faceRates.get(candidate.currency);
+      if (faceRate === undefined) {
+        try {
+          const snapshot = await this.crossRates.getSnapshot(candidate.currency);
+          faceRate = snapshot.isStale ? null : snapshot;
+        } catch {
+          faceRate = null;
+        }
+        faceRates.set(candidate.currency, faceRate);
+      }
+      if (faceRate === null) {
+        continue;
+      }
+      try {
+        /* `effectiveCost` is already in `QUOTE_COST_CURRENCY` (dollars) —
+         * `getFromPriceCandidates` filtered offers on it, exactly as the quote
+         * path does — so only the face leg needs a cross rate. */
+        const breakdown = this.pricing.computeQuote(
+          {
+            supplierCostUsd: new Decimal(candidate.effectiveCost),
+            customerForeignAmount: toUsd(candidate.faceValue, faceRate),
+            quantity: 1,
+          },
+          toEnginePricingRule(rule),
+          fx,
+        );
+        const current = floors.get(candidate.productId);
+        if (current === undefined || breakdown.finalAmountIrr < current) {
+          floors.set(candidate.productId, breakdown.finalAmountIrr);
+        }
+      } catch {
+        /* One unpriceable denomination must not hide the rest of the product. */
+        continue;
+      }
+    }
+    return new Map([...floors].map(([productId, irr]) => [productId, irr.toString()]));
+  }
+}
+
+/** Scope/target pairs in precedence order. */
+type RuleCandidates = readonly (readonly [DatabaseRule['scope'], string | null])[];
+
+/**
+ * The one place a rule is matched against a target's scope ladder — quoting
+ * and the advertised from-prices both resolve through it, so the two can never
+ * disagree on which rule governs a product.
+ */
+function firstMatchingRule(
+  rules: readonly DatabaseRule[],
+  candidates: RuleCandidates,
+): DatabaseRule | undefined {
+  for (const [scope, targetId] of candidates) {
+    const matched = rules.find((rule) => rule.scope === scope && rule.targetId === targetId);
+    if (matched) return matched;
+  }
+  return undefined;
 }
 
 /**

@@ -228,6 +228,11 @@ export async function HomePage() {
     listTelegramGames(),
     listGameTopUps(),
   ]);
+  /* One batch for every shelf; fail-open, so a pricing hiccup only costs the
+   * cards their «از ...» label. */
+  const fromPrices = await api.fromPrices(
+    shelves.flatMap((shelf) => shelf.products.map((product) => product.id)),
+  );
   return (
     <>
       <main>
@@ -276,7 +281,9 @@ export async function HomePage() {
             <section key={shelf.key} className="container section">
               <ShelfHead eyebrow={shelf.eyebrow} title={shelf.title} href={shelf.href} />
               <div className="grid product-grid">
-                {shelf.products.map((product) => <CatalogProductCard key={product.id} product={product} />)}
+                {shelf.products.map((product) => (
+                  <CatalogProductCard key={product.id} product={product} fromPriceIrr={fromPrices[product.id]} />
+                ))}
               </div>
             </section>
           ))}

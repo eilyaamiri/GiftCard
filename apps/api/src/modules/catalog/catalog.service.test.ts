@@ -1281,3 +1281,88 @@ describe('CatalogService admin top-up catalogue', () => {
     expect(result).toEqual({ requested: 2, updated: 2 });
   });
 });
+
+/**
+ * The SKU candidates behind a product card's advertised «از ...» price. Same
+ * gates as the quote path: anything this returns must be a thing `createQuote`
+ * would actually price.
+ */
+describe('CatalogService from-price candidates', () => {
+  function offer(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'offer-1',
+      supplierId: 'supplier-1',
+      costCurrency: 'USD',
+      costAmount: new Decimal('46.5'),
+      discountBps: 0,
+      availability: 'AVAILABLE',
+      isActive: true,
+      priority: 100,
+      supplier: { isActive: true },
+      ...overrides,
+    };
+  }
+
+  function candidatesHarness(skus: readonly Record<string, unknown>[]) {
+    const sku = { findMany: vi.fn().mockResolvedValue(skus) };
+    const db = { sku } as unknown as CatalogDatabase;
+    return { service: new CatalogService(db, TEST_CONFIG), sku };
+  }
+
+  it('applies the quote path gates: active SKU, active product, data complete', async () => {
+    const { service, sku } = candidatesHarness([]);
+
+    await service.getFromPriceCandidates(['product-1', 'product-2'], 'USD');
+
+    expect(sku.findMany.mock.calls[0]?.[0].where).toEqual({
+      productId: { in: ['product-1', 'product-2'] },
+      isActive: true,
+      product: { isActive: true, needsReview: false },
+    });
+  });
+
+  it('pairs each SKU with the offer the quote would buy from, and skips unbuyable SKUs', async () => {
+    const { service } = candidatesHarness([
+      {
+        id: 'sku-50',
+        productId: 'product-1',
+        faceValue: new Decimal('50'),
+        currency: 'USD',
+        supplierOffers: [
+          offer({ id: 'offer-pricey', costAmount: new Decimal('47') }),
+          /* 48 minus a 10% supplier discount is 43.2 — cheaper than 47 even
+           * though it is listed higher; the discount must count. */
+          offer({ id: 'offer-discounted', costAmount: new Decimal('48'), discountBps: 1_000 }),
+        ],
+      },
+      {
+        /* Billed in euros only: the quote path would find nothing to buy, so
+         * no from-price may be advertised from it either. */
+        id: 'sku-eur',
+        productId: 'product-1',
+        faceValue: new Decimal('25'),
+        currency: 'EUR',
+        supplierOffers: [offer({ id: 'offer-eur', costCurrency: 'EUR' })],
+      },
+    ]);
+
+    const candidates = await service.getFromPriceCandidates(['product-1'], 'USD');
+
+    expect(candidates).toEqual([
+      {
+        productId: 'product-1',
+        skuId: 'sku-50',
+        faceValue: '50',
+        currency: 'USD',
+        effectiveCost: '43.2',
+      },
+    ]);
+  });
+
+  it('asks the database nothing for an empty id list', async () => {
+    const { service, sku } = candidatesHarness([]);
+
+    expect(await service.getFromPriceCandidates([], 'USD')).toEqual([]);
+    expect(sku.findMany).not.toHaveBeenCalled();
+  });
+});

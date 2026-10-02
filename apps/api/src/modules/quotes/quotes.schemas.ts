@@ -17,3 +17,19 @@ export const acceptQuoteBodySchema = z.object({
   commerceSessionToken: z.string().min(16).max(128).optional(),
 });
 export type AcceptQuoteBody = z.infer<typeof acceptQuoteBodySchema>;
+
+/**
+ * `GET /api/quotes/from-prices?productIds=a,b,c` — the display floors a
+ * catalog page asks for in one call. Comma-separated because the ids travel in
+ * a URL; capped at 60 because that is more than any grid shows and a longer
+ * list is a scraper, not a storefront.
+ */
+export const fromPricesQuerySchema = z.object({
+  productIds: z
+    .string()
+    .min(1)
+    .max(4_000)
+    .transform((value) => value.split(',').map((id) => id.trim()).filter((id) => id !== ''))
+    .pipe(z.array(z.string().min(1).max(64)).min(1).max(60)),
+});
+export type FromPricesQuery = z.infer<typeof fromPricesQuerySchema>;
