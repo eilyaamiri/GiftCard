@@ -31,6 +31,7 @@ import type {
 import {
   assignCategorySchema,
   bulkSetProductActiveSchema,
+  bulkSetTopUpGameActiveSchema,
   createBrandSchema,
   createCategorySchema,
   createInternationalServiceSchema,
@@ -48,13 +49,17 @@ import {
   updateSkuSchema,
   updateSupplierOfferSchema,
   updateSupplierSchema,
+  updateTopUpGameSchema,
+  updateTopUpOfferSchema,
   type AdminBrandListInput,
   type AdminCatalogListInput,
   type AdminProductListInput,
   type AdminSkuListInput,
   type AdminSupplierOfferListInput,
+  type AdminTopUpGameListInput,
   type AssignCategoryInput,
   type BulkSetProductActiveInput,
+  type BulkSetTopUpGameActiveInput,
   type CreateBrandInput,
   type CreateCategoryInput,
   type CreateInternationalServiceInput,
@@ -72,6 +77,8 @@ import {
   type UpdateSkuInput,
   type UpdateSupplierInput,
   type UpdateSupplierOfferInput,
+  type UpdateTopUpGameInput,
+  type UpdateTopUpOfferInput,
 } from './catalog.schemas';
 
 /* ============================================================================
@@ -1004,6 +1011,76 @@ export class CatalogService {
   async adminArchiveOffer(id: string) {
     await this.assertExists(this.db.supplierOffer.count({ where: { id } }), 'supplier offer');
     return this.db.supplierOffer.update({ where: { id }, data: { isActive: false } });
+  }
+
+  /* ------------------------------------------------------ direct top-up */
+
+  /**
+   * Every top-up game, inactive ones included.
+   *
+   * `includeInactive` defaults to false everywhere else in the admin, but the
+   * caller here always asks for true: a freshly synced game arrives inactive on
+   * purpose, so a list that hid inactive rows would hide every game an operator
+   * has not got to yet — which is the whole queue this screen exists to show.
+   *
+   * `isListed` is returned rather than filtered on. It is the venue's answer,
+   * not ours, and the operator needs to see it beside their own switch: a game
+   * that is active but no longer listed is a curation mistake worth surfacing.
+   */
+  async adminListTopUpGames(query: AdminTopUpGameListInput) {
+    const where: Prisma.TopUpGameWhereInput = {
+      ...(query.includeInactive ? {} : { isActive: true }),
+      ...(query.supplierId ? { supplierId: query.supplierId } : {}),
+    };
+    const [items, total] = await this.db.$transaction([
+      this.db.topUpGame.findMany({
+        where,
+        include: {
+          supplier: { select: { id: true, code: true, name: true, isActive: true } },
+          _count: { select: { offers: true } },
+        },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+      }),
+      this.db.topUpGame.count({ where }),
+    ]);
+    return { items, meta: pageMeta(query.page, query.pageSize, total) };
+  }
+
+  async adminGetTopUpGame(id: string) {
+    const game = await this.db.topUpGame.findUnique({
+      where: { id },
+      include: {
+        supplier: { select: { id: true, code: true, name: true, isActive: true } },
+        fields: { orderBy: { sortOrder: 'asc' } },
+        offers: { orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] },
+      },
+    });
+    if (!game) throw DomainErrors.notFound('top-up game');
+    return game;
+  }
+
+  async adminUpdateTopUpGame(id: string, input: UpdateTopUpGameInput) {
+    const data = updateTopUpGameSchema.parse(input);
+    await this.assertExists(this.db.topUpGame.count({ where: { id } }), 'top-up game');
+    return this.db.topUpGame.update({ where: { id }, data });
+  }
+
+  async adminUpdateTopUpOffer(id: string, input: UpdateTopUpOfferInput) {
+    const data = updateTopUpOfferSchema.parse(input);
+    await this.assertExists(this.db.topUpOffer.count({ where: { id } }), 'top-up offer');
+    return this.db.topUpOffer.update({ where: { id }, data });
+  }
+
+  async adminBulkSetTopUpGameActive(input: BulkSetTopUpGameActiveInput) {
+    const { gameIds, isActive } = bulkSetTopUpGameActiveSchema.parse(input);
+    const ids = [...new Set(gameIds)];
+    const { count } = await this.db.topUpGame.updateMany({
+      where: { id: { in: ids } },
+      data: { isActive },
+    });
+    return { requested: ids.length, updated: count };
   }
 
   async adminListServices(query: AdminCatalogListInput) {
