@@ -84,7 +84,7 @@ export function TelegramOrderPage({
       <header className="tg-order-head">
         <img
           className="tg-order-art"
-          src={product === "stars" ? "/telegram-stars.svg" : "/telegram-premium.svg"}
+          src={product === "stars" ? "/telegram-stars.png" : "/telegram-premium.png"}
           alt=""
           width={64}
           height={64}
