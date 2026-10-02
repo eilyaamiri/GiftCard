@@ -10,7 +10,7 @@ import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
 import { getFaqs } from "@/lib/faq";
 import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
-import { gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
+import { gameImageUrl, gameMonogram, gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
 
 /**
  * Every strip on the landing page is the same width — four cards — so the page
@@ -328,9 +328,19 @@ export async function HomePage() {
               <div className="grid tg-home-grid gt-home-grid">
                 {gameTopUps.slice(0, ROW_SIZE).map((game) => {
                   const region = regionLabel(game.region);
+                  const image = gameImageUrl(game);
                   return (
                     <Link href={`/games/${encodeURIComponent(game.slug)}`} className="card pad tg-home-card" key={game.id}>
-                      <strong>{gameTitle(game)}</strong>
+                      <span className="tg-home-card-head">
+                        <span className="gt-home-art" aria-hidden="true">
+                          {image !== null ? (
+                            <img src={image} alt="" loading="lazy" width={40} height={40} />
+                          ) : (
+                            <span className="gt-home-monogram">{gameMonogram(game)}</span>
+                          )}
+                        </span>
+                        <strong>{gameTitle(game)}</strong>
+                      </span>
                       <span className="muted">شارژ مستقیم با شناسهٔ بازیکن{region !== null ? ` · ${region}` : ""}</span>
                       <span className="section-head-link">انتخاب بسته <ArrowLeft size={14} aria-hidden="true" /></span>
                     </Link>
