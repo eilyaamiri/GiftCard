@@ -5,7 +5,7 @@ import {
   FazerCardsSteamSupplierProvider,
   formatFazerCardsSteamProviderSku,
   parseFazerCardsSteamProviderSku,
-  STEAM_USD_AMOUNTS,
+  STEAM_CUSTOM_AMOUNT_SKU,
 } from './fazercards-steam.provider';
 
 const ORIGINAL_FETCH = globalThis.fetch;
@@ -91,10 +91,8 @@ describe('Steam provider SKU', () => {
     },
   );
 
-  it('keeps every ladder amount inside the venue bounds', () => {
-    for (const amount of STEAM_USD_AMOUNTS) {
-      expect(() => formatFazerCardsSteamProviderSku(amount)).not.toThrow();
-    }
+  it('refuses the template SKU: it is not a purchasable amount', () => {
+    expect(() => parseFazerCardsSteamProviderSku(STEAM_CUSTOM_AMOUNT_SKU)).toThrow(FazerCardsSteamSupplierError);
   });
 });
 
@@ -106,14 +104,13 @@ describe('construction', () => {
 });
 
 describe('catalogue, price and availability', () => {
-  it('lists the ladder as direct top-ups that need a Steam login', async () => {
+  it('lists one custom-amount template that needs a Steam login', async () => {
     stubFetch({ 'GET /steam-topup/rates': RATES });
     const catalog = await provider().getCatalog();
-    expect(catalog.map((item) => item.providerSku)).toEqual(STEAM_USD_AMOUNTS.map((a) => `steam:usd:${a}`));
+    expect(catalog.map((item) => item.providerSku)).toEqual(['steam:usd:custom']);
     expect(catalog[0]).toMatchObject({
       assetType: 'DIRECT_TOPUP',
       requiredAccountFields: ['steam_login'],
-      faceValue: { amount: '5.0000', currency: 'USD' },
     });
   });
 

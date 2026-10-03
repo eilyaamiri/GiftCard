@@ -15,7 +15,7 @@ export const metadata: Metadata = {
 /**
  * The Steam wallet top-up.
  *
- * One screen: the customer states the Steam login, picks a USD amount, and is
+ * One screen: the customer states the Steam login, types a USD amount, and is
  * taken to a quote. The wallet is credited with exactly that amount once the
  * payment is confirmed. No price appears here — the Rial price is the live
  * supplier cost at the moment the quote is asked for.
@@ -31,7 +31,7 @@ export default async function SteamPage() {
           <div className="eyebrow">استیم</div>
           <h1 className="h1 tg-hero-title">شارژ کیف پول استیم، فقط با شناسهٔ ورود</h1>
           <p className="tg-hero-copy">
-            شناسهٔ ورود حساب استیم و مبلغ دلاری را انتخاب کنید. بعد از تأیید پرداخت، همان مبلغ مستقیم
+            شناسهٔ ورود حساب استیم و مبلغ دلاری دلخواه را وارد کنید. بعد از تأیید پرداخت، همان مبلغ مستقیم
             به کیف پول استیم می‌نشیند.
           </p>
           <div className="tg-hero-facts">
@@ -60,7 +60,7 @@ export default async function SteamPage() {
           <div className="steam-order">
             <header className="card pad steam-order-head">
               <h2 className="h3">{entry.game.nameFa ?? "شارژ کیف پول استیم"}</h2>
-              <p className="muted">با شناسهٔ ورود، مبلغ دلاری را انتخاب کنید و قیمت نهایی را ببینید.</p>
+              <p className="muted">با شناسهٔ ورود و مبلغ دلاری دلخواه، قیمت نهایی را ببینید.</p>
             </header>
 
             {entry.game.providerNote ? (
@@ -74,7 +74,7 @@ export default async function SteamPage() {
               loginLabel={field?.labelFa ?? field?.label ?? "شناسهٔ ورود استیم"}
               loginHint={field?.helpTextFa ?? "شناسهٔ ورود (Login) حساب استیم را وارد کنید؛ نه نام نمایشی."}
               validationRegex={field?.validationRegex ?? null}
-              offers={entry.offers.map(({ id, label, usd }) => ({ id, label, usd }))}
+              offerId={entry.offerId}
             />
 
             <p className="tg-order-foot">

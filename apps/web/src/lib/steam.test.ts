@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatUsd, isSteamEntry, isValidSteamLogin, normalizeSteamLogin, offerUsd } from "./steam";
+import { isSteamEntry, isValidSteamLogin, normalizeSteamLogin, parseSteamUsdAmount, pickSteamTemplateOffer } from "./steam";
 
-const offer = (over: Record<string, unknown>) => ({ id: "o", name: "x", ...over }) as Parameters<typeof offerUsd>[0];
+const offer = (over: Record<string, unknown>) => ({ id: "o", name: "x", ...over }) as Parameters<typeof pickSteamTemplateOffer>[0][number];
 
 describe("isSteamEntry", () => {
   it("matches the Steam wallet by slug, name, brand or Persian name", () => {
@@ -16,16 +16,32 @@ describe("isSteamEntry", () => {
   });
 });
 
-describe("offerUsd", () => {
-  it("prefers the face value, then the SKU tail, then the name", () => {
-    expect(offerUsd(offer({ faceValue: "25.0000", providerSku: "steam:usd:5" }))).toBe(25);
-    expect(offerUsd(offer({ providerSku: "steam:usd:10.5" }))).toBe(10.5);
-    expect(offerUsd(offer({ name: "Steam Wallet $50" }))).toBe(50);
-    expect(offerUsd(offer({ name: "۱۰۰ دلار اعتبار استیم" }))).toBe(100);
+describe("parseSteamUsdAmount", () => {
+  it("accepts whole and two-decimal amounts and canonicalises them", () => {
+    expect(parseSteamUsdAmount("5")).toEqual({ ok: true, amount: "5" });
+    expect(parseSteamUsdAmount(" 10.50 ")).toEqual({ ok: true, amount: "10.5" });
+    expect(parseSteamUsdAmount("0.15")).toEqual({ ok: true, amount: "0.15" });
+    expect(parseSteamUsdAmount("1000")).toEqual({ ok: true, amount: "1000" });
+    expect(parseSteamUsdAmount("۲۵٫۵")).toEqual({ ok: true, amount: "25.5" });
   });
 
-  it("returns null when no amount can be read", () => {
-    expect(offerUsd(offer({ name: "Steam Wallet" }))).toBeNull();
+  it("refuses empty, malformed, too-precise and out-of-range amounts", () => {
+    expect(parseSteamUsdAmount("  ")).toEqual({ ok: false, reason: "REQUIRED" });
+    expect(parseSteamUsdAmount("abc")).toEqual({ ok: false, reason: "FORMAT" });
+    expect(parseSteamUsdAmount("1.234")).toEqual({ ok: false, reason: "FORMAT" });
+    expect(parseSteamUsdAmount("-5")).toEqual({ ok: false, reason: "FORMAT" });
+    expect(parseSteamUsdAmount("0.14")).toEqual({ ok: false, reason: "BELOW_MIN" });
+    expect(parseSteamUsdAmount("0")).toEqual({ ok: false, reason: "BELOW_MIN" });
+    expect(parseSteamUsdAmount("1000.01")).toEqual({ ok: false, reason: "ABOVE_MAX" });
+  });
+});
+
+describe("pickSteamTemplateOffer", () => {
+  it("prefers the :custom SKU, else the only buyable offer", () => {
+    expect(pickSteamTemplateOffer([offer({ id: "a", providerSku: "steam:usd:5" }), offer({ id: "b", providerSku: "steam:usd:custom" })])?.id).toBe("b");
+    expect(pickSteamTemplateOffer([offer({ id: "only" })])?.id).toBe("only");
+    expect(pickSteamTemplateOffer([offer({ id: "x", isAvailable: false })])).toBeUndefined();
+    expect(pickSteamTemplateOffer([offer({ id: "x" }), offer({ id: "y" })])).toBeUndefined();
   });
 });
 
@@ -35,10 +51,5 @@ describe("login handling", () => {
     expect(isValidSteamLogin("  ")).toBe(false);
     expect(isValidSteamLogin("two words")).toBe(false);
     expect(normalizeSteamLogin("  user۱۲  ")).toBe("user12");
-  });
-
-  it("formats USD without float noise", () => {
-    expect(formatUsd(5)).toBe("$5");
-    expect(formatUsd(10.5)).toBe("$10.50");
   });
 });

@@ -9,6 +9,7 @@ import { BaratDomainException } from '../../common/errors/domain.exception';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { InMemoryTopUpCatalogStore } from './testing/in-memory-topup-catalog.store';
 import { TopUpCatalogSyncService, planAvailability } from './topup-catalog.sync';
+import { STEAM_CUSTOM_AMOUNT_SKU, topUpProviderSku } from './topup-provider-sku';
 import type { TopUpCatalogGame, TopUpCatalogOffer, TopUpSyncableSupplier } from './suppliers.types';
 import type { SupplierCatalogItem } from '@barat/suppliers';
 
@@ -224,22 +225,25 @@ describe('planAvailability — the namespaced Telegram catalogue', () => {
     expect(plan.unknownSkus).toEqual([]);
   });
 
-  it('recognises the Steam wallet ladder under its own namespace', () => {
+  it('recognises the Steam custom-amount template under its own namespace', () => {
     const plan = planAvailability({
       supplierCode: 'fazercards-steam',
-      catalog: [item('steam:usd:5'), item('steam:usd:10')],
-      games: [{ id: 'steam', providerCategoryId: 'usd', providerOfferIds: ['5', '10', '20'] }],
-      offers: [
-        { id: 'st-5', providerOfferId: '5', providerCategoryId: 'usd' },
-        { id: 'st-10', providerOfferId: '10', providerCategoryId: 'usd' },
-        { id: 'st-20', providerOfferId: '20', providerCategoryId: 'usd' },
-      ],
+      catalog: [item('steam:usd:custom')],
+      games: [{ id: 'steam', providerCategoryId: 'usd', providerOfferIds: ['custom'] }],
+      offers: [{ id: 'st-custom', providerOfferId: 'custom', providerCategoryId: 'usd' }],
     });
 
-    expect(plan.listedOffers).toEqual(['st-5', 'st-10']);
-    expect(plan.delistedOffers).toEqual(['st-20']);
+    expect(plan.listedOffers).toEqual(['st-custom']);
+    expect(plan.delistedOffers).toEqual([]);
     expect(plan.listedGames).toEqual(['steam']);
     expect(plan.unknownSkus).toEqual([]);
+  });
+
+  it('keeps the adapter template SKU and the quote-side template SKU in step', async () => {
+    const { FazerCardsSteamSupplierProvider, STEAM_CUSTOM_AMOUNT_SKU: adapterSku } = await import('@barat/suppliers');
+    expect(adapterSku).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+    expect(topUpProviderSku('fazercards-steam', 'usd', 'custom')).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+    expect(FazerCardsSteamSupplierProvider).toBeDefined();
   });
 
   it('still delists the one package the venue withdrew, and reports a new one', () => {

@@ -15,17 +15,19 @@ import {
 /**
  * Steam wallet top-up, read from the public top-up catalogue.
  *
- * Steam is one product with a ladder of USD amounts, delivered to a Steam
- * login. Like Telegram it is told apart from the games shelf by what the
- * catalogue publishes about it, never by a hard-coded slug, and the customer's
- * price is always the server's quote — nothing here prices anything.
+ * The venue sells any USD amount, so the catalogue holds ONE template offer and
+ * the customer types the amount. Like Telegram it is told apart from the games
+ * shelf by what the catalogue publishes about it, never by a hard-coded slug,
+ * and the customer's price is always the server's quote — nothing here prices
+ * anything. The bounds below only shape the input; the API enforces them.
  */
 
 /** The wire key the API validates the Steam login against. */
 export const STEAM_LOGIN_KEY = "steam_login";
 
-/** The supplier's own SKU space: `steam:usd:<amount>`. */
-export const STEAM_SKU_PREFIX = "steam:usd:";
+/** Mirrors `STEAM_CUSTOM_*` in the API's topup-provider-sku.ts, in whole US cents. */
+export const STEAM_MIN_USD_CENTS = 15n;
+export const STEAM_MAX_USD_CENTS = 100_000n;
 
 const STEAM_WORD = /(^|[^a-z])steam([^a-z]|$)/u;
 
@@ -41,14 +43,8 @@ export function isSteamEntry(input: {
 
 export interface SteamCatalogEntry {
   readonly game: TopUpGameDetail;
-  readonly offers: readonly SteamOffer[];
-}
-
-export interface SteamOffer {
-  readonly id: string;
-  /** Whole-or-fractional USD the wallet is credited with. */
-  readonly usd: number;
-  readonly label: string;
+  /** The template offer the typed amount is bound to. */
+  readonly offerId: string;
 }
 
 /** Steam's own login rules are looser than a username, so only «not empty, no spaces». */
@@ -61,35 +57,31 @@ export function isValidSteamLogin(raw: string): boolean {
   return login !== "" && login.length <= 64 && /^[^\s\p{Cc}]+$/u.test(login);
 }
 
-/** The USD amount an offer stands for: face value, then SKU tail, then the name. */
-export function offerUsd(offer: TopUpOffer): number | null {
-  const positive = (value: number): number | null => (Number.isFinite(value) && value > 0 ? value : null);
-  if (offer.faceValue !== null && offer.faceValue !== undefined) {
-    const value = positive(Number(offer.faceValue));
-    if (value !== null) return value;
-  }
-  const sku = offer.providerSku ?? offer.sku ?? "";
-  if (sku.startsWith(STEAM_SKU_PREFIX)) {
-    const value = positive(Number(sku.slice(STEAM_SKU_PREFIX.length)));
-    if (value !== null) return value;
-  }
-  const match = /(\d+(?:\.\d+)?)/u.exec(offer.name.replace(/[۰-۹]/gu, persianDigitsToAscii));
-  return match?.[1] === undefined ? null : positive(Number(match[1]));
+export type SteamAmountResult =
+  | { readonly ok: true; readonly amount: string }
+  | { readonly ok: false; readonly reason: "REQUIRED" | "FORMAT" | "BELOW_MIN" | "ABOVE_MAX" };
+
+/** Integer-cents parse of a typed USD amount (≤ 2 decimals); no float touches it. */
+export function parseSteamUsdAmount(raw: string): SteamAmountResult {
+  const text = raw.trim().replace(/[۰-۹]/gu, persianDigitsToAscii).replace(/٫/gu, ".");
+  if (text === "") return { ok: false, reason: "REQUIRED" };
+  const match = /^(\d{1,7})(?:\.(\d{1,2}))?$/u.exec(text);
+  if (match === null) return { ok: false, reason: "FORMAT" };
+  const cents = BigInt(match[1] ?? "0") * 100n + BigInt((match[2] ?? "").padEnd(2, "0"));
+  if (cents < STEAM_MIN_USD_CENTS) return { ok: false, reason: "BELOW_MIN" };
+  if (cents > STEAM_MAX_USD_CENTS) return { ok: false, reason: "ABOVE_MAX" };
+  const fraction = (cents % 100n).toString().padStart(2, "0").replace(/0+$/u, "");
+  const whole = (cents / 100n).toString();
+  return { ok: true, amount: fraction === "" ? whole : `${whole}.${fraction}` };
 }
 
-export function formatUsd(usd: number): string {
-  return `$${Number.isInteger(usd) ? usd.toString() : usd.toFixed(2)}`;
-}
-
-function toSteamOffers(offers: readonly TopUpOffer[]): readonly SteamOffer[] {
-  const result: SteamOffer[] = [];
-  for (const offer of offers) {
-    if (offer.isAvailable === false) continue;
-    const usd = offerUsd(offer);
-    if (usd === null) continue;
-    result.push({ id: offer.id, usd, label: formatUsd(usd) });
-  }
-  return result.sort((a, b) => a.usd - b.usd);
+/** The template offer: the one whose SKU ends in `:custom`, else the only buyable one. */
+export function pickSteamTemplateOffer(offers: readonly TopUpOffer[]): TopUpOffer | undefined {
+  const buyable = offers.filter((offer) => offer.isAvailable !== false);
+  return (
+    buyable.find((offer) => (offer.providerSku ?? offer.sku ?? "").endsWith(":custom")) ??
+    (buyable.length === 1 ? buyable[0] : undefined)
+  );
 }
 
 export async function listSteamGames(): Promise<readonly TopUpGameSummary[]> {
@@ -103,8 +95,8 @@ export async function getSteamTopUp(): Promise<SteamCatalogEntry | null> {
   for (const summary of await listSteamGames()) {
     const game = await detail(summary.slug);
     if (game === null || !isSteamEntry(game)) continue;
-    const offers = toSteamOffers(game.offers ?? []);
-    if (offers.length > 0) return { game, offers };
+    const offer = pickSteamTemplateOffer(game.offers ?? []);
+    if (offer !== undefined) return { game, offerId: offer.id };
   }
   return null;
 }

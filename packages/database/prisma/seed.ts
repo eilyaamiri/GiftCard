@@ -1412,11 +1412,11 @@ async function seedTelegramTopUpCatalog(): Promise<void> {
 
 /**
  * Steam wallet top-up. One game ("USD wallet"), one field (the Steam login) and a
- * preset ladder of USD amounts. Everything is seeded inactive with a zero cost
+ * single custom-amount offer: the customer types the USD amount. Everything is seeded inactive with a zero cost
  * placeholder: the venue bills by the reseller plan, so the cost and margin are
  * a pricing decision a human confirms before anything is activated.
  *
- * SKU contract: `steam:usd:<amount>` (see topUpProviderSku).
+ * SKU contract: the template is `steam:usd:custom`; a quote binds it to `steam:usd:<amount>`.
  */
 async function seedSteamTopUpCatalog(): Promise<void> {
   const supplierId = 'seed_supplier_fazercards_steam';
@@ -1472,24 +1472,26 @@ async function seedSteamTopUpCatalog(): Promise<void> {
     update: {},
   });
 
-  for (const [offerIndex, amount] of ['5', '10', '15', '20', '25', '50', '100'].entries()) {
-    await prisma.topUpOffer.upsert({
-      where: { gameId_providerOfferId: { gameId: game.id, providerOfferId: amount } },
-      create: {
-        id: `${seedGameId}_offer_${amount}`,
-        gameId: game.id,
-        providerOfferId: amount,
-        name: `Steam Wallet $${amount}`,
-        nameFa: `${amount} دلار اعتبار استیم`,
-        costAmount: '0.0000',
-        costCurrency: 'USD',
-        isActive: false,
-        isListed: true,
-        sortOrder: offerIndex,
-      },
-      update: {},
-    });
-  }
+  /*
+   * ONE template offer. The venue has no amount list; the customer types a USD
+   * amount and the quote binds it into `steam:usd:<amount>` (bindVariableTopUpAmount).
+   */
+  await prisma.topUpOffer.upsert({
+    where: { gameId_providerOfferId: { gameId: game.id, providerOfferId: 'custom' } },
+    create: {
+      id: `${seedGameId}_offer_custom`,
+      gameId: game.id,
+      providerOfferId: 'custom',
+      name: 'Steam Wallet (custom USD amount)',
+      nameFa: 'اعتبار استیم، مبلغ دلخواه',
+      costAmount: '0.0000',
+      costCurrency: 'USD',
+      isActive: false,
+      isListed: true,
+      sortOrder: 0,
+    },
+    update: {},
+  });
 }
 
 // ============================================================================

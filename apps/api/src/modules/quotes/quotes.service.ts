@@ -55,10 +55,18 @@ import {
   withoutReservedKeys,
   type ServiceAccountSnapshot,
 } from './service-account-fields';
+import { bindVariableTopUpAmount } from '../suppliers/topup-provider-sku';
 import {
   buildTopUpAccountFields,
   validateTopUpAccountFields,
 } from './topup-account-fields';
+
+const VARIABLE_AMOUNT_MESSAGES = {
+  REQUIRED: 'A foreign amount is required',
+  FORMAT: 'Amount must be a positive USD value with at most two decimals',
+  BELOW_MIN: 'Amount is below the service minimum',
+  ABOVE_MAX: 'Amount exceeds the service maximum',
+} as const;
 
 export interface QuoteActor {
   readonly customerId?: string | null;
@@ -629,11 +637,34 @@ export class QuotesService {
           { path: 'currency', message: 'Currency does not match the top-up offer currency' },
         ]);
       }
+      const bound = bindVariableTopUpAmount(topUp.providerSku, input.requestedAmountForeign);
+      if (bound.variable && !bound.ok) {
+        throw DomainErrors.validation([
+          { path: 'requestedAmountForeign', message: VARIABLE_AMOUNT_MESSAGES[bound.reason] },
+        ]);
+      }
+      /*
+       * A variable-amount offer is a template: the SKU the venue is asked to
+       * price and later buy is the one carrying the customer's amount. It is
+       * frozen into the snapshot below, so fulfillment buys exactly what the
+       * customer saw and paid for.
+       */
+      const resolved: TopUpQuoteTarget = bound.variable
+        ? {
+            ...topUp,
+            providerSku: bound.providerSku,
+            offer: {
+              ...topUp.offer,
+              name: `Steam Wallet $${bound.amount}`,
+              nameFa: `${bound.amount} دلار اعتبار استیم`,
+            },
+          }
+        : topUp;
       return {
         kind: 'topup',
-        id: topUp.offer.id,
-        topUp,
-        accountFields: buildTopUpAccountFields(topUp.fields, submitted),
+        id: resolved.offer.id,
+        topUp: resolved,
+        accountFields: buildTopUpAccountFields(resolved.fields, submitted),
       };
     }
     if (input.skuId) {

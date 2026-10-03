@@ -20,11 +20,12 @@ const ORDER_ID_PATTERN = /^ord-[0-9]+$/u;
 const STEAM_LOGIN_PATTERN = /^[^\s\p{Cc}]+$/u;
 
 /**
- * The USD wallet top-ups we offer. The venue publishes no list of amounts — it
- * accepts any USD value with at most two decimals — so the ladder is ours, and
- * it is a product decision, not something this adapter discovers.
+ * The venue publishes no list of amounts — it accepts any USD value with at
+ * most two decimals — so there is exactly one catalogue entry: a template whose
+ * amount the customer types. The quote binds that amount into a concrete
+ * `steam:usd:<amount>` SKU before anything is priced or bought.
  */
-export const STEAM_USD_AMOUNTS = ['5', '10', '15', '20', '25', '50', '100'] as const;
+export const STEAM_CUSTOM_AMOUNT_SKU = 'steam:usd:custom';
 
 /** Outer bounds a SKU may carry; anything beyond is refused rather than sent. */
 const MAX_STEAM_USD = 1_000n * 100n;
@@ -183,14 +184,14 @@ export class FazerCardsSteamSupplierProvider implements SupplierProvider {
 
   async getCatalog(): Promise<readonly SupplierCatalogItem[]> {
     await this.assertRatesLive();
-    return STEAM_USD_AMOUNTS.map((amount) => ({
-      providerSku: formatFazerCardsSteamProviderSku(amount),
-      name: `Steam Wallet $${amount}`,
+    return [{
+      providerSku: STEAM_CUSTOM_AMOUNT_SKU,
+      name: 'Steam Wallet (custom USD amount)',
       region: 'GLOBAL',
-      faceValue: { amount: formatMoney(centsOf(amount)), currency: 'USD' },
+      faceValue: { amount: formatMoney(15n), currency: 'USD' },
       assetType: 'DIRECT_TOPUP' as const,
       requiredAccountFields: ['steam_login'],
-    }));
+    }];
   }
 
   async getPrice(providerSku: string): Promise<SupplierPrice> {
