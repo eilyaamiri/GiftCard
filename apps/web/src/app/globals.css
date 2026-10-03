@@ -1022,6 +1022,9 @@ a { color:inherit; text-decoration:none; }
 .auth-note svg { flex:0 0 auto; color:var(--text-primary); margin-top:3px; }
 .auth-visual { position:relative; overflow:hidden; display:flex; flex-direction:column; justify-content:flex-end; min-height:520px; padding:42px; color:var(--text-primary); background:linear-gradient(150deg,var(--brand-green-active),var(--brand-green) 46%,var(--surface-deep-2)); }
 .auth-visual:before { content:""; position:absolute; width:420px; height:420px; top:-190px; left:-180px; border:1px solid color-mix(in srgb,var(--accent-on-deep) 34%,transparent); border-radius:50%; box-shadow:0 0 0 42px rgba(255,255,255,.055),0 0 0 86px rgba(255,255,255,.03); }
+.auth-visual-brand { position:relative; display:flex; align-items:center; gap:12px; margin-bottom:22px; }
+.auth-visual-brand .brand-logo--symbol { --brand-logo-h:40px; }
+.auth-visual-brand .brand-logo--wordmark-fa { --brand-logo-h:30px; }
 .auth-visual-kicker { position:relative; margin-bottom:auto; color:var(--accent-on-deep); font-size:11px; font-weight:900; letter-spacing:.15em; direction:ltr; }
 .auth-visual strong { position:relative; font-size:clamp(29px,4vw,45px); line-height:1.35; letter-spacing:-.04em; }
 .auth-visual p { position:relative; max-width:280px; margin:16px 0 0; color:var(--text-secondary); font-size:14px; line-height:2; }
@@ -1441,7 +1444,9 @@ a { color:inherit; text-decoration:none; }
 .asst { display:flex; flex-direction:column; min-height:0; height:100%; direction:rtl; color:var(--text-primary); background:var(--surface-card); }
 .asst-head { flex:0 0 auto; display:flex; align-items:center; gap:8px; padding:11px 14px; color:var(--text-inverted); background:var(--interactive-primary); }
 .asst-head h2 { flex:1; margin:0; font-size:15px; font-weight:800; }
-.asst-avatar { width:32px; height:32px; display:grid; place-items:center; border-radius:10px; color:var(--text-on-accent); background:var(--interactive-accent); font-weight:900; }
+/* The app icon, theme-matched. Its tile already carries the corner radius;
+ * the ring keeps the near-white light tile from melting into the header. */
+.asst-avatar { --brand-logo-h:32px; flex:0 0 auto; border-radius:9px; overflow:hidden; box-shadow:0 0 0 1px rgba(255,255,255,.22); }
 .asst-icon-btn { width:40px; height:40px; display:grid; place-items:center; color:inherit; background:transparent; border:0; border-radius:12px; cursor:pointer; }
 .asst-icon-btn:hover { background:color-mix(in srgb,currentColor 14%,transparent); }
 .asst-icon-btn:focus-visible,.asst-chip:focus-visible,.asst-card:focus-visible,.asst-nav-btn:focus-visible,.asst-send:focus-visible,.asst-launcher:focus-visible { outline:2px solid var(--interactive-accent); outline-offset:2px; }

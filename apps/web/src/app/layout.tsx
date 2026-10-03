@@ -22,13 +22,16 @@ export const metadata: Metadata = {
     locale: BRAND.seo.locale,
     title: BRAND.seo.title,
     description: BRAND.seo.description,
-    images: [{ url: BRAND.assets.appIconLight, width: 1024, height: 1024, alt: BRAND.nameFa }],
+    images: [{ url: BRAND.assets.ogImage, width: 1200, height: 1200, alt: BRAND.nameFa }],
   },
   twitter: { card: "summary", title: BRAND.seo.title, description: BRAND.seo.description },
+  /* The tab icon follows the browser's own scheme: the white tile would sink
+   * into a dark tab strip, so dark browsers get the black one. */
   icons: {
     icon: [
       { url: "/brand/cento/favicon.ico", sizes: "any" },
-      { url: "/brand/cento/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/brand/cento/favicon-32.png", type: "image/png", sizes: "32x32", media: "(prefers-color-scheme: light)" },
+      { url: "/brand/cento/favicon-dark-32.png", type: "image/png", sizes: "32x32", media: "(prefers-color-scheme: dark)" },
       { url: "/brand/cento/icon-192.png", type: "image/png", sizes: "192x192" },
     ],
     apple: "/brand/cento/apple-touch-icon.png",

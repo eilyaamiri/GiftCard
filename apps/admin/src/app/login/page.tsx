@@ -46,24 +46,21 @@ export default async function LoginPage({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: "11px", marginBlockEnd: "26px" }}>
-          <div
-            aria-hidden
-            style={{
-              width: "38px",
-              height: "38px",
-              display: "grid",
-              placeItems: "center",
-              color: "#0b1d33",
-              background: "#21b4b0",
-              borderRadius: "12px 12px 4px 12px",
-              fontSize: "19px",
-              fontWeight: 900,
-            }}
-          >
-            س
-          </div>
+          <img
+            src="/brand/cento/cento-app-icon-dark-128.png"
+            alt=""
+            width={38}
+            height={38}
+            style={{ display: "block", borderRadius: "10px", boxShadow: "0 6px 16px #0b1d3333" }}
+          />
           <div>
-            <strong style={{ display: "block", fontSize: "17px", color: "#13243a" }}>سنتو</strong>
+            <img
+              src="/brand/cento/cento-fa-dark.png"
+              alt="سنتو"
+              width={1163}
+              height={360}
+              style={{ display: "block", height: "21px", width: "auto", marginBlockEnd: "4px" }}
+            />
             <small style={{ color: "#6b7c93", fontSize: "11px" }}>ورود کارکنان</small>
           </div>
         </div>

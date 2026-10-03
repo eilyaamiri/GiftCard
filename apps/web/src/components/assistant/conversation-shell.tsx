@@ -2,6 +2,7 @@
 
 import { RotateCcw, X } from "lucide-react";
 import { useEffect, useRef } from "react";
+import { BrandLogo } from "@/components/brand-logo";
 
 /**
  * The frame every assistant surface shares: header, a scrolling log and a
@@ -37,7 +38,7 @@ export function ConversationShell({
   return (
     <section className={`asst asst--${variant}`} aria-label="دستیار خرید">
       <header className="asst-head">
-        <span className="asst-avatar" aria-hidden="true">س</span>
+        <BrandLogo variant="icon" className="asst-avatar" />
         <h2>دستیار خرید</h2>
         <button type="button" className="asst-icon-btn" aria-label="شروع دوباره" onClick={onReset}>
           <RotateCcw size={17} aria-hidden="true" />
