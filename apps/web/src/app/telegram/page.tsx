@@ -59,7 +59,7 @@ export default async function TelegramLandingPage() {
 
   return (
     <main>
-      <section className="tg-hero">
+      <section className="tg-hero tg-hero--telegram">
         <div className="container tg-hero-inner">
           <div className="eyebrow">تلگرام</div>
           <h1 className="h1 tg-hero-title">استارز و پرمیوم تلگرام، روی حساب خودتان</h1>
