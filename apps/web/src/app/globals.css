@@ -1328,15 +1328,42 @@ a { color:inherit; text-decoration:none; }
   .skeleton { animation:none; }
 }
 
-/* Telegram storefront: a quiet deep-green frame with two clear product paths. */
-.tg-hero { padding:76px 0 58px; background:var(--surface-deep); color:var(--text-inverted); }
-.tg-hero-inner { max-width:900px; }
-.tg-hero .eyebrow { color:var(--accent-on-deep); }
-.tg-hero-title { max-width:760px; margin:10px 0 18px; }
-.tg-hero-copy { max-width:650px; color:rgba(255,255,255,.78); font-size:17px; line-height:2; }
-.tg-hero-facts { display:flex; flex-wrap:wrap; gap:12px 24px; margin-top:26px; color:rgba(255,255,255,.9); font-size:13px; }
+/* Top-up heroes (Telegram, games). Like the home hero they sit on `--hero-bg`:
+ * paper with the daylight art in the light theme, deep green with the night art
+ * in the dark one, so the text scale is the theme's own and needs no override.
+ * The art keeps its subject on the visual left, the side the RTL copy leaves
+ * empty, and a wash of the ground from the copy's side keeps every line on a
+ * flat colour whatever the viewport crops. */
+.tg-hero {
+  --tg-hero-wash:linear-gradient(to left,var(--hero-bg) 0%,var(--hero-bg) 34%,transparent 66%);
+  padding:76px 0 58px;
+  color:var(--text-primary);
+  /* Sized by height, not `cover`: the subject then never reaches past ~550px
+   * from the left edge, however wide the screen, and beyond the art's own
+   * right edge (which fades to this ground) the band is the flat colour. */
+  background:var(--tg-hero-wash),var(--tg-hero-art,none) left center / auto 100% no-repeat,var(--hero-bg);
+}
+.tg-hero--telegram { --tg-hero-art:url("/topup/telegram-hero-light.webp"); --tg-hero-art-mobile:url("/topup/telegram-hero-light-mobile.webp"); }
+.gt-hero { --tg-hero-art:url("/topup/games-hero-light.webp"); --tg-hero-art-mobile:url("/topup/games-hero-light-mobile.webp"); }
+[data-theme="dark"] .tg-hero--telegram { --tg-hero-art:url("/topup/telegram-hero.webp"); --tg-hero-art-mobile:url("/topup/telegram-hero-mobile.webp"); }
+[data-theme="dark"] .gt-hero { --tg-hero-art:url("/topup/games-hero.webp"); --tg-hero-art-mobile:url("/topup/games-hero-mobile.webp"); }
+/* The copy keeps to the container's start (right) edge and stops short of the
+ * art's subject, rather than centring a 900px box across it. */
+.tg-hero-inner > * { max-width:640px; }
+/* Yellow is the quiet accent of the night ground only; on paper it falls under
+ * the contrast floor, so the light theme keeps the plain eyebrow grey. */
+[data-theme="dark"] .tg-hero .eyebrow { color:var(--accent-on-deep); }
+.tg-hero .tg-hero-title { margin:10px 0 18px; }
+.tg-hero-copy { color:var(--text-secondary); font-size:17px; line-height:2; }
+.tg-hero-facts { display:flex; flex-wrap:wrap; gap:12px 24px; margin-top:26px; color:var(--text-primary); font-size:13px; }
 .tg-hero-facts span { display:inline-flex; align-items:center; gap:7px; }
-.tg-hero-facts svg { color:var(--accent-on-deep); }
+.tg-hero-facts svg { color:var(--interactive-accent); }
+[data-theme="dark"] .tg-hero-facts svg { color:var(--accent-on-deep); }
+/* Between the phone layout and a full desktop there is no width where the copy
+ * clears the subject, so the wash deepens and the art becomes a muted ground. */
+@media (min-width:701px) and (max-width:1060px) {
+  .tg-hero { --tg-hero-wash:linear-gradient(to left,var(--hero-bg) 0%,var(--hero-bg) 40%,color-mix(in srgb,var(--hero-bg) 72%,transparent) 100%); }
+}
 .tg-products-section { padding-top:34px; }
 .tg-products { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; }
 .tg-product { display:flex; flex-direction:column; min-height:310px; }
@@ -1381,7 +1408,16 @@ a { color:inherit; text-decoration:none; }
 .tg-unavailable-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
 
 @media (max-width:700px) {
-  .tg-hero { padding:52px 0 42px; }
+  /* Portrait art, subject at the foot: the band grows by the subject's height
+   * so it shows below the copy, and the wash moves to the top, where the copy
+   * is. Both layers are sized to the art's 3:4 box so they stay registered. */
+  .tg-hero {
+    padding:52px 0 calc(62vw + 20px);
+    background:
+      linear-gradient(to bottom,var(--hero-bg) 0%,var(--hero-bg) 34%,transparent 62%) center bottom / 100% 133.4vw no-repeat,
+      var(--tg-hero-art-mobile,none) center bottom / 100% auto no-repeat,
+      var(--hero-bg);
+  }
   .tg-hero-title { font-size:30px; }
   .tg-hero-copy { font-size:15px; }
   .tg-hero-facts { display:grid; gap:10px; }
