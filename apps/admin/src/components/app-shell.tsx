@@ -164,9 +164,9 @@ export function AppShell({
           >
             ×
           </button>
-          <div className="brand-mark">س</div>
+          <img className="brand-mark" src="/brand/cento/cento-app-icon-dark-128.png" alt="" width={38} height={38} />
           <div>
-            <span className="brand-name">سنتو</span>
+            <img className="brand-wordmark" src="/brand/cento/cento-fa-white.png" alt="سنتو" width={1157} height={360} />
             <span className="brand-sub">پنل عملیات</span>
           </div>
         </div>

@@ -7,6 +7,7 @@ import { emailSchema, mobileSchema } from "@barat/contracts";
 import type { IdentityType } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { AuthOtpStep } from "@/components/auth-otp-step";
+import { BrandLogo } from "@/components/brand-logo";
 import { safeNextPath, saveChallenge, type OtpChallenge } from "./otp-challenge";
 
 /**
@@ -121,6 +122,10 @@ function LoginForm() {
           )}
         </section>
         <aside className="auth-visual" aria-label="امنیت سنتو">
+          <span className="auth-visual-brand">
+            <BrandLogo variant="symbol" ground="dark" />
+            <BrandLogo variant="wordmark-fa" ground="dark" />
+          </span>
           <span className="auth-visual-kicker">SECURE BY DESIGN</span>
           <strong>ورود ساده،<br />حفاظت جدی.</strong>
           <p>کد ورود فقط برای شماست؛ سنتو هیچ‌وقت کد ورود را از شما درخواست نمی‌کند.</p>

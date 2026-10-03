@@ -12,9 +12,14 @@ payment flow and every technical identifier are unchanged.
 - `apps/web/src/components/brand-logo.tsx` — the logo, with the light- and
   dark-theme files switched by CSS on `data-theme` (no client JS).
 - `apps/web/public/brand/cento/` — logos, lockups, symbols, favicons and app
-  icons cut from the designer's exports, unmodified apart from cropping.
-- `apps/admin` — titles and the sidebar/login mark («س», admin palette kept),
-  favicons under `apps/admin/public/brand/cento/`.
+  icons cut from the designer's exports, unmodified apart from cropping. The
+  app icon (light and dark tile) and the Persian wordmark «سنتو» (dark and
+  white ink) come from the transparent re-exports. They supply the favicons
+  (light or dark by `prefers-color-scheme`), the iOS, PWA and maskable icons, the
+  OpenGraph image, the assistant avatar and the brand line on the auth panel.
+- `apps/admin` — titles; the sidebar and login use the dark app icon and the
+  Persian wordmark, with the admin palette kept. Favicons are under
+  `apps/admin/public/brand/cento/`. No «س» glyph mark remains anywhere.
 
 ## Deliberately not renamed
 

@@ -62,6 +62,16 @@ export const BRAND = {
     symbolLight: "/brand/cento/cento-symbol-light.png",
     symbolDark: "/brand/cento/cento-symbol-dark.png",
     appIconLight: "/brand/cento/cento-app-icon-light.png",
+    appIconDark: "/brand/cento/cento-app-icon-dark.png",
+    /* 128px copies of the app icon, for marks drawn at 32–40px. */
+    iconLight: "/brand/cento/cento-app-icon-light-128.png",
+    iconDark: "/brand/cento/cento-app-icon-dark-128.png",
+    /* The Persian wordmark «سنتو»: `Light` is dark ink for light grounds,
+     * `Dark` is white ink for dark ones. */
+    wordmarkFaLight: "/brand/cento/cento-fa-dark.png",
+    wordmarkFaDark: "/brand/cento/cento-fa-white.png",
+    /* Opaque and square: link previews have no transparency to rely on. */
+    ogImage: "/brand/cento/cento-og.png",
   },
 } as const;
 

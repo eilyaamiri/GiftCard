@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AuthOtpStep } from "@/components/auth-otp-step";
+import { BrandLogo } from "@/components/brand-logo";
 import { readChallenge, type OtpChallenge } from "../login/otp-challenge";
 
 export default function OtpPage() {
@@ -31,6 +32,10 @@ export default function OtpPage() {
           <AuthOtpStep challenge={challenge} onBack={() => router.replace("/login")} />
         </section>
         <aside className="auth-visual" aria-label="امنیت سنتو">
+          <span className="auth-visual-brand">
+            <BrandLogo variant="symbol" ground="dark" />
+            <BrandLogo variant="wordmark-fa" ground="dark" />
+          </span>
           <span className="auth-visual-kicker">SECURE BY DESIGN</span>
           <strong>ورود ساده،<br />حفاظت جدی.</strong>
           <p>کد ورود فقط برای شماست؛ سنتو هیچ‌وقت کد ورود را از شما درخواست نمی‌کند.</p>

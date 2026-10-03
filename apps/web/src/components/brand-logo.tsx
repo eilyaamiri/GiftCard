@@ -1,6 +1,6 @@
 import { BRAND } from "@/lib/brand";
 
-type Variant = "lockup" | "full" | "symbol";
+type Variant = "lockup" | "full" | "symbol" | "icon" | "wordmark-fa";
 
 /* Intrinsic sizes of the files under public/brand/cento, so the browser
  * reserves the right box before they load. The light and dark exports differ
@@ -9,6 +9,8 @@ const ART: Record<Variant, { light: [string, number, number]; dark: [string, num
   lockup: { light: [BRAND.assets.lockupLight, 589, 192], dark: [BRAND.assets.lockupDark, 583, 192] },
   full: { light: [BRAND.assets.logoLight, 1200, 391], dark: [BRAND.assets.logoDark, 1200, 395] },
   symbol: { light: [BRAND.assets.symbolLight, 479, 512], dark: [BRAND.assets.symbolDark, 480, 512] },
+  icon: { light: [BRAND.assets.iconLight, 128, 128], dark: [BRAND.assets.iconDark, 128, 128] },
+  "wordmark-fa": { light: [BRAND.assets.wordmarkFaLight, 1163, 360], dark: [BRAND.assets.wordmarkFaDark, 1157, 360] },
 };
 
 /**

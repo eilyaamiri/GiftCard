@@ -9,7 +9,8 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: "/brand/cento/favicon.ico", sizes: "any" },
-      { url: "/brand/cento/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/brand/cento/favicon-32.png", type: "image/png", sizes: "32x32", media: "(prefers-color-scheme: light)" },
+      { url: "/brand/cento/favicon-dark-32.png", type: "image/png", sizes: "32x32", media: "(prefers-color-scheme: dark)" },
     ],
     apple: "/brand/cento/apple-touch-icon.png",
   },
