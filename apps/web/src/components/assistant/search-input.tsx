@@ -1,16 +1,15 @@
 "use client";
 
 import { Send } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { InputSpec } from "@/assistant/types";
 
-const DEBOUNCE_MS = 450;
 const MIN_SEARCH = 2;
 const LTR: ReadonlySet<InputSpec["type"]> = new Set(["username", "url", "email", "number"]);
 
 /**
- * The one text box. A search types ahead (debounced, so a burst of keystrokes
- * is one request); every other input is a structured answer sent on submit.
+ * The one text box. Nothing is sent while the person is still typing: a search
+ * runs only when they press send or the keyboard's search key.
  */
 export function SearchInput({
   spec,
@@ -18,25 +17,13 @@ export function SearchInput({
   onSubmit,
 }: Readonly<{ spec: InputSpec; disabled: boolean; onSubmit: (value: string) => void }>) {
   const [value, setValue] = useState("");
-  const sent = useRef("");
   const isSearch = spec.action === "SEARCH";
-
-  useEffect(() => {
-    if (!isSearch) return;
-    const trimmed = value.trim();
-    if (trimmed.length < MIN_SEARCH || trimmed === sent.current) return;
-    const timer = window.setTimeout(() => {
-      sent.current = trimmed;
-      onSubmit(trimmed);
-    }, DEBOUNCE_MS);
-    return () => window.clearTimeout(timer);
-  }, [value, isSearch, onSubmit]);
+  const trimmed = value.trim();
+  const ready = trimmed.length >= (isSearch ? MIN_SEARCH : 1);
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
-    const trimmed = value.trim();
-    if (trimmed === "" || disabled) return;
-    sent.current = trimmed;
+    if (!ready || disabled) return;
     onSubmit(trimmed);
     if (!isSearch) setValue("");
   };
@@ -75,7 +62,7 @@ export function SearchInput({
             onChange={change}
           />
         )}
-        <button type="submit" className="asst-send" aria-label="ارسال" disabled={disabled || value.trim() === ""}>
+        <button type="submit" className="asst-send" aria-label="ارسال" disabled={disabled || !ready}>
           <Send size={18} aria-hidden="true" />
         </button>
       </div>

@@ -64,7 +64,7 @@ export function AssistantWidget() {
     <div className="asst-widget" onKeyDown={(event) => (event.key === "Escape" && open ? change(false) : undefined)}>
       {mounted ? (
         <div className="asst-widget-panel" hidden={!open}>
-          <AssistantPanel variant="widget" returnPath={pathname} onMinimize={() => change(false)} />
+          <AssistantPanel variant="widget" returnPath={pathname} onClose={() => change(false)} />
         </div>
       ) : null}
       {open ? null : (
