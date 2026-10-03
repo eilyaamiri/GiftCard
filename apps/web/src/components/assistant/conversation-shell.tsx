@@ -6,7 +6,9 @@ import { useEffect, useRef } from "react";
 /**
  * The frame every assistant surface shares: header, a scrolling log and a
  * footer for the input. The desktop widget and the phone page differ only in
- * the `variant` class, so there is one conversation UI to keep correct.
+ * the `variant` class, so there is one conversation UI to keep correct. The
+ * modifier is `asst--*`, never `asst-widget`/`asst-page`: those name the
+ * containers around the shell, and sharing them would position it twice.
  */
 export function ConversationShell({
   variant,
@@ -33,7 +35,7 @@ export function ConversationShell({
   }, [scrollKey]);
 
   return (
-    <section className={`asst asst-${variant}`} aria-label="دستیار خرید">
+    <section className={`asst asst--${variant}`} aria-label="دستیار خرید">
       <header className="asst-head">
         <span className="asst-avatar" aria-hidden="true">ب</span>
         <h2>دستیار خرید</h2>
