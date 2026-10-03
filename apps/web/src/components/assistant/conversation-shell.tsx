@@ -1,6 +1,6 @@
 "use client";
 
-import { Minus, RotateCcw } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 /**
@@ -12,7 +12,7 @@ export function ConversationShell({
   variant,
   scrollKey,
   onReset,
-  onMinimize,
+  onClose,
   footer,
   children,
 }: Readonly<{
@@ -20,7 +20,8 @@ export function ConversationShell({
   /** Changes whenever new content arrives, so the log follows the conversation. */
   scrollKey: string;
   onReset: () => void;
-  onMinimize?: () => void;
+  /** Closing keeps the conversation; reopening lands where it was left. */
+  onClose: () => void;
   footer: React.ReactNode;
   children: React.ReactNode;
 }>) {
@@ -39,11 +40,9 @@ export function ConversationShell({
         <button type="button" className="asst-icon-btn" aria-label="شروع دوباره" onClick={onReset}>
           <RotateCcw size={17} aria-hidden="true" />
         </button>
-        {onMinimize ? (
-          <button type="button" className="asst-icon-btn" aria-label="کوچک کردن" onClick={onMinimize}>
-            <Minus size={19} aria-hidden="true" />
-          </button>
-        ) : null}
+        <button type="button" className="asst-icon-btn" aria-label="بستن دستیار" onClick={onClose}>
+          <X size={20} aria-hidden="true" />
+        </button>
       </header>
       <div className="asst-body" ref={bodyRef} role="log" aria-live="polite">
         {children}

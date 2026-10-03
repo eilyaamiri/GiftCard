@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronRight, Home } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import type { AssistantOption, AssistantResponse } from "@/assistant/types";
 import { ConversationShell } from "./conversation-shell";
@@ -48,9 +49,18 @@ function Choices({
 export function AssistantPanel({
   variant,
   returnPath,
-  onMinimize,
-}: Readonly<{ variant: "widget" | "page"; returnPath: string; onMinimize?: () => void }>) {
+  onClose,
+}: Readonly<{ variant: "widget" | "page"; returnPath: string; onClose?: () => void }>) {
+  const router = useRouter();
   const { ready, busy, response, transcript, send, reset } = useAssistant(returnPath);
+
+  /* The phone page has nothing to collapse into, so closing it goes back to
+   * whatever the person was looking at, or home when they arrived directly. */
+  const close = useCallback(() => {
+    if (onClose) return onClose();
+    if (window.history.length > 1) router.back();
+    else router.push("/");
+  }, [onClose, router]);
 
   const pick = useCallback((option: AssistantOption) => send(option.action, option.value), [send]);
   const submit = useCallback(
@@ -98,7 +108,7 @@ export function AssistantPanel({
       variant={variant}
       scrollKey={`${transcript.length}|${response?.state ?? ""}|${busy}`}
       onReset={reset}
-      {...(onMinimize === undefined ? {} : { onMinimize })}
+      onClose={close}
       footer={footer}
     >
       {!ready && response === null ? <TypingBubble /> : null}

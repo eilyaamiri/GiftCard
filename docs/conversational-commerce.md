@@ -60,7 +60,7 @@ Guarantees the engine enforces:
 | Flow | Notes |
 |---|---|
 | mainMenu | Gift card, international payment, Telegram, game top-up, my orders, contact us |
-| giftCard | search (debounced) -> product -> region -> denomination -> **quote card** -> confirm |
+| giftCard | search (sent on submit, never while typing) -> product -> region -> denomination -> **quote card** -> confirm |
 | telegram | Stars and Premium. Asks only for the public username; never a password, OTP or login code |
 | gameTopup | Fields come from the catalogue (`TopUpField`); credential-like fields are dropped |
 | internationalPayment | Dynamic categories and services, plus a custom-payment option |
@@ -107,7 +107,7 @@ if storage is unavailable.
 ## Surfaces
 
 - **Desktop (>= 768px)**: a floating widget on every page, bottom-left, up to 400px wide,
-  titled «دستیار خرید», with minimise and reset (no state lost). Escape minimises. It does
+  titled «دستیار خرید», with reset and close (×), neither of which loses state. Escape closes. It does
   not render on `/assistant`, `/login`, `/otp`.
 - **Phone (< 768px)**: no widget. The bottom navigation item **«سفارش‌ها» was replaced by
   «دستیار»**, which opens `/assistant`, a full-screen page above the bottom bar with
