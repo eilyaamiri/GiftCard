@@ -6,6 +6,7 @@ import { visibleBrandsQuery } from "@/lib/brand-art";
 import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CategoryIcon } from "@/components/category-icon";
+import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
 import { getFaqs } from "@/lib/faq";
@@ -266,7 +267,7 @@ export async function HomePage() {
         </section>
         {categories.length > 0 ? (
           <section className="container category-tiles-section">
-            <div className="category-tiles">
+            <CategoryScroller>
               {categories.map((category) => (
                 <Link
                   key={category.id}
@@ -279,7 +280,7 @@ export async function HomePage() {
                   <span className="category-tile-label">{category.nameFa}</span>
                 </Link>
               ))}
-            </div>
+            </CategoryScroller>
           </section>
         ) : null}
         {/* One stack, not six unrelated sections — the shelves share a tighter

@@ -474,6 +474,19 @@ a { color:inherit; text-decoration:none; }
 .category-tiles-section { padding-block:26px 0; }
 .category-tiles { display:flex; gap:10px; overflow-x:auto; padding-bottom:2px; scrollbar-width:none; }
 .category-tiles::-webkit-scrollbar { display:none; }
+/* The scrollbar is hidden, so an arrow on whichever end still has chips beyond
+ * the edge is what tells a visitor the row continues. It sits over a fade of the
+ * page background so the chip underneath dissolves rather than being sliced. */
+.category-scroller { position:relative; }
+.category-scroll-btn { position:absolute; top:0; bottom:2px; z-index:1; display:grid; place-items:center; width:56px; padding:0; border:0; color:var(--text-primary); cursor:pointer; }
+.category-scroll-btn svg { display:block; width:30px; height:30px; padding:6px; box-sizing:border-box; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:999px; transition:border-color .18s ease,background-color .18s ease; }
+.category-scroll-btn:is(:hover,:focus-visible) svg { border-color:var(--interactive-primary); background:var(--background-contrast); }
+.category-scroll-btn:focus-visible { outline:none; }
+.category-scroll-start { right:0; justify-items:start; background:linear-gradient(to left,var(--background-body) 45%,transparent); }
+.category-scroll-end { left:0; justify-items:end; background:linear-gradient(to right,var(--background-body) 45%,transparent); }
+@media (max-width:700px) {
+  .category-scroll-btn { width:40px; }
+}
 .category-tile { display:inline-flex; flex:0 0 auto; align-items:center; gap:8px; padding:9px 16px; color:var(--text-primary); background:var(--surface-card); border:1px solid var(--border-primary); border-radius:999px; font-size:13px; font-weight:700; transition:color .18s ease,border-color .18s ease,background-color .18s ease; }
 .category-tile:hover,.category-tile:focus-visible { color:var(--text-primary); border-color:var(--interactive-primary); background:var(--background-contrast); outline:none; }
 .category-tile-icon { display:grid; place-items:center; color:var(--text-primary); }
