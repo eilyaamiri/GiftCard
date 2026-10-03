@@ -139,6 +139,7 @@ export function MobileNavDrawer({
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>
             <Link href="/telegram" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>استارز و پرمیوم تلگرام</Link>
             <Link href="/games" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/games") ? "page" : undefined}>شارژ مستقیم بازی</Link>
+            <Link href="/steam" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/steam") ? "page" : undefined}>شارژ کیف پول استیم</Link>
             <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
             <Link href="/help" className="mobile-nav-drawer-link">راهنما</Link>
           </nav>

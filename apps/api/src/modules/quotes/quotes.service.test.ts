@@ -1366,6 +1366,116 @@ describe('QuotesService.createQuote — direct top-up', () => {
   });
 });
 
+describe('QuotesService.createQuote — variable-amount Steam top-up', () => {
+  function steamTarget(): Record<string, unknown> {
+    const base = topUpTarget();
+    return {
+      ...base,
+      offer: { ...(base['offer'] as Record<string, unknown>), id: 'steam-custom', providerOfferId: 'custom', name: 'Steam Wallet (custom USD amount)' },
+      game: { ...(base['game'] as Record<string, unknown>), id: 'steam-game', slug: 'steam-wallet', providerCategoryId: 'usd' },
+      supplierCode: 'fazercards-steam',
+      providerSku: 'steam:usd:custom',
+      fields: [
+        { ...((base['fields'] as Record<string, unknown>[])[0] as Record<string, unknown>), key: 'steam_login', validationRegex: null },
+      ],
+    };
+  }
+  function steamRequest(overrides: Partial<CreateQuoteRequest> = {}): CreateQuoteRequest {
+    return {
+      topUpOfferId: 'steam-custom',
+      topUpAccountFields: { steam_login: 'gabe' },
+      quantity: 1,
+      currency: 'USD',
+      requestedAmountForeign: '12.50',
+      ...overrides,
+    } as CreateQuoteRequest;
+  }
+  function steamContext(amountSku = 'steam:usd:12.5', cost = '12.5000') {
+    const context = harness({
+      topUpTarget: steamTarget(),
+      liveTopUpPrice: {
+        providerSku: amountSku,
+        cost: { amount: cost, currency: 'USD' },
+        observedAt: new Date('2026-08-30T09:59:45.000Z'),
+      },
+    });
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+    return context;
+  }
+
+  it('prices and freezes the SKU for the amount the customer typed', async () => {
+    const context = steamContext();
+
+    await context.service.createQuote(steamRequest(), ACTOR);
+
+    expect(context.getLivePrice).toHaveBeenCalledWith({
+      supplierCode: 'fazercards-steam',
+      providerSku: 'steam:usd:12.5',
+    });
+    expect(context.computeQuote.mock.calls[0]?.[0]).toMatchObject({
+      supplierCostUsd: new Decimal('12.5'),
+      customerForeignAmount: new Decimal('12.5'),
+    });
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+    const topUp = (snapshot['target'] as Record<string, unknown>)['topUp'] as Record<string, unknown>;
+    expect(topUp['providerSku']).toBe('steam:usd:12.5');
+    expect(topUp['name']).toBe('Steam Wallet $12.5');
+    expect(snapshot['topUpAccountFields']).toEqual({ steam_login: 'gabe' });
+  });
+
+  it('never sends the template SKU to the venue', async () => {
+    const context = steamContext();
+    await context.service.createQuote(steamRequest(), ACTOR);
+    const calls = context.getLivePrice.mock.calls as unknown as [{ providerSku: string }][];
+    expect(calls.every(([arg]) => arg.providerSku !== 'steam:usd:custom')).toBe(true);
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['malformed', '5.999'],
+    ['below the minimum', '0.10'],
+    ['above the maximum', '1000.01'],
+  ])('refuses a %s amount before asking the venue for a price', async (_label, amount) => {
+    const context = steamContext();
+    const request = steamRequest();
+    if (amount === undefined) delete (request as { requestedAmountForeign?: string }).requestedAmountForeign;
+    else (request as { requestedAmountForeign?: string }).requestedAmountForeign = amount;
+
+    await expect(context.service.createQuote(request, ACTOR)).rejects.toMatchObject({ status: 400 });
+
+    expect(context.getLivePrice).not.toHaveBeenCalled();
+    expect(context.db.rows.size).toBe(0);
+  });
+
+  it('ignores a typed amount on a fixed offer', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(
+      {
+        topUpOfferId: 'topup-offer-1',
+        topUpAccountFields: { telegram_username: 'player_one' },
+        quantity: 1,
+        currency: 'USD',
+        requestedAmountForeign: '999',
+      } as unknown as CreateQuoteRequest,
+      ACTOR,
+    );
+
+    expect(context.getLivePrice).toHaveBeenCalledWith({
+      supplierCode: 'fazercards',
+      providerSku: 'telegram:stars:500',
+    });
+  });
+
+  it('refuses a venue price quoted for a different amount than was typed', async () => {
+    const context = steamContext('steam:usd:99', '99.0000');
+
+    await expect(context.service.createQuote(steamRequest(), ACTOR)).rejects.toMatchObject({ status: 409 });
+    expect(context.db.rows.size).toBe(0);
+  });
+});
+
 describe('QuotesService.getQuote', () => {
   it('never re-prices: the stored snapshot survives an FX and a rule change', async () => {
     const context = harness();

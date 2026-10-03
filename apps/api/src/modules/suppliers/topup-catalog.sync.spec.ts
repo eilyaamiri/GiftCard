@@ -9,6 +9,7 @@ import { BaratDomainException } from '../../common/errors/domain.exception';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { InMemoryTopUpCatalogStore } from './testing/in-memory-topup-catalog.store';
 import { TopUpCatalogSyncService, planAvailability } from './topup-catalog.sync';
+import { STEAM_CUSTOM_AMOUNT_SKU, topUpProviderSku } from './topup-provider-sku';
 import type { TopUpCatalogGame, TopUpCatalogOffer, TopUpSyncableSupplier } from './suppliers.types';
 import type { SupplierCatalogItem } from '@barat/suppliers';
 
@@ -222,6 +223,27 @@ describe('planAvailability — the namespaced Telegram catalogue', () => {
     expect(plan.listedGames).toEqual([GAME_STARS, GAME_PREMIUM]);
     expect(plan.delistedGames).toEqual([]);
     expect(plan.unknownSkus).toEqual([]);
+  });
+
+  it('recognises the Steam custom-amount template under its own namespace', () => {
+    const plan = planAvailability({
+      supplierCode: 'fazercards-steam',
+      catalog: [item('steam:usd:custom')],
+      games: [{ id: 'steam', providerCategoryId: 'usd', providerOfferIds: ['custom'] }],
+      offers: [{ id: 'st-custom', providerOfferId: 'custom', providerCategoryId: 'usd' }],
+    });
+
+    expect(plan.listedOffers).toEqual(['st-custom']);
+    expect(plan.delistedOffers).toEqual([]);
+    expect(plan.listedGames).toEqual(['steam']);
+    expect(plan.unknownSkus).toEqual([]);
+  });
+
+  it('keeps the adapter template SKU and the quote-side template SKU in step', async () => {
+    const { FazerCardsSteamSupplierProvider, STEAM_CUSTOM_AMOUNT_SKU: adapterSku } = await import('@barat/suppliers');
+    expect(adapterSku).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+    expect(topUpProviderSku('fazercards-steam', 'usd', 'custom')).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+    expect(FazerCardsSteamSupplierProvider).toBeDefined();
   });
 
   it('still delists the one package the venue withdrew, and reports a new one', () => {

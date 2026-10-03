@@ -1410,6 +1410,90 @@ async function seedTelegramTopUpCatalog(): Promise<void> {
   }
 }
 
+/**
+ * Steam wallet top-up. One game ("USD wallet"), one field (the Steam login) and a
+ * single custom-amount offer: the customer types the USD amount. Everything is seeded inactive with a zero cost
+ * placeholder: the venue bills by the reseller plan, so the cost and margin are
+ * a pricing decision a human confirms before anything is activated.
+ *
+ * SKU contract: the template is `steam:usd:custom`; a quote binds it to `steam:usd:<amount>`.
+ */
+async function seedSteamTopUpCatalog(): Promise<void> {
+  const supplierId = 'seed_supplier_fazercards_steam';
+
+  const supplier = await prisma.supplier.upsert({
+    where: { code: 'fazercards-steam' },
+    create: {
+      id: supplierId,
+      code: 'fazercards-steam',
+      name: 'FazerCards Steam',
+      integrationMode: SupplierIntegrationMode.API,
+      supportsRawCode: false,
+      defaultCurrency: 'USD',
+      isActive: false,
+      notes: 'Steam wallet top-up by login; cost depends on the reseller plan and must be confirmed before activation.',
+    },
+    update: {},
+  });
+
+  const seedGameId = 'seed_topup_game_steam_wallet';
+  const game = await prisma.topUpGame.upsert({
+    where: { slug: 'steam-wallet' },
+    create: {
+      id: seedGameId,
+      slug: 'steam-wallet',
+      supplierId: supplier.id,
+      providerCategoryId: 'usd',
+      name: 'Steam Wallet',
+      nameFa: 'شارژ کیف پول استیم',
+      brandName: 'Steam',
+      region: 'GLOBAL',
+      providerNote: 'Enter the Steam login (not the display name). Price is fetched live at quote time.',
+      isActive: false,
+      isListed: true,
+      requiresCredentials: false,
+      sortOrder: 0,
+    },
+    update: {},
+  });
+
+  await prisma.topUpField.upsert({
+    where: { gameId_key: { gameId: game.id, key: 'steam_login' } },
+    create: {
+      id: `${seedGameId}_field_steam_login`,
+      gameId: game.id,
+      key: 'steam_login',
+      label: 'Steam login',
+      labelFa: 'شناسه ورود استیم',
+      isRequired: true,
+      helpTextFa: 'شناسه ورود (Login) حساب استیم را وارد کنید؛ نه نام نمایشی.',
+      sortOrder: 0,
+    },
+    update: {},
+  });
+
+  /*
+   * ONE template offer. The venue has no amount list; the customer types a USD
+   * amount and the quote binds it into `steam:usd:<amount>` (bindVariableTopUpAmount).
+   */
+  await prisma.topUpOffer.upsert({
+    where: { gameId_providerOfferId: { gameId: game.id, providerOfferId: 'custom' } },
+    create: {
+      id: `${seedGameId}_offer_custom`,
+      gameId: game.id,
+      providerOfferId: 'custom',
+      name: 'Steam Wallet (custom USD amount)',
+      nameFa: 'اعتبار استیم، مبلغ دلخواه',
+      costAmount: '0.0000',
+      costCurrency: 'USD',
+      isActive: false,
+      isListed: true,
+      sortOrder: 0,
+    },
+    update: {},
+  });
+}
+
 // ============================================================================
 // 6. Customers — a fixed pool reused across the funnel fixture
 // ============================================================================
@@ -1956,6 +2040,7 @@ async function main(): Promise<void> {
   const { skuDefs } = await seedCatalog();
   const { tilloId, tilloOfferBySkuId } = await seedSuppliers(skuDefs);
   await seedTelegramTopUpCatalog();
+  await seedSteamTopUpCatalog();
   const customerIds = await seedCustomers();
 
   const anomalyIds = await seedFunnel({

@@ -9,6 +9,7 @@ import { buildSupplierProviders, buildTopUpCatalogReaders } from './supplier-pro
 import {
   providerSkuKey,
   readFazerCardsCatalogEnv,
+  readFazerCardsSteamEnv,
   readFazerCardsTelegramEnv,
   readFazerCardsTopUpEnv,
   readProviderSkuMap,
@@ -31,6 +32,7 @@ const KEYS = [
   'RELOADLY_SENDER_NAME',
   'RELOADLY_TIMEOUT_MS',
   'FAZERCARDS_TELEGRAM_ENABLED',
+  'FAZERCARDS_STEAM_ENABLED',
   'FAZERCARDS_TOPUP_ENABLED',
   'FAZERCARDS_API_KEY',
   'FAZERCARDS_TIMEOUT_MS',
@@ -544,6 +546,38 @@ describe('buildSupplierProviders', () => {
     delete process.env['FAZERCARDS_TELEGRAM_ENABLED'];
     configureFazerCardsTopUp();
     expect(keysFor(false)).not.toContain('fazercards-telegram');
+  });
+
+  it('registers FazerCards Steam only under its own flag', () => {
+    process.env['FAZERCARDS_STEAM_ENABLED'] = 'true';
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+    expect(keysFor(false)).toEqual(['mock', 'fazercards-steam']);
+
+    // A test run that reached the live venue would top up a real wallet.
+    expect(keysFor(true)).toEqual(['mock']);
+
+    // Telegram and games being live must not switch Steam on, nor the reverse.
+    delete process.env['FAZERCARDS_STEAM_ENABLED'];
+    configureFazerCardsTelegram();
+    configureFazerCardsTopUp();
+    expect(keysFor(false)).not.toContain('fazercards-steam');
+  });
+
+  it('does not turn on FazerCards Steam merely because the shared key is set', () => {
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+
+    expect(keysFor(false)).toEqual(['mock']);
+  });
+
+  it('refuses a Steam flag it cannot read, and never logs the key', () => {
+    process.env['FAZERCARDS_STEAM_ENABLED'] = 'yes';
+    expect(() => readFazerCardsSteamEnv()).toThrow(/must be exactly/u);
+
+    process.env['FAZERCARDS_STEAM_ENABLED'] = 'true';
+    process.env['FAZERCARDS_API_KEY'] = 'fzr-live-key';
+    const log = vi.mocked(Logger.prototype.log);
+    buildSupplierProviders({ isTest: false });
+    expect(log.mock.calls.flat().join(' ')).not.toContain('fzr-live-key');
   });
 
   it('does not log the API key when top-up is registered', () => {

@@ -9,7 +9,7 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * and declares none of `RELOADLY_ENABLED`, `RELOADLY_ENVIRONMENT`,
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
  * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `FAZERCARDS_TELEGRAM_ENABLED`,
- * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
+ * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_STEAM_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
  * `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
  * scattered — so the Foundation agent can lift these entries into the
@@ -45,6 +45,13 @@ export type FazerCardsTelegramEnv = FazerCardsProductEnv;
 
 export function readFazerCardsTelegramEnv(): FazerCardsTelegramEnv {
   return readFazerCardsProductEnv('FAZERCARDS_TELEGRAM_ENABLED', 'FazerCards Telegram');
+}
+
+/** Steam wallet top-ups: its own flag, never inferred from the shared key or from any other product. */
+export type FazerCardsSteamEnv = FazerCardsProductEnv;
+
+export function readFazerCardsSteamEnv(): FazerCardsSteamEnv {
+  return readFazerCardsProductEnv('FAZERCARDS_STEAM_ENABLED', 'FazerCards Steam');
 }
 
 export type FazerCardsTopUpEnv = FazerCardsProductEnv;

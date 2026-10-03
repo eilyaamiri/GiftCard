@@ -94,7 +94,7 @@ export type TopUpGameDetail = z.infer<typeof topUpGameDetailSchema>;
  */
 export type TelegramProduct = "stars" | "premium";
 
-function percentDecode(value: string): string {
+export function percentDecode(value: string): string {
   try {
     return decodeURIComponent(value);
   } catch {
@@ -148,7 +148,7 @@ export function usernameFieldKey(entry: { readonly fields: readonly TopUpField[]
  * ==========================================================================*/
 
 /** The list route's envelope, tolerating a bare array from an older revision. */
-function itemsFrom(payload: unknown): unknown[] {
+export function itemsFrom(payload: unknown): unknown[] {
   if (Array.isArray(payload)) return payload;
   if (typeof payload === "object" && payload !== null) {
     const items = (payload as Record<string, unknown>)["items"];
@@ -195,7 +195,7 @@ async function slugsFor(product: TelegramProduct): Promise<readonly string[]> {
     .map((game) => game.slug);
 }
 
-async function detail(slug: string): Promise<TopUpGameDetail | null> {
+export async function detail(slug: string): Promise<TopUpGameDetail | null> {
   try {
     const payload = await api.get<unknown>(`/api/catalog/top-ups/${encodeURIComponent(slug)}`);
     const body =
@@ -250,7 +250,7 @@ export function offerLabel(product: TelegramProduct, offer: TopUpOffer, quantity
     : `${quantity.toLocaleString("fa-IR")} ماه پرمیوم`;
 }
 
-function persianDigitsToAscii(digit: string): string {
+export function persianDigitsToAscii(digit: string): string {
   return String(digit.charCodeAt(0) - 0x06f0);
 }
 
