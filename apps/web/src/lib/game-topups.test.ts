@@ -33,6 +33,7 @@ type Field = Parameters<typeof validateAccountFields>[0][number];
 
 const PUBG = { id: "g1", slug: "pubg-mobile-uc", name: "PUBG Mobile UC", nameFa: "یوسی پابجی موبایل", region: "GLOBAL" };
 const STARS = { id: "g2", slug: "telegram-stars", name: "Telegram Stars", nameFa: "استارز تلگرام" };
+const STEAM = { id: "g4", slug: "steam-wallet", name: "Steam Wallet", nameFa: "شارژ کیف پول استیم", brandName: "Steam" };
 const FREE_FIRE = { id: "g3", slug: "free-fire", name: "Free Fire Diamonds", nameFa: null, brandName: "Garena" };
 
 const PLAYER_ID: Field = {
@@ -59,6 +60,14 @@ const NICKNAME: Field = { key: "nickname", label: "Nickname", fieldType: "TEXT",
 describe("listGameTopUps", () => {
   it("lists every top-up except the Telegram ones, which have their own page", async () => {
     topUps.mockImplementation(async () => ({ items: [PUBG, STARS, FREE_FIRE] }));
+
+    const games = await listGameTopUps();
+
+    expect(games.map((game) => game.slug)).toEqual(["pubg-mobile-uc", "free-fire"]);
+  });
+
+  it("keeps Steam off the games shelf, which has its own page", async () => {
+    topUps.mockImplementation(async () => ({ items: [PUBG, STEAM, FREE_FIRE] }));
 
     const games = await listGameTopUps();
 
@@ -125,6 +134,12 @@ describe("getGameTopUp", () => {
     get.mockImplementation(async () => ({ game: { ...STARS, offers: [offer("s", 1)] } }));
 
     await expect(getGameTopUp("telegram-stars")).resolves.toEqual({ kind: "telegram" });
+  });
+
+  it("sends a Steam entry to its own page", async () => {
+    get.mockImplementation(async () => ({ game: { ...STEAM, offers: [offer("s", 1)] } }));
+
+    await expect(getGameTopUp("steam-wallet")).resolves.toEqual({ kind: "steam" });
   });
 
   it("treats a game with nothing on sale as missing", async () => {

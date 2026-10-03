@@ -4,6 +4,7 @@
  */
 
 export * from './supplier-provider.interface';
+export * from './providers/fazercards-steam.provider';
 export * from './providers/fazercards-telegram.provider';
 export * from './providers/fazercards-topup.provider';
 export * from './providers/mock-supplier.provider';

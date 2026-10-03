@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common';
 import {
+  FazerCardsSteamSupplierProvider,
   FazerCardsTelegramSupplierProvider,
   FazerCardsTopUpSupplierProvider,
   MockSupplierProvider,
@@ -9,6 +10,7 @@ import {
 
 import {
   readFazerCardsCatalogEnv,
+  readFazerCardsSteamEnv,
   readFazerCardsTelegramEnv,
   readFazerCardsTopUpEnv,
   readReloadlyEnv,
@@ -49,6 +51,21 @@ export function buildSupplierProviders(options: {
     logger.log('FazerCards Telegram registered');
   } else {
     logger.warn('FazerCards Telegram is not registered; its offers can only be fulfilled by an operator');
+  }
+
+  /*
+   * Steam wallet top-ups: a third independent flag. Telegram or games being
+   * live says nothing about whether Steam may spend, and `isTest` outranks it.
+   */
+  const steam = readFazerCardsSteamEnv();
+  if (steam.enabled && !options.isTest) {
+    providers.push(
+      new FazerCardsSteamSupplierProvider({ apiKey: steam.apiKey, timeoutMs: steam.timeoutMs }),
+    );
+    /* Environment only — never the API key. */
+    logger.log('FazerCards Steam registered');
+  } else {
+    logger.warn('FazerCards Steam is not registered; Steam top-ups escalate to an operator');
   }
 
   /*

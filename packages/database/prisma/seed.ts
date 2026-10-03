@@ -1410,6 +1410,88 @@ async function seedTelegramTopUpCatalog(): Promise<void> {
   }
 }
 
+/**
+ * Steam wallet top-up. One game ("USD wallet"), one field (the Steam login) and a
+ * preset ladder of USD amounts. Everything is seeded inactive with a zero cost
+ * placeholder: the venue bills by the reseller plan, so the cost and margin are
+ * a pricing decision a human confirms before anything is activated.
+ *
+ * SKU contract: `steam:usd:<amount>` (see topUpProviderSku).
+ */
+async function seedSteamTopUpCatalog(): Promise<void> {
+  const supplierId = 'seed_supplier_fazercards_steam';
+
+  const supplier = await prisma.supplier.upsert({
+    where: { code: 'fazercards-steam' },
+    create: {
+      id: supplierId,
+      code: 'fazercards-steam',
+      name: 'FazerCards Steam',
+      integrationMode: SupplierIntegrationMode.API,
+      supportsRawCode: false,
+      defaultCurrency: 'USD',
+      isActive: false,
+      notes: 'Steam wallet top-up by login; cost depends on the reseller plan and must be confirmed before activation.',
+    },
+    update: {},
+  });
+
+  const seedGameId = 'seed_topup_game_steam_wallet';
+  const game = await prisma.topUpGame.upsert({
+    where: { slug: 'steam-wallet' },
+    create: {
+      id: seedGameId,
+      slug: 'steam-wallet',
+      supplierId: supplier.id,
+      providerCategoryId: 'usd',
+      name: 'Steam Wallet',
+      nameFa: 'شارژ کیف پول استیم',
+      brandName: 'Steam',
+      region: 'GLOBAL',
+      providerNote: 'Enter the Steam login (not the display name). Price is fetched live at quote time.',
+      isActive: false,
+      isListed: true,
+      requiresCredentials: false,
+      sortOrder: 0,
+    },
+    update: {},
+  });
+
+  await prisma.topUpField.upsert({
+    where: { gameId_key: { gameId: game.id, key: 'steam_login' } },
+    create: {
+      id: `${seedGameId}_field_steam_login`,
+      gameId: game.id,
+      key: 'steam_login',
+      label: 'Steam login',
+      labelFa: 'شناسه ورود استیم',
+      isRequired: true,
+      helpTextFa: 'شناسه ورود (Login) حساب استیم را وارد کنید؛ نه نام نمایشی.',
+      sortOrder: 0,
+    },
+    update: {},
+  });
+
+  for (const [offerIndex, amount] of ['5', '10', '15', '20', '25', '50', '100'].entries()) {
+    await prisma.topUpOffer.upsert({
+      where: { gameId_providerOfferId: { gameId: game.id, providerOfferId: amount } },
+      create: {
+        id: `${seedGameId}_offer_${amount}`,
+        gameId: game.id,
+        providerOfferId: amount,
+        name: `Steam Wallet $${amount}`,
+        nameFa: `${amount} دلار اعتبار استیم`,
+        costAmount: '0.0000',
+        costCurrency: 'USD',
+        isActive: false,
+        isListed: true,
+        sortOrder: offerIndex,
+      },
+      update: {},
+    });
+  }
+}
+
 // ============================================================================
 // 6. Customers — a fixed pool reused across the funnel fixture
 // ============================================================================
@@ -1956,6 +2038,7 @@ async function main(): Promise<void> {
   const { skuDefs } = await seedCatalog();
   const { tilloId, tilloOfferBySkuId } = await seedSuppliers(skuDefs);
   await seedTelegramTopUpCatalog();
+  await seedSteamTopUpCatalog();
   const customerIds = await seedCustomers();
 
   const anomalyIds = await seedFunnel({

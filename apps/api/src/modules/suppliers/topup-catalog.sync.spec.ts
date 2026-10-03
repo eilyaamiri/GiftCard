@@ -224,6 +224,24 @@ describe('planAvailability — the namespaced Telegram catalogue', () => {
     expect(plan.unknownSkus).toEqual([]);
   });
 
+  it('recognises the Steam wallet ladder under its own namespace', () => {
+    const plan = planAvailability({
+      supplierCode: 'fazercards-steam',
+      catalog: [item('steam:usd:5'), item('steam:usd:10')],
+      games: [{ id: 'steam', providerCategoryId: 'usd', providerOfferIds: ['5', '10', '20'] }],
+      offers: [
+        { id: 'st-5', providerOfferId: '5', providerCategoryId: 'usd' },
+        { id: 'st-10', providerOfferId: '10', providerCategoryId: 'usd' },
+        { id: 'st-20', providerOfferId: '20', providerCategoryId: 'usd' },
+      ],
+    });
+
+    expect(plan.listedOffers).toEqual(['st-5', 'st-10']);
+    expect(plan.delistedOffers).toEqual(['st-20']);
+    expect(plan.listedGames).toEqual(['steam']);
+    expect(plan.unknownSkus).toEqual([]);
+  });
+
   it('still delists the one package the venue withdrew, and reports a new one', () => {
     const plan = planAvailability({
       supplierCode: TELEGRAM,

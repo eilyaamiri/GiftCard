@@ -9,6 +9,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
+import { SteamIcon } from "@/components/steam-icon";
 import { getFaqs } from "@/lib/faq";
 import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
 import { gameImageUrl, gameMonogram, gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
@@ -256,6 +257,7 @@ export async function HomePage() {
                 <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> {BRAND.hero.secondaryCta}</Link>
                 <Link className="btn btn-outline" href="/telegram"><Send size={17} aria-hidden="true" /> استارز و پرمیوم تلگرام</Link>
                 <Link className="btn btn-outline" href="/games"><Gamepad2 size={17} aria-hidden="true" /> شارژ مستقیم بازی</Link>
+                <Link className="btn btn-outline" href="/steam"><SteamIcon size={17} /> شارژ استیم</Link>
               </div>
               <div className="trust-row">
                 <span><Check size={14} /> قیمت نهایی قبل از پرداخت</span>

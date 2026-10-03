@@ -10,6 +10,7 @@ const STATIC_PATHS = [
   "/",
   "/gift-cards",
   "/games",
+  "/steam",
   "/telegram",
   "/telegram/stars",
   "/telegram/premium",

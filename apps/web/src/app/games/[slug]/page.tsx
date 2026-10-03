@@ -31,6 +31,7 @@ export default async function GamePage({ params }: Params) {
   const { slug } = await params;
   const lookup = await getGameTopUp(slug);
   if (lookup.kind === "telegram") redirect("/telegram");
+  if (lookup.kind === "steam") redirect("/steam");
   if (lookup.kind === "missing") notFound();
 
   const { game, offers } = lookup;

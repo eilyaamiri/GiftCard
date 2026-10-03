@@ -13,6 +13,7 @@ import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { MobileNavDrawer } from "@/components/mobile-nav-drawer";
 import { NavDropdown } from "@/components/nav-dropdown";
+import { SteamIcon } from "@/components/steam-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
@@ -209,6 +210,7 @@ export function SiteChrome({
               <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
               <Link href="/telegram" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>تلگرام</Link>
               <Link href="/games" aria-current={pathname.startsWith("/games") ? "page" : undefined}>شارژ بازی</Link>
+              <Link href="/steam" className="nav-steam" aria-current={pathname.startsWith("/steam") ? "page" : undefined}><SteamIcon size={15} /> استیم</Link>
               <NavDropdown
                 label="پرداخت بین‌المللی"
                 emptyLabel="سرویسی موجود نیست"
@@ -249,6 +251,7 @@ export function SiteChrome({
             <Link href="/gift-cards">گیفت‌کارت‌ها</Link>
             <Link href="/telegram">استارز و پرمیوم تلگرام</Link>
             <Link href="/games">شارژ مستقیم بازی</Link>
+            <Link href="/steam">شارژ کیف پول استیم</Link>
             <Link href="/services">پرداخت بین‌المللی</Link>
             <Link href="/brands">برندها</Link>
             <Link href="/orders">پیگیری سفارش</Link>

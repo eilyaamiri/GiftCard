@@ -9,6 +9,7 @@ import {
   type TopUpGameSummary,
   type TopUpOffer,
 } from "./telegram";
+import { isSteamEntry } from "./steam";
 
 /**
  * Game top-ups: charge the customer's own game account, read from the public
@@ -44,6 +45,11 @@ export function isTelegramEntry(game: Pick<TopUpGameSummary, "slug" | "name" | "
   return telegramProductOf(game) !== null;
 }
 
+/** Steam is sold on its own page, `/steam`, never from the games shelf. */
+function isDedicatedEntry(game: Pick<TopUpGameSummary, "slug" | "name" | "nameFa" | "brandName">): boolean {
+  return isTelegramEntry(game) || isSteamEntry(game);
+}
+
 /**
  * Every game on sale, in catalogue order.
  *
@@ -61,13 +67,14 @@ export async function listGameTopUps(): Promise<readonly TopUpGameSummary[]> {
   }
   return itemsFrom(payload).flatMap((item) => {
     const parsed = topUpGameSummarySchema.safeParse(item);
-    return parsed.success && !isTelegramEntry(parsed.data) ? [parsed.data] : [];
+    return parsed.success && !isDedicatedEntry(parsed.data) ? [parsed.data] : [];
   });
 }
 
 export type GameTopUpLookup =
   | { readonly kind: "game"; readonly game: TopUpGameDetail; readonly offers: readonly TopUpOffer[] }
   | { readonly kind: "telegram" }
+  | { readonly kind: "steam" }
   | { readonly kind: "missing" };
 
 /**
@@ -95,6 +102,7 @@ export async function getGameTopUp(slug: string): Promise<GameTopUpLookup> {
   if (!parsed.success) return { kind: "missing" };
   const game: TopUpGameDetail = { ...parsed.data, fields: parsed.data.fields ?? [], offers: parsed.data.offers ?? [] };
   if (isTelegramEntry(game)) return { kind: "telegram" };
+  if (isSteamEntry(game)) return { kind: "steam" };
   const offers = sortedAvailableOffers(game.offers ?? []);
   return offers.length === 0 ? { kind: "missing" } : { kind: "game", game, offers };
 }

@@ -14,6 +14,7 @@
  * every offer and delist the whole storefront.
  */
 const TOP_UP_SKU_NAMESPACE_BY_SUPPLIER: Readonly<Record<string, string>> = {
+  'fazercards-steam': 'steam',
   'fazercards-telegram': 'telegram',
 };
 

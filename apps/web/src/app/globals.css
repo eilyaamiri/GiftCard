@@ -1360,6 +1360,8 @@ a { color:inherit; text-decoration:none; }
 .gt-hero { --tg-hero-art:url("/topup/games-hero-light.webp"); --tg-hero-art-mobile:url("/topup/games-hero-light-mobile.webp"); }
 [data-theme="dark"] .tg-hero--telegram { --tg-hero-art:url("/topup/telegram-hero.webp"); --tg-hero-art-mobile:url("/topup/telegram-hero-mobile.webp"); }
 [data-theme="dark"] .gt-hero { --tg-hero-art:url("/topup/games-hero.webp"); --tg-hero-art-mobile:url("/topup/games-hero-mobile.webp"); }
+.steam-hero { --tg-hero-art:url("/steam/steam-hero-light.webp"); --tg-hero-art-mobile:url("/steam/steam-hero-light-mobile.webp"); }
+[data-theme="dark"] .steam-hero { --tg-hero-art:url("/steam/steam-hero.webp"); --tg-hero-art-mobile:url("/steam/steam-hero-mobile.webp"); }
 /* The copy keeps to the container's start (right) edge and stops short of the
  * art's subject, rather than centring a 900px box across it. */
 .tg-hero-inner > * { max-width:640px; }
@@ -1416,6 +1418,22 @@ a { color:inherit; text-decoration:none; }
 .tg-offer-hint { color:var(--text-secondary); font-size:11px; }
 .tg-submit { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
 .tg-submit-note, .tg-order-foot { margin:0; color:var(--text-secondary); font-size:12px; line-height:1.9; }
+.steam-section { padding-top:34px; }
+.steam-order { display:grid; gap:16px; max-width:760px; margin-inline:auto; }
+.steam-order-head h2 { margin:0 0 6px; }
+.steam-order-head p { margin:0; }
+.steam-form { display:grid; gap:22px; }
+.steam-form-head { display:flex; align-items:center; gap:14px; padding-bottom:18px; border-bottom:1px solid var(--border-primary); }
+.steam-form-head strong { display:block; font-size:17px; margin-bottom:6px; }
+.steam-logo { width:48px; height:48px; flex:0 0 auto; }
+.steam-badge { display:inline-block; padding:3px 10px; border-radius:999px; background:var(--info-bg); color:var(--text-secondary); font-size:12px; font-weight:700; }
+.steam-step { display:inline-grid; place-items:center; width:22px; height:22px; margin-inline-end:6px; border-radius:50%; background:var(--info-bg); color:var(--interactive-accent); font-size:12px; font-weight:800; }
+.steam-amount-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:10px; }
+.steam-amount { align-items:center; justify-content:center; min-height:56px; }
+.steam-amount-label { font-size:18px; }
+.nav-steam { display:inline-flex; align-items:center; gap:5px; }
+.hero-actions .steam-glyph { vertical-align:-3px; }
+.steam-glyph { display:inline-block; width:1em; height:1em; flex:0 0 auto; background:currentColor; -webkit-mask:url("/steam/steam-glyph.png") center / contain no-repeat; mask:url("/steam/steam-glyph.png") center / contain no-repeat; }
 .tg-unavailable { max-width:620px; }
 .tg-unavailable h1 { margin:8px 0 12px; }
 .tg-unavailable-actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:22px; }
