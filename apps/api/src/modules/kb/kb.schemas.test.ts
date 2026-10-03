@@ -60,9 +60,9 @@ describe('updateKbCategorySchema', () => {
 describe('createKbArticleSchema', () => {
   const base = {
     categoryId: 'kb_cat_getting_started',
-    slug: 'what-is-barat',
-    title: 'برات چیست و چطور کار می‌کند؟',
-    content: '## توضیح\n\nبرات یک فروشگاه آنلاین است.',
+    slug: 'what-is-cento',
+    title: 'سنتو چیست و چطور کار می‌کند؟',
+    content: '## توضیح\n\nسنتو یک فروشگاه آنلاین است.',
   };
 
   it('accepts a minimal entry and fills in the defaults', () => {
@@ -93,10 +93,10 @@ describe('createKbArticleSchema', () => {
 describe('updateKbArticleSchema', () => {
   const base = {
     categoryId: 'kb_cat_getting_started',
-    slug: 'what-is-barat',
-    title: 'برات چیست و چطور کار می‌کند؟',
+    slug: 'what-is-cento',
+    title: 'سنتو چیست و چطور کار می‌کند؟',
     excerpt: '',
-    content: '## توضیح\n\nبرات یک فروشگاه آنلاین است.',
+    content: '## توضیح\n\nسنتو یک فروشگاه آنلاین است.',
     isEnabled: false,
     isPromoted: true,
     sortOrder: 2,

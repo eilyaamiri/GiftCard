@@ -6,7 +6,7 @@ import { adminSkuListSchema, adminSupplierDetailSchema } from "../../catalog/_li
 import { SupplierForm } from "../_components/supplier-form";
 import { OfferPanel } from "../_components/offer-panel";
 
-export const metadata = { title: "ویرایش تأمین‌کننده | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش تأمین‌کننده | پنل ادمین سنتو" };
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);

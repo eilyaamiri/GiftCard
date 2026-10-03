@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { CircleUserRound, Headphones, Phone, Search, ShoppingBag } from "lucide-react";
 import type { CustomerDto } from "@barat/contracts";
 import { AssistantWidget } from "@/components/assistant/assistant-widget";
+import { BrandLogo } from "@/components/brand-logo";
 import { CategoryIcon } from "@/components/category-icon";
 import { ContactSheet } from "@/components/contact-sheet";
 import { BrandMark } from "@/app/gift-cards/_components/catalog-facets";
@@ -16,6 +17,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
+import { BRAND, copyrightYear } from "@/lib/brand";
 
 /** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
 const TRENDING_BRANDS_SHOWN = 8;
@@ -93,12 +95,13 @@ export function SiteChrome({
         <div className="container header-topbar">
           <div className="mobile-brand">
             <MobileNavDrawer categories={categories} brands={brands} />
-            <span className="mobile-brand-word" aria-hidden="true">برات</span>
+            <Link href="/" className="mobile-brand-word" aria-label={`${BRAND.nameFa}، صفحه اصلی`}>
+              <BrandLogo />
+            </Link>
           </div>
 
-          <Link href="/" className="logo" aria-label="برات، صفحه اصلی">
-            <span className="logo-mark">ب</span>
-            <span className="logo-word">برات</span>
+          <Link href="/" className="logo" aria-label={`${BRAND.nameFa}، صفحه اصلی`}>
+            <BrandLogo />
           </Link>
 
           {/* A plain GET form: the query lives in the URL like every other
@@ -238,8 +241,7 @@ export function SiteChrome({
       <footer className="footer">
         <div className="container footer-inner">
           <div className="footer-brand">
-            <div className="logo"><span className="logo-mark">ب</span>برات</div>
-            <p>ارزش جهانی، به زبان ریال.</p>
+            <BrandLogo variant="full" label={`${BRAND.name} — ${BRAND.nameFa}، ${BRAND.tagline}`} className="footer-logo" />
           </div>
 
           <nav className="footer-col" aria-label="نقشه سایت">
@@ -271,7 +273,7 @@ export function SiteChrome({
           </div>
         </div>
         <div className="container footer-legal">
-          <span>© ۱۴۰۵ برات</span>
+          <span>© {copyrightYear()} {BRAND.nameFa}</span>
         </div>
       </footer>
 

@@ -32,9 +32,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   try {
     const item = await workItems.getById(id);
-    return { title: `${item.title} | میزکار اپراتور برات پی` };
+    return { title: `${item.title} | میزکار اپراتور سنتو` };
   } catch {
-    return { title: "تسک | میزکار اپراتور برات پی" };
+    return { title: "تسک | میزکار اپراتور سنتو" };
   }
 }
 

@@ -2,7 +2,7 @@ import { requireRole } from "@/lib/session";
 import { OPERATOR_ROLES } from "@/lib/api";
 import { CustomerSearchView } from "@/components/customer-search-view";
 
-export const metadata = { title: "مشتریان | میزکار اپراتور برات پی" };
+export const metadata = { title: "مشتریان | میزکار اپراتور سنتو" };
 
 export default async function OperatorCustomersPage({
   searchParams,

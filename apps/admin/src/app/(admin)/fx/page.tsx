@@ -12,7 +12,7 @@ import {
   type FxProviderHealthResponse,
 } from "./fx-schema";
 
-export const metadata = { title: "نرخ ارز | پنل ادمین برات پی" };
+export const metadata = { title: "نرخ ارز | پنل ادمین سنتو" };
 
 const PAIR = "USD_IRR" as const;
 

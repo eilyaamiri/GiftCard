@@ -7,7 +7,7 @@ import { ProductForm } from "../_components/product-form";
 import { fetchTaxonomyOptions } from "../_lib/taxonomy-options";
 import { SkuPanel } from "../_components/sku-panel";
 
-export const metadata = { title: "ویرایش محصول | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش محصول | پنل ادمین سنتو" };
 
 export default async function ProductDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);

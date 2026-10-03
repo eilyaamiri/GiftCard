@@ -4,7 +4,7 @@ import { CUSTOMER_NOTE_ROLES, CUSTOMER_VIEW_ROLES } from "@/lib/api";
 import { addCustomerNote, fetchCustomer360 } from "@/lib/customer-360";
 import { requireRole } from "@/lib/session";
 
-export const metadata = { title: "جزئیات مشتری | پنل ادمین برات پی" };
+export const metadata = { title: "جزئیات مشتری | پنل ادمین سنتو" };
 
 export default async function CustomerPage({
   params,

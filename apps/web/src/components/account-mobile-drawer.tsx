@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { Menu, X } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { AccountSidebarNav } from '@/components/account-sidebar-nav';
+import { BrandLogo } from "@/components/brand-logo";
 
 export function AccountMobileDrawer({
   name,
@@ -49,9 +50,8 @@ export function AccountMobileDrawer({
       >
         <div className="account-mobile-drawer-panel">
           <div className="account-mobile-drawer-head">
-            <Link href="/" className="account-brand" aria-label="برات، صفحه اصلی" onClick={closeDrawer}>
-              <span className="logo-mark">ب</span>
-              <span><strong>برات</strong><small>پنل کاربری</small></span>
+            <Link href="/" className="account-brand" aria-label="سنتو، صفحه اصلی" onClick={closeDrawer}>
+              <span><BrandLogo ground="dark" /><small>پنل کاربری</small></span>
             </Link>
             <button autoFocus type="button" className="account-mobile-drawer-close" aria-label="بستن منو" onClick={closeDrawer}>
               <X size={20} aria-hidden="true" />

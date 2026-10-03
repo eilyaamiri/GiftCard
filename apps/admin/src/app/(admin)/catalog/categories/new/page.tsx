@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { adminCategoryListSchema } from "../../_lib/catalog-contracts";
 import { CategoryForm } from "../_components/category-form";
 
-export const metadata = { title: "افزودن دسته‌بندی | پنل ادمین برات پی" };
+export const metadata = { title: "افزودن دسته‌بندی | پنل ادمین سنتو" };
 
 export default async function NewCategoryPage() {
   await requireRole(CATALOG_WRITE_ROLES);

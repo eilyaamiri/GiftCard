@@ -4,7 +4,7 @@ import { ErrorNotice } from "../../_components/error-notice";
 import { MAX_CONCURRENT_WORK_ITEMS, workItems, type WorkItemSummary } from "../../_lib/work-items";
 import { TasksList } from "./tasks-list";
 
-export const metadata = { title: "تسک‌ها | برات پی" };
+export const metadata = { title: "تسک‌ها | سنتو" };
 
 export default async function OperatorTasksPage() {
   const staff = await requireSession();

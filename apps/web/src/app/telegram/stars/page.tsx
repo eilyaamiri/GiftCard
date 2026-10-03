@@ -3,7 +3,7 @@ import { getTelegramProduct } from "@/lib/telegram";
 import { TelegramOrderPage } from "../_components/telegram-order-page";
 
 export const metadata: Metadata = {
-  title: "خرید استارز تلگرام | برات",
+  title: "خرید استارز تلگرام",
   description: "بسته استارز تلگرام را انتخاب کنید و نام کاربری حساب‌تان را وارد کنید؛ قیمت ریالی پیش از پرداخت نمایش داده می‌شود.",
 };
 

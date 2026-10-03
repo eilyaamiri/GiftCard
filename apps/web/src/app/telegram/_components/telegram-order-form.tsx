@@ -103,7 +103,7 @@ export function TelegramOrderForm({
     if (product === "stars" || product === "premium") {
       if (username.trim() === "") next.username = "نام کاربری تلگرام الزامی است";
       else if (fields.length <= 1 && !isValidUsername(username)) {
-        next.username = "نام کاربری تلگرام را درست وارد کنید، مثل @barat_store";
+        next.username = "نام کاربری تلگرام را درست وارد کنید، مثل @cento_store";
       }
     }
     for (const field of fields) {

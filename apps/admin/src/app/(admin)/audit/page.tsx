@@ -2,7 +2,7 @@ import { ShieldAlert } from "lucide-react";
 import { AUDIT_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 
-export const metadata = { title: "گزارش رخدادها | پنل ادمین برات پی" };
+export const metadata = { title: "گزارش رخدادها | پنل ادمین سنتو" };
 
 /**
  * The API has an internal, write-only audit module (apps/api/src/modules/audit)

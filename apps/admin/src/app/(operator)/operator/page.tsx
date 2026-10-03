@@ -16,7 +16,7 @@ import {
   type WorkItemSummary,
 } from "../_lib/work-items";
 
-export const metadata = { title: "میز من | میزکار اپراتور برات پی" };
+export const metadata = { title: "میز من | میزکار اپراتور سنتو" };
 
 /**
  * Personal desk only. This page must never surface company GMV, profit, FX

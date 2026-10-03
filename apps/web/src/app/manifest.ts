@@ -1,0 +1,21 @@
+import type { MetadataRoute } from "next";
+import { BRAND } from "@/lib/brand";
+
+export default function manifest(): MetadataRoute.Manifest {
+  return {
+    name: BRAND.seo.title,
+    short_name: BRAND.nameFa,
+    description: BRAND.seo.description,
+    lang: "fa",
+    dir: "rtl",
+    start_url: "/",
+    display: "standalone",
+    background_color: "#FFFFFF",
+    theme_color: "#FFFFFF",
+    icons: [
+      { src: "/brand/cento/icon-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/brand/cento/icon-512.png", sizes: "512x512", type: "image/png" },
+      { src: "/brand/cento/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+  };
+}

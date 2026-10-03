@@ -13,7 +13,7 @@ import {
   tomanFromIrr,
 } from "@/lib/order-format";
 
-export const metadata = { title: "سفارش‌ها | پنل ادمین برات پی" };
+export const metadata = { title: "سفارش‌ها | پنل ادمین سنتو" };
 
 /** The statuses worth one click. The rest stay reachable through the URL. */
 const QUICK_FILTERS = [

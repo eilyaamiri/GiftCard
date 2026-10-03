@@ -13,7 +13,7 @@ import {
   type WorkItemSummary,
 } from "../../(operator)/_lib/work-items";
 
-export const metadata = { title: "صف کارها | پنل ادمین برات پی" };
+export const metadata = { title: "صف کارها | پنل ادمین سنتو" };
 
 interface QueueRow {
   readonly key: QueueKey;

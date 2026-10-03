@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { PricingRuleEditor } from "./pricing-rule-editor";
 import { wirePricingRuleListSchema, type WirePricingRule } from "./pricing-rule-schema";
 
-export const metadata = { title: "قواعد قیمت‌گذاری | پنل ادمین برات پی" };
+export const metadata = { title: "قواعد قیمت‌گذاری | پنل ادمین سنتو" };
 
 export default async function PricingRulesPage() {
   // Server-side gate. Hiding the sidebar link is not access control, and the

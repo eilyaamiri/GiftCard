@@ -284,7 +284,7 @@ export class ReloadlyGiftCardSupplierProvider implements SupplierProvider {
     this.clientId = clientId;
     this.clientSecret = clientSecret;
     this.recipientEmail = recipientEmail;
-    this.senderName = options.senderName?.trim() || 'Barat Pay';
+    this.senderName = options.senderName?.trim() || 'CENTO';
     this.baseUrl = (options.baseUrl ?? BASE_URLS[options.environment ?? 'production']).replace(
       /\/+$/u,
       '',

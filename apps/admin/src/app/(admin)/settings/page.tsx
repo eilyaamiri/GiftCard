@@ -14,7 +14,7 @@ import {
   type SettingsSupportChannel,
 } from "./settings-schema";
 
-export const metadata = { title: "تنظیمات | پنل ادمین برات پی" };
+export const metadata = { title: "تنظیمات | پنل ادمین سنتو" };
 
 export default async function SettingsPage() {
   const staffUser = await requireRole(["ADMIN"]);

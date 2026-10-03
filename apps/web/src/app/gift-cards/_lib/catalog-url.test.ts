@@ -91,7 +91,7 @@ describe("catalogHref", () => {
     const href = catalogHref(readCatalogFilters({}), { q: "گیفت & کارت" });
 
     expect(href).not.toContain(" ");
-    expect(new URL(href, "https://baratpay.com").searchParams.get("q")).toBe("گیفت & کارت");
+    expect(new URL(href, "https://centopay.ir").searchParams.get("q")).toBe("گیفت & کارت");
   });
 
   it("can point the same filters at another page", () => {

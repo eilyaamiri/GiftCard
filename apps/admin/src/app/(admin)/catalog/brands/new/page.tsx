@@ -3,7 +3,7 @@ import { CATALOG_WRITE_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { BrandForm } from "../_components/brand-form";
 
-export const metadata = { title: "افزودن برند | پنل ادمین برات پی" };
+export const metadata = { title: "افزودن برند | پنل ادمین سنتو" };
 
 export default async function NewBrandPage() {
   await requireRole(CATALOG_WRITE_ROLES);

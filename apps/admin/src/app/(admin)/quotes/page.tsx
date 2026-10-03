@@ -1,6 +1,6 @@
 import { requireRole } from "@/lib/session";
 
-export const metadata = { title: "استعلام‌ها | پنل ادمین برات پی" };
+export const metadata = { title: "استعلام‌ها | پنل ادمین سنتو" };
 
 /**
  * There is no admin-facing quotes endpoint.

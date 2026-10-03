@@ -164,9 +164,9 @@ export function AppShell({
           >
             ×
           </button>
-          <div className="brand-mark">ب</div>
+          <div className="brand-mark">س</div>
           <div>
-            <span className="brand-name">برات پی</span>
+            <span className="brand-name">سنتو</span>
             <span className="brand-sub">پنل عملیات</span>
           </div>
         </div>

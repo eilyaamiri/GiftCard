@@ -3,7 +3,7 @@ import { CATALOG_WRITE_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { SupplierForm } from "../_components/supplier-form";
 
-export const metadata = { title: "افزودن تأمین‌کننده | پنل ادمین برات پی" };
+export const metadata = { title: "افزودن تأمین‌کننده | پنل ادمین سنتو" };
 
 export default async function NewSupplierPage() {
   await requireRole(CATALOG_WRITE_ROLES);

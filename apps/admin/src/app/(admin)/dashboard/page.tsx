@@ -4,7 +4,7 @@ import { AlertTriangle, CheckCircle2, Clock3, ShoppingBag, Timer, Wallet, XCircl
 import { formatIrrStringAsExactToman } from "@/lib/format-bps";
 import { loadDashboardData } from "./dashboard-data";
 
-export const metadata = { title: "داشبورد | پنل ادمین برات پی" };
+export const metadata = { title: "داشبورد | پنل ادمین سنتو" };
 
 const ORDER_STATUS_LABEL_FA: Record<string, string> = {
   DRAFT: "پیش‌نویس",

@@ -78,7 +78,7 @@ async function bootstrap(): Promise<void> {
   /* --------------------------------------------------------------- Swagger */
   if (!config.isProduction) {
     const documentConfig = new DocumentBuilder()
-      .setTitle('Barat Pay API')
+      .setTitle('CENTO API')
       .setDescription(
         'Gift cards and international payments. Money is IRR as a digit string; ' +
           'percentages are integer basis points.',
@@ -109,7 +109,7 @@ async function bootstrap(): Promise<void> {
       environment: config.nodeEnv,
       docs: config.isProduction ? 'disabled' : `${config.apiPublicUrl}/${GLOBAL_PREFIX}/docs`,
     },
-    'Barat Pay API is listening',
+    'CENTO API is listening',
   );
 }
 

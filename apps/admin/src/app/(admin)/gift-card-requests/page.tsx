@@ -5,7 +5,7 @@ import { GIFT_CARD_REQUEST_ADMIN_ROLES } from "@/lib/gift-card-requests";
 import { FulfillGiftCardRequestForm } from "./fulfill-form";
 import { ErrorNotice } from "../../(operator)/_components/error-notice";
 
-export const metadata = { title: "درخواست‌های کد گیفت‌کارت | پنل ادمین برات پی" };
+export const metadata = { title: "درخواست‌های کد گیفت‌کارت | پنل ادمین سنتو" };
 
 export default async function GiftCardRequestsPage() {
   await requireRole(GIFT_CARD_REQUEST_ADMIN_ROLES);

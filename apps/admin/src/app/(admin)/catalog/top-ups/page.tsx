@@ -15,7 +15,7 @@ import { ImportTopUpButton } from "./_components/import-topup-button";
 import { SyncTopUpButton } from "./_components/sync-topup-button";
 import { TopUpGameTable } from "./_components/topup-game-table";
 
-export const metadata = { title: "شارژ مستقیم | پنل ادمین برات پی" };
+export const metadata = { title: "شارژ مستقیم | پنل ادمین سنتو" };
 
 const BASE_PATH = "/catalog/top-ups";
 

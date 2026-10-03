@@ -3,7 +3,7 @@ import { getTelegramProduct } from "@/lib/telegram";
 import { TelegramOrderPage } from "../_components/telegram-order-page";
 
 export const metadata: Metadata = {
-  title: "خرید پرمیوم تلگرام | برات",
+  title: "خرید پرمیوم تلگرام",
   description: "اشتراک پرمیوم تلگرام را برای ۳، ۶ یا ۱۲ ماه سفارش دهید؛ قیمت ریالی پیش از پرداخت نمایش داده می‌شود.",
 };
 

@@ -3,7 +3,7 @@ import { SUPPORT_TICKET_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { supportTickets } from "@/lib/support-tickets";
 
-export const metadata = { title: "تیکت‌های پشتیبانی | پنل ادمین برات پی" };
+export const metadata = { title: "تیکت‌های پشتیبانی | پنل ادمین سنتو" };
 
 export default async function SupportPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const staff = await requireRole(SUPPORT_TICKET_ROLES);

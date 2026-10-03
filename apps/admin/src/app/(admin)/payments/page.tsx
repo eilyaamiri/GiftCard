@@ -15,7 +15,7 @@ import {
   tomanFromIrr,
 } from "@/lib/order-format";
 
-export const metadata = { title: "پرداخت‌ها | پنل ادمین برات پی" };
+export const metadata = { title: "پرداخت‌ها | پنل ادمین سنتو" };
 
 /**
  * The API exposes no staff-facing payment endpoint: `/api/payments` is the

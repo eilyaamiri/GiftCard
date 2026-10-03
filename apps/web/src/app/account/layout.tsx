@@ -2,6 +2,7 @@ import Link from "next/link";
 import { customerDisplayName, requireSession } from "@/lib/session";
 import { AccountSidebarNav } from "@/components/account-sidebar-nav";
 import { AccountTopbarActions } from "@/components/account-topbar-actions";
+import { BrandLogo } from "@/components/brand-logo";
 
 export default async function AccountLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const customer = await requireSession();
@@ -11,9 +12,8 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
   return (
     <div className="account-shell">
       <aside className="account-sidebar" aria-label="منوی پنل کاربری">
-        <Link href="/" className="account-brand" aria-label="برات، صفحه اصلی">
-          <span className="logo-mark">ب</span>
-          <span><strong>برات</strong><small>پنل کاربری</small></span>
+        <Link href="/" className="account-brand" aria-label="سنتو، صفحه اصلی">
+          <span><BrandLogo ground="dark" /><small>پنل کاربری</small></span>
         </Link>
         <AccountSidebarNav />
         <div className="account-sidebar-footer">
@@ -22,7 +22,7 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
       </aside>
       <section className="account-main">
         <header className="account-topbar">
-          <div><span className="eyebrow">پنل کاربری</span><h1>فضای امن شما در برات</h1></div>
+          <div><span className="eyebrow">پنل کاربری</span><h1>فضای امن شما در سنتو</h1></div>
           <AccountTopbarActions name={name} customerCode={customer.customerCode} initial={initial} />
         </header>
         <div className="account-content">{children}</div>

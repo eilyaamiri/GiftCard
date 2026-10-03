@@ -20,7 +20,7 @@ import {
 } from "@/lib/report-filters";
 import { ORDER_STATUS_LABEL } from "@/lib/order-format";
 
-export const metadata = { title: "گزارش‌ها | پنل ادمین برات پی" };
+export const metadata = { title: "گزارش‌ها | پنل ادمین سنتو" };
 
 /**
  * Server-rendered reporting over live records. Unsupported domains remain

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { useState } from "react";
+import { withCurrentBrandName } from "@/lib/brand";
 import type { FlattenedKbArticle } from "@/lib/kb";
 
 /**
@@ -14,7 +15,7 @@ import type { FlattenedKbArticle } from "@/lib/kb";
  */
 export function KbSearch({ entries }: Readonly<{ entries: readonly FlattenedKbArticle[] }>) {
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLocaleLowerCase("fa");
+  const normalizedQuery = withCurrentBrandName(query.trim().toLocaleLowerCase("fa"));
   const results =
     normalizedQuery.length === 0
       ? []

@@ -1,7 +1,8 @@
 import type { NextConfig } from 'next';
+import { LEGACY_REDIRECTS } from './src/lib/legacy-redirects';
 
 /**
- * Barat Pay customer storefront.
+ * CENTO (سنتو) customer storefront.
  *
  * `@barat/ui` and `@barat/contracts` ship TypeScript source rather than a build
  * artefact, so Next has to transpile them itself.
@@ -27,6 +28,10 @@ const nextConfig: NextConfig = {
   },
 
   typedRoutes: true,
+
+  async redirects() {
+    return [...LEGACY_REDIRECTS];
+  },
 
   async rewrites() {
     if (process.env.NODE_ENV === 'production') return [];

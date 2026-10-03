@@ -6,7 +6,7 @@ import { formatCount } from "../_lib/format";
 import { ToggleActiveButton } from "../_components/toggle-active-button";
 import { CatalogTabs } from "../_components/catalog-tabs";
 
-export const metadata = { title: "برندها | پنل ادمین برات پی" };
+export const metadata = { title: "برندها | پنل ادمین سنتو" };
 
 const BRAND_PAGE_SIZE = 40;
 

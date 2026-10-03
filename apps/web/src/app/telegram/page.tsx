@@ -4,7 +4,7 @@ import { ArrowLeft, BadgeCheck, Clock3, Info, ShieldCheck } from "lucide-react";
 import { listTelegramGames, telegramProductOf, type TelegramProduct } from "@/lib/telegram";
 
 export const metadata: Metadata = {
-  title: "استارز و پرمیوم تلگرام | برات",
+  title: "استارز و پرمیوم تلگرام",
   description:
     "خرید استارز و اشتراک پرمیوم تلگرام با حساب کاربری خودتان؛ قیمت شفاف و تحویل مستقیم روی همان حساب.",
 };

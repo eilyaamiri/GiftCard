@@ -1,2 +1,2 @@
 import { ComingSoon } from "@/components/coming-soon";
-export default function Page() { return <ComingSoon title="برات کسب‌وکار" />; }
+export default function Page() { return <ComingSoon title="سنتو کسب‌وکار" />; }

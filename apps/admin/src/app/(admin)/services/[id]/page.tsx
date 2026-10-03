@@ -6,7 +6,7 @@ import { adminServiceSchema } from "../../catalog/_lib/catalog-contracts";
 import { ServiceForm } from "../_components/service-form";
 import { ServiceFieldPanel } from "../_components/service-field-panel";
 
-export const metadata = { title: "ویرایش سرویس | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش سرویس | پنل ادمین سنتو" };
 
 export default async function ServiceDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);

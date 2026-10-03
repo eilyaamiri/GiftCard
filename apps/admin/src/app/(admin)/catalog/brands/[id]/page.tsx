@@ -7,7 +7,7 @@ import { formatCount } from "../../_lib/format";
 import { BrandForm } from "../_components/brand-form";
 import { MergeBrandsForm } from "../_components/merge-brands-form";
 
-export const metadata = { title: "ویرایش برند | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش برند | پنل ادمین سنتو" };
 
 export default async function BrandDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);

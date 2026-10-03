@@ -1,2 +1,2 @@
 import { ComingSoon } from "@/components/coming-soon";
-export default function Page() { return <ComingSoon title="کیف پول برات" />; }
+export default function Page() { return <ComingSoon title="کیف پول سنتو" />; }

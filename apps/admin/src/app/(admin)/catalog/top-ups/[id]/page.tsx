@@ -7,7 +7,7 @@ import { formatCount } from "../../_lib/format";
 import { TopUpGameForm } from "../_components/topup-game-form";
 import { TopUpOfferPanel } from "../_components/topup-offer-panel";
 
-export const metadata = { title: "ویرایش بازی شارژ مستقیم | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش بازی شارژ مستقیم | پنل ادمین سنتو" };
 
 export default async function TopUpGameDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);
