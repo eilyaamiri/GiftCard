@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
-  title: "ورود کارکنان | برات پی",
+  title: "ورود کارکنان | سنتو",
   robots: { index: false, follow: false },
 };
 
@@ -60,10 +60,10 @@ export default async function LoginPage({
               fontWeight: 900,
             }}
           >
-            ب
+            س
           </div>
           <div>
-            <strong style={{ display: "block", fontSize: "17px", color: "#13243a" }}>برات پی</strong>
+            <strong style={{ display: "block", fontSize: "17px", color: "#13243a" }}>سنتو</strong>
             <small style={{ color: "#6b7c93", fontSize: "11px" }}>ورود کارکنان</small>
           </div>
         </div>

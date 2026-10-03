@@ -80,7 +80,7 @@ const steam = {
 };
 
 const services = [{
-  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false,
+  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", descriptionFa: "پرداخت هزینهٔ سرویس میزبانی وب با ریال.", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false,
   fields: [{ id: "field-invoice", key: "invoiceNumber", label: "Invoice number", labelFa: "شماره فاکتور", fieldType: "TEXT", isRequired: true, validationRegex: null, helpTextFa: "شمارهٔ فاکتور را از صفحهٔ پرداخت کپی کنید.", options: null, sortOrder: 0 }],
 }];
 

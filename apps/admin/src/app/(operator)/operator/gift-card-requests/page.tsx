@@ -5,7 +5,7 @@ import { OPERATOR_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { ErrorNotice } from "../../_components/error-notice";
 
-export const metadata = { title: "درخواست‌های کد من | میزکار اپراتور برات پی" };
+export const metadata = { title: "درخواست‌های کد من | میزکار اپراتور سنتو" };
 
 export default async function OperatorGiftCardRequestsPage() {
   await requireRole(OPERATOR_ROLES);

@@ -213,8 +213,8 @@ describe('KbService.createArticle', () => {
       service.createArticle(
         {
           categoryId: 'kb_cat_missing',
-          slug: 'what-is-barat',
-          title: 'برات چیست؟',
+          slug: 'what-is-cento',
+          title: 'سنتو چیست؟',
           excerpt: '',
           content: 'محتوای مقاله',
           isEnabled: true,
@@ -232,8 +232,8 @@ describe('KbService.createArticle', () => {
     const { article } = await service.createArticle(
       {
         categoryId: 'kb_cat_1',
-        slug: 'what-is-barat',
-        title: 'برات چیست؟',
+        slug: 'what-is-cento',
+        title: 'سنتو چیست؟',
         excerpt: '',
         content: 'محتوای مقاله',
         isEnabled: true,
@@ -243,7 +243,7 @@ describe('KbService.createArticle', () => {
       ACTOR,
     );
 
-    expect(article.title).toBe('برات چیست؟');
+    expect(article.title).toBe('سنتو چیست؟');
     expect(record).toHaveBeenCalledTimes(1);
     const entry = record.mock.calls[0]?.[0] as unknown as { action: string };
     expect(entry.action).toBe('KB_ARTICLE_CREATED');

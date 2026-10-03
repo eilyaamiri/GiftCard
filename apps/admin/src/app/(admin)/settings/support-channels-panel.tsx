@@ -21,7 +21,7 @@ const CHANNEL_COPY: Record<
   TELEGRAM: {
     label: "تلگرام",
     valueLabel: "شناسه یا لینک تلگرام",
-    placeholder: "@baratpay",
+    placeholder: "@centopay",
     hint: "شناسه یا لینک t.me. پس از ثبت به شکل https://t.me/… ذخیره می‌شود.",
   },
   WHATSAPP: {
@@ -151,7 +151,7 @@ function SupportChannelRow({
         );
         onSaved(response.channel);
         /* The stored value is the normalised one, so the field is refilled from
-         * the response: an admin who typed `@baratpay` sees the link that was
+         * the response: an admin who typed `@centopay` sees the link that was
          * actually saved. */
         setEnabled(response.channel.isEnabled);
         setTitle(response.channel.title);

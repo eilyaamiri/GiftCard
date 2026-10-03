@@ -8,7 +8,7 @@ import { flattenArticles, getKbContent } from "@/lib/kb";
 
 export const metadata: Metadata = {
   title: "راهنما",
-  description: "پایگاه دانش برات — راهنمای خرید گیفت‌کارت، پرداخت بین‌المللی، سفارش‌ها و پشتیبانی.",
+  description: "پایگاه دانش سنتو — راهنمای خرید گیفت‌کارت، پرداخت بین‌المللی، سفارش‌ها و پشتیبانی.",
 };
 
 export default async function HelpPage() {

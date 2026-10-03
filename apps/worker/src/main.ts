@@ -126,7 +126,7 @@ async function bootstrap(): Promise<void> {
   );
 
   logger.log(
-    `Barat Pay worker started — environment=${env.NODE_ENV} concurrency=${String(
+    `CENTO worker started — environment=${env.NODE_ENV} concurrency=${String(
       env.WORKER_CONCURRENCY,
     )} queues=${queues.length}`,
   );

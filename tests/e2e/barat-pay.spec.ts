@@ -700,7 +700,8 @@ test.describe("mobile header brand mark", () => {
 
     const wordmark = page.locator(".mobile-brand-word");
     await expect(wordmark).toBeVisible();
-    await expect(wordmark).toHaveText("برات");
+    await expect(wordmark).toHaveAccessibleName("سنتو، صفحه اصلی");
+    await expect(wordmark.locator(".brand-logo")).toBeVisible();
   });
 });
 
@@ -709,7 +710,7 @@ test.describe("desktop header brand mark", () => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/");
 
-    await expect(page.getByRole("link", { name: "برات، صفحه اصلی" }).locator(".logo-word")).toBeVisible();
+    await expect(page.locator(".header-topbar > .logo .brand-logo")).toBeVisible();
     await expect(page.locator(".mobile-brand-word")).toBeHidden();
   });
 });

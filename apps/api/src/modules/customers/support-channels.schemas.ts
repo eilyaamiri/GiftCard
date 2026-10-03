@@ -82,7 +82,7 @@ export function normalizeSupportChannelValue(kind: SupportChannelKind, raw: stri
     case 'TELEGRAM': {
       const handle = stripTelegramPrefix(value);
       if (!TELEGRAM_USERNAME_RE.test(handle) && !TELEGRAM_INVITE_RE.test(handle)) {
-        invalid('شناسهٔ تلگرام معتبر نیست. مثال: @baratpay یا https://t.me/baratpay');
+        invalid('شناسهٔ تلگرام معتبر نیست. مثال: @centopay یا https://t.me/centopay');
       }
       return `https://t.me/${handle}`;
     }

@@ -15,7 +15,7 @@ import { formatCount } from "./_lib/format";
 import { CatalogTabs } from "./_components/catalog-tabs";
 import { ProductTable } from "./_components/product-table";
 
-export const metadata = { title: "کاتالوگ | پنل ادمین برات پی" };
+export const metadata = { title: "کاتالوگ | پنل ادمین سنتو" };
 
 export default async function CatalogPage({
   searchParams,

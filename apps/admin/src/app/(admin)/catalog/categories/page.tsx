@@ -7,7 +7,7 @@ import { CategoryIcon } from "../_components/category-icon";
 import { ToggleActiveButton } from "../_components/toggle-active-button";
 import { CatalogTabs } from "../_components/catalog-tabs";
 
-export const metadata = { title: "دسته‌بندی‌ها | پنل ادمین برات پی" };
+export const metadata = { title: "دسته‌بندی‌ها | پنل ادمین سنتو" };
 
 export default async function CategoriesPage() {
   await requireRole(CATALOG_WRITE_ROLES);

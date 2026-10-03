@@ -11,6 +11,7 @@ import { ServiceCard } from "@/components/service-card";
 import { getFaqs } from "@/lib/faq";
 import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
 import { gameImageUrl, gameMonogram, gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
+import { BRAND } from "@/lib/brand";
 
 /**
  * Every strip on the landing page is the same width — four cards — so the page
@@ -193,7 +194,11 @@ const HERO_TYPE_START_DELAY_MS = 550;
  * `aria-label` carries the real sentence so a screen reader gets it whole
  * instead of one span at a time.
  */
-function TypewriterHeading({ text, className }: Readonly<{ text: string; className?: string }>) {
+function TypewriterHeading({
+  text,
+  breakAfter,
+  className,
+}: Readonly<{ text: string; breakAfter?: string; className?: string }>) {
   const words = text.split(" ");
   let charCount = 0;
   const parts = words.map((word) => {
@@ -211,6 +216,9 @@ function TypewriterHeading({ text, className }: Readonly<{ text: string; classNa
               {word}
             </span>
             {index < parts.length - 1 ? " " : null}
+            {/* Desktop's fixed line break; phones hide it and wrap naturally,
+              * which is why the space before it is kept. */}
+            {word === breakAfter ? <br className="hero-break" /> : null}
           </span>
         ))}
         <span className="hero-typewriter-cursor" style={{ animationDelay: `${cursorDelay}ms` }} />
@@ -239,12 +247,12 @@ export async function HomePage() {
         <section className="hero">
           <div className="container hero-inner">
             <div className="hero-content">
-              <div className="eyebrow">برات · دسترسی به جهان</div>
-              <TypewriterHeading text="چیزی که در جهان می‌خواهید، همین‌جا در دسترس برات." className="h1" />
-              <p className="hero-copy">گیفت‌کارت بخرید یا هزینه سرویس‌های بین‌المللی را با خیال راحت پرداخت کنید. قیمت شفاف، پرداخت امن و پشتیبانی واقعی.</p>
+              <div className="eyebrow">{BRAND.hero.eyebrow}</div>
+              <TypewriterHeading text={BRAND.hero.title} breakAfter={BRAND.hero.breakAfter} className="h1" />
+              <p className="hero-copy">{BRAND.hero.copy}</p>
               <div className="hero-actions">
-                <Link className="btn btn-accent" href="/gift-cards">خرید گیفت‌کارت <ArrowLeft size={17} aria-hidden="true" /></Link>
-                <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> پرداخت یک سرویس</Link>
+                <Link className="btn btn-accent" href="/gift-cards">{BRAND.hero.primaryCta} <ArrowLeft size={17} aria-hidden="true" /></Link>
+                <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> {BRAND.hero.secondaryCta}</Link>
                 <Link className="btn btn-outline" href="/telegram"><Send size={17} aria-hidden="true" /> استارز و پرمیوم تلگرام</Link>
                 <Link className="btn btn-outline" href="/games"><Gamepad2 size={17} aria-hidden="true" /> شارژ مستقیم بازی</Link>
               </div>

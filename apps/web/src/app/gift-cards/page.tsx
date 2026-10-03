@@ -10,7 +10,7 @@ import { CatalogBrowser } from "./_components/catalog-browser";
 import { CatalogSidebar } from "./_components/catalog-sidebar";
 
 export const metadata = {
-  title: "گیفت‌کارت‌ها | برات پی",
+  title: "گیفت‌کارت‌ها",
   description: "گیفت‌کارت‌های دیجیتال جهان را بر اساس دسته‌بندی، برند و منطقه پیدا کنید.",
 };
 

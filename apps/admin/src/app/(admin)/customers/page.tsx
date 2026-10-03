@@ -2,7 +2,7 @@ import { requireRole } from "@/lib/session";
 import { CUSTOMER_VIEW_ROLES } from "@/lib/api";
 import { CustomerSearchView } from "@/components/customer-search-view";
 
-export const metadata = { title: "نمای ۳۶۰ مشتری | پنل ادمین برات پی" };
+export const metadata = { title: "نمای ۳۶۰ مشتری | پنل ادمین سنتو" };
 
 export default async function CustomersPage({
   searchParams,

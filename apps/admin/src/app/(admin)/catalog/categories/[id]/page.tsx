@@ -6,7 +6,7 @@ import { adminCategoryListSchema, adminCategorySchema } from "../../_lib/catalog
 import { formatCount } from "../../_lib/format";
 import { CategoryForm } from "../_components/category-form";
 
-export const metadata = { title: "ویرایش دسته‌بندی | پنل ادمین برات پی" };
+export const metadata = { title: "ویرایش دسته‌بندی | پنل ادمین سنتو" };
 
 export default async function CategoryDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireRole(CATALOG_WRITE_ROLES);

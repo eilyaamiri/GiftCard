@@ -7,8 +7,8 @@ import type { Brand } from "@/lib/catalog";
 import { BrandDirectory } from "./brand-directory";
 
 export const metadata = {
-  title: "برندها | برات پی",
-  description: "همهٔ برندهای گیفت‌کارت موجود در برات پی، با تعداد کارت‌های فعال هر برند.",
+  title: "برندها",
+  description: "همهٔ برندهای گیفت‌کارت موجود در سنتو، با تعداد کارت‌های فعال هر برند.",
 };
 
 /** A brand switched off in the panel has to disappear on the next request. */

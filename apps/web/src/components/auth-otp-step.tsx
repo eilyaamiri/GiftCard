@@ -72,7 +72,7 @@ export function AuthOtpStep({ challenge: initialChallenge, onBack }: Readonly<{ 
 
   return (
     <>
-      <div className="eyebrow">SECURITY CHECK · برات</div>
+      <div className="eyebrow">SECURITY CHECK · CENTO</div>
       <h1 className="h2">کد ورود را وارد کنید</h1>
       <p className="muted">کد {toPersianDigits(challenge.codeLength)} رقمی برای <Ltr>{challenge.maskedTarget}</Ltr> ارسال شد.</p>
       <div className="auth-form otp-form">
@@ -84,7 +84,7 @@ export function AuthOtpStep({ challenge: initialChallenge, onBack }: Readonly<{ 
         <button type="button" className="btn btn-ghost auth-submit" onClick={resend} disabled={cooldown > 0 || resending}>{cooldown > 0 ? `ارسال مجدد کد (${toPersianDigits(cooldown)} ثانیه)` : resending ? "در حال ارسال..." : "ارسال مجدد کد"}</button>
         {onBack ? <button type="button" className="btn btn-ghost auth-submit" onClick={onBack}>ویرایش شماره یا ایمیل</button> : null}
       </div>
-      <p className="auth-note"><ShieldCheck size={16} /> این کد را با هیچ‌کس، حتی پشتیبانی برات، در میان نگذارید.</p>
+      <p className="auth-note"><ShieldCheck size={16} /> این کد را با هیچ‌کس، حتی پشتیبانی سنتو، در میان نگذارید.</p>
     </>
   );
 }

@@ -5,7 +5,7 @@ import { adminServiceListSchema } from "../catalog/_lib/catalog-contracts";
 import { formatCount } from "../catalog/_lib/format";
 import { ToggleActiveButton } from "../catalog/_components/toggle-active-button";
 
-export const metadata = { title: "سرویس‌های بین‌المللی | پنل ادمین برات پی" };
+export const metadata = { title: "سرویس‌های بین‌المللی | پنل ادمین سنتو" };
 
 export default async function ServicesPage() {
   await requireRole(CATALOG_WRITE_ROLES);

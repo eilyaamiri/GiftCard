@@ -8,6 +8,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
+import { BrandLogo } from "@/components/brand-logo";
 
 /**
  * The header's nav links, collapsed into a slide-in drawer below 768px — the
@@ -64,9 +65,8 @@ export function MobileNavDrawer({
       >
         <div className="mobile-nav-drawer-panel">
           <div className="mobile-nav-drawer-head">
-            <Link href="/" className="mobile-nav-drawer-brand" aria-label="برات، صفحه اصلی">
-              <span className="logo-mark">ب</span>
-              <span>برات</span>
+            <Link href="/" className="mobile-nav-drawer-brand" aria-label="سنتو، صفحه اصلی">
+              <BrandLogo />
             </Link>
             <button autoFocus type="button" className="mobile-nav-drawer-close" aria-label="بستن منو" onClick={() => setOpen(false)}>
               <X size={20} aria-hidden="true" />

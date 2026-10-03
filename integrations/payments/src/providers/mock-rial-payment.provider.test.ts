@@ -11,7 +11,7 @@ describe('MockRialPaymentProvider', () => {
   const createInput = {
     amountIrr: 5_000_000n,
     orderNumber: 'BP-1001',
-    description: 'Barat Pay order',
+    description: 'CENTO order',
     callbackUrl: 'https://api.barat.test/api/payments/zarinpal/callback',
     idempotencyKey: 'idem-1',
   };

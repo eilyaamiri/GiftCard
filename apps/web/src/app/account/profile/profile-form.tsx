@@ -57,7 +57,7 @@ export function ProfileForm({ profile }: { profile: AccountProfile }) {
           className="profile-marketing-checkbox"
           label={
             <span className="profile-marketing-copy">
-              <strong>اطلاع از تخفیف‌ها و خبرهای برات</strong>
+              <strong>اطلاع از تخفیف‌ها و خبرهای سنتو</strong>
               <small id="marketingOptInDescription">
                 پیشنهادهای منتخب و خبرهای مهم را برای من ارسال کن.
               </small>

@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/session";
 import { KbPanel } from "./kb-panel";
 import { kbListSchema, type KbCategory } from "./kb-schema";
 
-export const metadata = { title: "پایگاه دانش | پنل ادمین برات پی" };
+export const metadata = { title: "پایگاه دانش | پنل ادمین سنتو" };
 
 export default async function KnowledgeBasePage() {
   await requireRole(["ADMIN"]);

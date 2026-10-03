@@ -84,7 +84,7 @@ function LoginForm() {
             <AuthOtpStep challenge={challenge} onBack={() => { setChallenge(null); setError(null); }} />
           ) : (
             <>
-              <div className="eyebrow">WELCOME BACK · برات</div>
+              <div className="eyebrow">WELCOME BACK · CENTO</div>
               <h1 className="h2">ورود به حساب شما</h1>
               <p className="muted">شماره موبایل یا ایمیل خود را وارد کنید تا کد یک‌بارمصرف برایتان ارسال شود.</p>
 
@@ -116,14 +116,14 @@ function LoginForm() {
                   {loading ? "در حال ارسال کد..." : "ارسال کد ورود"}
                 </button>
               </form>
-              <p className="auth-note"><ShieldCheck size={16} /> با ادامه، شرایط استفاده و حریم خصوصی برات را می‌پذیرید.</p>
+              <p className="auth-note"><ShieldCheck size={16} /> با ادامه، شرایط استفاده سنتو و حریم خصوصی سنتو را می‌پذیرید.</p>
             </>
           )}
         </section>
-        <aside className="auth-visual" aria-label="امنیت برات">
+        <aside className="auth-visual" aria-label="امنیت سنتو">
           <span className="auth-visual-kicker">SECURE BY DESIGN</span>
           <strong>ورود ساده،<br />حفاظت جدی.</strong>
-          <p>کد ورود فقط برای شماست؛ برات هیچ‌وقت آن را از شما درخواست نمی‌کند.</p>
+          <p>کد ورود فقط برای شماست؛ سنتو هیچ‌وقت کد ورود را از شما درخواست نمی‌کند.</p>
           <div className="auth-orbit" aria-hidden="true" />
         </aside>
       </div>

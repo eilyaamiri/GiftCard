@@ -13,7 +13,7 @@ import {
   tomanFromIrr,
 } from "@/lib/order-format";
 
-export const metadata = { title: "جزئیات پرداخت | پنل ادمین برات پی" };
+export const metadata = { title: "جزئیات پرداخت | پنل ادمین سنتو" };
 
 /**
  * Keyed by order id, because the order is the only payment record staff can

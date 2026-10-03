@@ -12,10 +12,10 @@ type Params = { params: Promise<{ slug: string }> };
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
   const lookup = await getGameTopUp(slug);
-  if (lookup.kind !== "game") return { title: "شارژ مستقیم بازی | برات" };
+  if (lookup.kind !== "game") return { title: "شارژ مستقیم بازی" };
   const title = gameTitle(lookup.game);
   return {
-    title: `شارژ مستقیم ${title} | برات`,
+    title: `شارژ مستقیم ${title}`,
     description: `شارژ مستقیم ${title} روی حساب خودتان با شناسهٔ بازیکن؛ قیمت نهایی پیش از پرداخت.`,
   };
 }

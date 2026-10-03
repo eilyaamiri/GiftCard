@@ -1,7 +1,7 @@
 import type { NextConfig } from 'next';
 
 /**
- * Barat Pay admin panel and operator workspace.
+ * CENTO (سنتو) admin panel and operator workspace.
  *
  * This app displays gift-card codes, customer data and financial reports. It is
  * never indexed, never framed, and every permission it appears to grant is

@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { INTEGRATION_MODE_LABELS, adminSupplierListSchema } from "../catalog/_lib/catalog-contracts";
 import { formatCount } from "../catalog/_lib/format";
 
-export const metadata = { title: "تأمین‌کنندگان | پنل ادمین برات پی" };
+export const metadata = { title: "تأمین‌کنندگان | پنل ادمین سنتو" };
 
 export default async function SuppliersPage() {
   await requireRole(CATALOG_WRITE_ROLES);

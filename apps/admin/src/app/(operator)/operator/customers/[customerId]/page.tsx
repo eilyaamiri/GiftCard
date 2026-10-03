@@ -4,7 +4,7 @@ import { CUSTOMER_NOTE_ROLES, OPERATOR_ROLES } from "@/lib/api";
 import { addCustomerNote, fetchCustomer360 } from "@/lib/customer-360";
 import { requireRole } from "@/lib/session";
 
-export const metadata = { title: "جزئیات مشتری | میزکار اپراتور برات پی" };
+export const metadata = { title: "جزئیات مشتری | میزکار اپراتور سنتو" };
 
 export default async function OperatorCustomerPage({
   params,

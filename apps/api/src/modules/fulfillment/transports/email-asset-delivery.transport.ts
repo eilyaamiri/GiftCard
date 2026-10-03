@@ -43,7 +43,7 @@ function emailCopy(message: AssetDeliveryMessage): Pick<EmailMessage, 'subject' 
     htmlParts.push('<p>تصویر رسید پرداخت به این ایمیل پیوست شده است.</p>');
   }
 
-  htmlParts.push('<p>برات‌پی</p>', '</div>');
+  htmlParts.push('<p>سنتو</p>', '</div>');
   return {
     subject: heading,
     html: htmlParts.join(''),

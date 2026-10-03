@@ -229,7 +229,7 @@ export class PaymentsService {
       providerResult = await this.provider.createPayment({
         amountIrr: reservation.amountIrr,
         orderNumber: await this.orderNumber(input.orderId),
-        description: `Barat Pay order ${input.orderId}`,
+        description: `CENTO order ${input.orderId}`,
         callbackUrl,
         idempotencyKey: input.idempotencyKey,
       });

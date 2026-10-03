@@ -367,7 +367,7 @@ describe('ReloadlyGiftCardSupplierProvider', () => {
         quantity: 1,
         unitPrice: 25,
         customIdentifier: 'order-1',
-        senderName: 'Barat Pay',
+        senderName: 'CENTO',
         recipientEmail: 'vault@baratpay.example',
       });
     });

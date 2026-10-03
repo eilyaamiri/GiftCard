@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { wirePricingRuleListSchema, type WirePricingRule } from "../pricing-rules/pricing-rule-schema";
 import { SimulatorForm } from "./simulator-form";
 
-export const metadata = { title: "شبیه‌ساز استعلام | پنل ادمین برات پی" };
+export const metadata = { title: "شبیه‌ساز استعلام | پنل ادمین سنتو" };
 
 export default async function SimulatorPage() {
   await requireRole(FINANCIAL_WRITE_ROLES);

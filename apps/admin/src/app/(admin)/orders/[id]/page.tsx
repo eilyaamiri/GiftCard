@@ -24,7 +24,7 @@ import {
   tomanFromIrr,
 } from "@/lib/order-format";
 
-export const metadata = { title: "جزئیات سفارش | پنل ادمین برات پی" };
+export const metadata = { title: "جزئیات سفارش | پنل ادمین سنتو" };
 
 /** A missed SLA outranks the status itself — that is the thing to act on. */
 function taskBadge(task: WorkItemSummary): string {

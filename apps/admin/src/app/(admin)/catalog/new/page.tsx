@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/session";
 import { ProductForm } from "../_components/product-form";
 import { fetchTaxonomyOptions } from "../_lib/taxonomy-options";
 
-export const metadata = { title: "افزودن محصول | پنل ادمین برات پی" };
+export const metadata = { title: "افزودن محصول | پنل ادمین سنتو" };
 
 export default async function NewProductPage() {
   await requireRole(CATALOG_WRITE_ROLES);

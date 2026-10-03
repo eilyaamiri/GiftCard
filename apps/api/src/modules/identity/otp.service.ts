@@ -213,14 +213,14 @@ export class OtpService implements OnModuleInit {
       if (identityType === 'MOBILE') {
         await this.sms.send({
           to: normalized,
-          body: `کد ورود برات‌پی: ${code}`,
+          body: `کد ورود شما به سنتو: ${code}`,
           templateId: 'AUTH_OTP',
           templateParams: { code },
         });
       } else {
         await this.email.send({
           to: normalized,
-          subject: 'کد ورود برات‌پی',
+          subject: 'کد ورود سنتو',
           text: `کد ورود شما: ${code}`,
           html: `<p style="direction:ltr;unicode-bidi:isolate">${code}</p>`,
           templateId: 'AUTH_OTP',

@@ -30,10 +30,10 @@ export default function OtpPage() {
         <section className="auth-card otp-card">
           <AuthOtpStep challenge={challenge} onBack={() => router.replace("/login")} />
         </section>
-        <aside className="auth-visual" aria-label="امنیت برات">
+        <aside className="auth-visual" aria-label="امنیت سنتو">
           <span className="auth-visual-kicker">SECURE BY DESIGN</span>
           <strong>ورود ساده،<br />حفاظت جدی.</strong>
-          <p>کد ورود فقط برای شماست؛ برات هیچ‌وقت آن را از شما درخواست نمی‌کند.</p>
+          <p>کد ورود فقط برای شماست؛ سنتو هیچ‌وقت کد ورود را از شما درخواست نمی‌کند.</p>
           <div className="auth-orbit" aria-hidden="true" />
         </aside>
       </div>

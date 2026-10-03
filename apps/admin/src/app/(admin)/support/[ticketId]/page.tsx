@@ -4,7 +4,7 @@ import { SUPPORT_TICKET_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { supportTickets } from "@/lib/support-tickets";
 
-export const metadata = { title: "جزئیات تیکت | پنل ادمین برات پی" };
+export const metadata = { title: "جزئیات تیکت | پنل ادمین سنتو" };
 
 export default async function SupportTicketPage({ params, searchParams }: { params: Promise<{ ticketId: string }>; searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const { ticketId } = await params;

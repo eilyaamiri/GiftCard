@@ -7,7 +7,7 @@ import { CatalogProductCard } from "@/components/catalog-product-card";
 import { ServiceCard } from "@/components/service-card";
 
 export const metadata = {
-  title: "جست‌وجو | برات پی",
+  title: "جست‌وجو",
   description: "جست‌وجو در گیفت‌کارت‌ها و سرویس‌های پرداخت بین‌المللی.",
 };
 
@@ -32,7 +32,7 @@ export default async function SearchPage({
     return (
       <main className="page container">
         <div className="eyebrow">جست‌وجو</div>
-        <h1 className="h2">جست‌وجو در برات</h1>
+        <h1 className="h2">جست‌وجو در سنتو</h1>
         <EmptyState
           icon={<SearchX />}
           title="عبارتی برای جست‌وجو وارد نشده"
