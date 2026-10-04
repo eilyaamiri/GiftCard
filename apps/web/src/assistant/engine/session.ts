@@ -9,7 +9,7 @@ import type { AssistantIdentity, AssistantSession, DataKey, SessionData } from "
 export const DEPENDENTS: Readonly<Partial<Record<DataKey, readonly DataKey[]>>> = {
   serviceType: [
     "query", "product", "brand", "region", "variant", "game", "package", "gameAccountFields",
-    "telegramUsername", "serviceCategory", "service", "amount", "currency", "serviceFields", "custom",
+    "telegramUsername", "steamLogin", "serviceCategory", "service", "amount", "currency", "serviceFields", "custom",
     "fieldSpecs", "fieldIndex", "quote", "orderId", "orderNumber", "paymentId", "paymentState",
   ],
   product: ["brand", "region", "variant"],
@@ -19,6 +19,7 @@ export const DEPENDENTS: Readonly<Partial<Record<DataKey, readonly DataKey[]>>> 
   package: ["quote"],
   gameAccountFields: ["quote"],
   telegramUsername: ["quote"],
+  steamLogin: ["quote"],
   serviceCategory: ["service", "amount", "currency", "serviceFields", "fieldSpecs", "fieldIndex"],
   service: ["amount", "currency", "serviceFields", "fieldSpecs", "fieldIndex"],
   amount: ["quote"],

@@ -16,6 +16,7 @@ import {
 import { GENERIC_SERVICE_SLUGS, SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { orderStatusView } from "@/lib/status";
 import { getSupportChannels } from "@/lib/support-channels";
+import { getSteamTopUp, isValidSteamLogin, normalizeSteamLogin, parseSteamUsdAmount, STEAM_LOGIN_KEY, steamLoginField } from "@/lib/steam";
 import { getTelegramProduct, isValidUsername, normalizeUsername, offerLabel, offerQuantity, usernameFieldKey } from "@/lib/telegram";
 import {
   acceptQuote,
@@ -225,6 +226,16 @@ export function createWebServices(): AssistantServices {
         };
       },
 
+      async steamChoices() {
+        const entry = await getSteamTopUp();
+        if (entry === null) return null;
+        return {
+          title: entry.game.nameFa || entry.game.name,
+          offerId: entry.offerId,
+          loginPattern: steamLoginField(entry.game)?.validationRegex ?? null,
+        };
+      },
+
       serviceCategories: () => SERVICE_CATEGORIES.map((category) => ({ id: category.slug, label: category.labelFa })),
 
       async listServices(category) {
@@ -267,6 +278,18 @@ export function createWebServices(): AssistantServices {
             const entry = await getTelegramProduct(request.product);
             if (entry === null) throw new RequoteRequiredError();
             payload = { ...base, topUpOfferId: request.offerId, topUpAccountFields: { [usernameFieldKey({ fields: entry.game.fields ?? [] })]: request.username }, currency: "USD" } as CreateQuoteRequest;
+            break;
+          }
+          case "steam": {
+            const entry = await getSteamTopUp();
+            if (entry === null) throw new RequoteRequiredError();
+            payload = {
+              ...base,
+              topUpOfferId: request.offerId,
+              requestedAmountForeign: request.amount,
+              topUpAccountFields: { [steamLoginField(entry.game)?.key ?? STEAM_LOGIN_KEY]: request.login },
+              currency: "USD",
+            } as CreateQuoteRequest;
             break;
           }
           case "service":
@@ -333,6 +356,31 @@ export function createWebServices(): AssistantServices {
 
     validate: {
       username: (raw) => (isValidUsername(raw) ? normalizeUsername(raw) : null),
+
+      steamLogin(raw, pattern) {
+        if (!isValidSteamLogin(raw)) return null;
+        const login = normalizeSteamLogin(raw);
+        if (pattern !== null) {
+          try {
+            if (!new RegExp(pattern, "u").test(login)) return null;
+          } catch {
+            return login;
+          }
+        }
+        return login;
+      },
+
+      steamAmount(raw) {
+        const result = parseSteamUsdAmount(raw);
+        if (result.ok) return { value: result.amount };
+        const messages = {
+          REQUIRED: "مبلغ شارژ را به دلار وارد کنید",
+          FORMAT: "مبلغ را به‌صورت عدد و حداکثر با دو رقم اعشار وارد کنید",
+          BELOW_MIN: "حداقل مبلغ شارژ ۰٫۱۵ دلار است",
+          ABOVE_MAX: "حداکثر مبلغ شارژ ۱٬۰۰۰ دلار است",
+        } as const;
+        return { error: messages[result.reason] };
+      },
 
       field(spec, raw) {
         const field: TopUpField = {

@@ -59,9 +59,10 @@ Guarantees the engine enforces:
 
 | Flow | Notes |
 |---|---|
-| mainMenu | Gift card, international payment, Telegram, game top-up, my orders, contact us |
+| mainMenu | Gift card, international payment, Telegram, Steam, game top-up, my orders, contact us |
 | giftCard | search (sent on submit, never while typing) -> product -> region -> denomination -> **quote card** -> confirm |
 | telegram | Stars and Premium. Asks only for the public username; never a password, OTP or login code |
+| steam | Steam wallet. Asks the Steam login (not the display name) and a free USD amount, then the shared quote/checkout; never a password or Steam Guard code. Same quote path as `/steam` (`steam:usd:<amount>`) |
 | gameTopup | Fields come from the catalogue (`TopUpField`); credential-like fields are dropped |
 | internationalPayment | Dynamic categories and services, plus a custom-payment option |
 | orderTracking | Own orders, status, detail; support from an order attaches its `orderId` |

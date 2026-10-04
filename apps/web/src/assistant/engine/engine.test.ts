@@ -4,13 +4,14 @@ import { startDriver } from "../testing/driver";
 const GIFT = "🎁 خرید گیفت کارت";
 
 describe("main menu", () => {
-  it("opens with the greeting and the six entries", async () => {
+  it("opens with the greeting and the seven entries", async () => {
     const d = await startDriver();
     expect(d.last.message).toContain("سلام 👋 من دستیار خرید شما هستم");
     expect(d.last.options.map((o) => o.label)).toEqual([
       GIFT,
       "🌍 پرداخت یک سرویس",
       "✈️ تلگرام",
+      "🕹️ شارژ استیم",
       "🎮 تاپ‌آپ بازی",
       "📦 سفارش‌های من",
       "☎️ ارتباط با ما",

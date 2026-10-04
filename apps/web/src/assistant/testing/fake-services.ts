@@ -139,6 +139,7 @@ export function createFake(): Fake {
             : [],
       gameChoices: async (slug) => (slug === "pubg" ? PUBG : slug === "login" ? LOGIN_GAME : null),
       telegramChoices: async (kind) => (kind === "stars" ? STARS : PREMIUM),
+      steamChoices: async () => ({ title: "شارژ کیف پول استیم", offerId: "steam-template", loginPattern: null }),
       serviceCategories: () => [{ id: "streaming", label: "استریم" }],
       listServices: async () => [{ id: NETFLIX.id, title: NETFLIX.title, currency: "USD", minAmount: "5", maxAmount: "100" }],
       serviceChoices: async (id) => (id === NETFLIX.id ? NETFLIX : null),
@@ -193,6 +194,11 @@ export function createFake(): Fake {
     },
     validate: {
       username: (raw) => (/^@?[a-z][a-z0-9_]{4,31}$/iu.test(raw.trim()) ? `@${raw.trim().replace(/^@/u, "")}` : null),
+      steamLogin: (raw) => (/^\S{2,64}$/u.test(raw.trim()) ? raw.trim() : null),
+      steamAmount: (raw) => {
+        const value = Number(raw.trim());
+        return Number.isFinite(value) && value >= 0.15 && value <= 1000 ? { value: String(value) } : { error: "مبلغ معتبر نیست." };
+      },
       field: (spec, raw) => (raw.trim() === "" ? { error: `${spec.label} را وارد کنید.` } : { value: raw.trim() }),
     },
     analytics: { track: (event) => void events.push(event) },

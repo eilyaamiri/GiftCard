@@ -20,16 +20,17 @@ export function summaryLines(data: SessionData): { label: string; value: string 
   if (data.region !== undefined && data.serviceType === "giftCard") lines.push({ label: "منطقه", value: data.region });
   if (data.variant !== undefined) lines.push({ label: "مبلغ کارت", value: data.variant.label });
   if (data.game !== undefined) lines.push({ label: "بازی", value: data.game.title });
-  if (data.package !== undefined) {
+  if (data.package !== undefined && data.serviceType !== "steam") {
     lines.push({
       label: data.serviceType === "telegramStars" ? "تعداد استارز" : data.serviceType === "telegramPremium" ? "مدت پرمیوم" : "بسته",
       value: data.package.label,
     });
   }
   if (data.telegramUsername !== undefined) lines.push({ label: "حساب تلگرام", value: data.telegramUsername });
+  if (data.steamLogin !== undefined) lines.push({ label: "حساب استیم", value: data.steamLogin });
   if (data.service !== undefined) lines.push({ label: "سرویس", value: data.service.title });
   if (data.custom?.title !== undefined) lines.push({ label: "عنوان", value: data.custom.title });
-  if (data.amount !== undefined) lines.push({ label: "مبلغ", value: `${data.amount} ${data.currency ?? ""}`.trim() });
+  if (data.amount !== undefined) lines.push({ label: data.serviceType === "steam" ? "مبلغ شارژ" : "مبلغ", value: `${data.amount} ${data.currency ?? ""}`.trim() });
   return lines;
 }
 
@@ -46,6 +47,9 @@ export function quoteRequestOf(data: SessionData): QuoteRequest | null {
         offerId: data.package.offerId,
         username: data.telegramUsername,
       };
+    case "steam":
+      if (data.package === undefined || data.steamLogin === undefined || data.amount === undefined) return null;
+      return { kind: "steam", offerId: data.package.offerId, login: data.steamLogin, amount: data.amount };
     case "gameTopup":
       if (data.package === undefined) return null;
       return { kind: "topup", offerId: data.package.offerId, accountFields: data.gameAccountFields ?? {} };

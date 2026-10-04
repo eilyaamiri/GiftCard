@@ -53,6 +53,14 @@ export interface TopUpChoices {
 
 export type TelegramKind = "stars" | "premium";
 
+/** The Steam wallet product: one template offer whose USD amount the customer types. */
+export interface SteamChoices {
+  readonly title: string;
+  readonly offerId: string;
+  /** The venue's own validation pattern for the login, when it declares one. */
+  readonly loginPattern: string | null;
+}
+
 export interface ServiceHit {
   readonly id: string;
   readonly title: string;
@@ -85,6 +93,7 @@ export type QuoteRequest =
   | { readonly kind: "sku"; readonly skuId: string }
   | { readonly kind: "topup"; readonly offerId: string; readonly accountFields: Readonly<Record<string, string>> }
   | { readonly kind: "telegram"; readonly product: TelegramKind; readonly offerId: string; readonly username: string }
+  | { readonly kind: "steam"; readonly offerId: string; readonly login: string; readonly amount: string }
   | {
       readonly kind: "service";
       readonly serviceId: string;
@@ -121,6 +130,7 @@ export interface AssistantServices {
     searchGames(query: string): Promise<readonly GameHit[]>;
     gameChoices(slug: string): Promise<TopUpChoices | null>;
     telegramChoices(kind: TelegramKind): Promise<TopUpChoices | null>;
+    steamChoices(): Promise<SteamChoices | null>;
     serviceCategories(): readonly { readonly id: string; readonly label: string }[];
     listServices(category: string): Promise<readonly ServiceHit[]>;
     serviceChoices(id: string): Promise<ServiceChoices | null>;
@@ -151,6 +161,10 @@ export interface AssistantServices {
   validate: {
     /** Returns the normalized handle, or `null` when it is not acceptable. */
     username(raw: string): string | null;
+    /** Returns the normalized Steam login, or `null` when it is not acceptable. */
+    steamLogin(raw: string, pattern: string | null): string | null;
+    /** Returns the USD amount as a plain decimal string, or an error message. */
+    steamAmount(raw: string): { value: string } | { error: string };
     /** Returns the normalized value, or an error message. */
     field(spec: FieldSpec, raw: string): { value: string } | { error: string };
   };

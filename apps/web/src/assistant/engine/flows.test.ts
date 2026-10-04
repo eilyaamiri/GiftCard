@@ -40,6 +40,27 @@ describe("telegram", () => {
   });
 });
 
+describe("steam", () => {
+  it("asks the login, then a free USD amount, then quotes — never a password", async () => {
+    const d = await startDriver();
+    await d.pick("🕹️ شارژ استیم");
+    expect(d.last.state).toBe("steam.login");
+    expect(d.last.message).toContain("هیچ‌وقت");
+    expect(d.last.message).not.toMatch(/رمز عبور خود را/u);
+    await d.send("SUBMIT", "has space");
+    expect(d.last.state).toBe("steam.login");
+    expect(d.last.tone).toBe("error");
+    await d.send("SUBMIT", "gabe_n");
+    expect(d.last.state).toBe("steam.amount");
+    await d.send("SUBMIT", "abc");
+    expect(d.last.state).toBe("steam.amount");
+    expect(d.last.tone).toBe("error");
+    await d.send("SUBMIT", "12.5");
+    expect(hasQuote(d)).toBe(true);
+    expect(quoteRequests(d).at(-1)).toEqual({ kind: "steam", offerId: "steam-template", login: "gabe_n", amount: "12.5" });
+  });
+});
+
 describe("game top-up", () => {
   it("asks the fields the catalogue declares, then quotes", async () => {
     const d = await startDriver();
