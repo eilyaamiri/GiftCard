@@ -16,6 +16,8 @@ export const menuStates: Record<string, StateDef> = {
             return go("intl.categories", { patch: { serviceType: "international" } });
           case "telegram":
             return go("tg.choose");
+          case "steam":
+            return go("steam.login", { patch: { serviceType: "steam" } });
           case "game":
             return go("game.search", { patch: { serviceType: "gameTopup" } });
           case "orders":
@@ -33,6 +35,7 @@ export const menuStates: Record<string, StateDef> = {
         opt("giftCard", "🎁 خرید گیفت کارت", "SELECT", "giftCard"),
         opt("international", "🌍 پرداخت یک سرویس", "SELECT", "international"),
         opt("telegram", "✈️ تلگرام", "SELECT", "telegram"),
+        opt("steam", "🕹️ شارژ استیم", "SELECT", "steam"),
         opt("game", "🎮 تاپ‌آپ بازی", "SELECT", "game"),
         opt("orders", "📦 سفارش‌های من", "SELECT", "orders"),
         opt("support", "☎️ ارتباط با ما", "SELECT", "support"),

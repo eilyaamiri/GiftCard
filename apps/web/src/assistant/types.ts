@@ -31,6 +31,7 @@ export type FlowId =
   | "mainMenu"
   | "giftCard"
   | "telegram"
+  | "steam"
   | "gameTopup"
   | "internationalPayment"
   | "orderTracking"
@@ -42,6 +43,7 @@ export type ServiceType =
   | "giftCard"
   | "telegramStars"
   | "telegramPremium"
+  | "steam"
   | "gameTopup"
   | "international"
   | "custom";
@@ -155,6 +157,7 @@ export interface SessionData {
   package?: { offerId: string; label: string };
   gameAccountFields?: Record<string, string>;
   telegramUsername?: string;
+  steamLogin?: string;
   serviceCategory?: string;
   service?: { id: string; title: string };
   amount?: string;

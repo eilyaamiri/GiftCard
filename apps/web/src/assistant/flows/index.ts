@@ -5,6 +5,7 @@ import { giftCardStates } from "./gift-card";
 import { internationalStates } from "./international";
 import { menuStates } from "./menu";
 import { orderStates } from "./orders";
+import { steamStates } from "./steam";
 import { supportStates } from "./support";
 import { telegramStates } from "./telegram";
 
@@ -13,6 +14,7 @@ export const flowStates: Readonly<Record<string, StateDef>> = {
   ...menuStates,
   ...giftCardStates,
   ...telegramStates,
+  ...steamStates,
   ...gameStates,
   ...internationalStates,
   ...checkoutStates,
