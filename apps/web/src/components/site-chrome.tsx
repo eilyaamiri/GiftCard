@@ -16,6 +16,7 @@ import { NavDropdown } from "@/components/nav-dropdown";
 import { SteamIcon } from "@/components/steam-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
+import { buildCategoryMenu } from "@/lib/category-menu";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 import { BRAND, copyrightYear } from "@/lib/brand";
@@ -178,11 +179,17 @@ export function SiteChrome({
               <NavDropdown
                 label="دسته‌بندی‌ها"
                 emptyLabel="دسته‌بندی‌ای موجود نیست"
-                items={categories.map((category) => ({
-                  key: category.id,
-                  label: category.nameFa,
-                  href: `/gift-cards?category=${encodeURIComponent(category.slug)}`,
-                  icon: <CategoryIcon iconKey={category.iconKey} size={15} />,
+                sections={buildCategoryMenu(categories).map((section) => ({
+                  key: section.key,
+                  label: section.label,
+                  href: section.href,
+                  icon: <CategoryIcon iconKey={section.iconKey} size={16} />,
+                  items: section.entries.map((entry) => ({
+                    key: entry.key,
+                    label: entry.label,
+                    href: entry.href,
+                    icon: <CategoryIcon iconKey={entry.iconKey} size={15} />,
+                  })),
                 }))}
               />
               <NavDropdown

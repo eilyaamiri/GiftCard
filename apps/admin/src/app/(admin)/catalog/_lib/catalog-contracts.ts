@@ -82,6 +82,40 @@ const slugFieldSchema = z
   .max(90)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, "نشانه باید با حروف کوچک انگلیسی، عدد و خط تیره باشد.");
 
+/** A category either holds gift-card products or is a hand-curated list of links. */
+export const categoryKindSchema = z.enum(["PRODUCTS", "SERVICES"]);
+export type CategoryKind = z.infer<typeof categoryKindSchema>;
+export const CATEGORY_KIND_LABELS: Record<CategoryKind, string> = {
+  PRODUCTS: "گیفت‌کارت",
+  SERVICES: "فهرست خدمات",
+};
+
+export const categoryLinkTypeSchema = z.enum(["TOP_UP_GAME", "PRODUCT", "SERVICE"]);
+export type CategoryLinkType = z.infer<typeof categoryLinkTypeSchema>;
+export const CATEGORY_LINK_TYPE_LABELS: Record<CategoryLinkType, string> = {
+  TOP_UP_GAME: "شارژ مستقیم",
+  PRODUCT: "گیفت‌کارت",
+  SERVICE: "پرداخت بین‌المللی",
+};
+
+/** One service in a service-list category, as `GET /categories/:id` returns it. */
+export const adminCategoryLinkSchema = z.object({
+  id: idSchema,
+  titleFa: z.string().nullable(),
+  sortOrder: z.number().int(),
+  target: z
+    .object({
+      type: categoryLinkTypeSchema,
+      targetId: idSchema,
+      slug: z.string(),
+      name: z.string(),
+    })
+    .nullable(),
+  /** Whether a customer can follow it right now; the storefront's own rule. */
+  isVisible: z.boolean(),
+});
+export type AdminCategoryLink = z.infer<typeof adminCategoryLinkSchema>;
+
 export const adminCategorySchema = z.object({
   id: idSchema,
   slug: z.string().min(1),
@@ -91,10 +125,15 @@ export const adminCategorySchema = z.object({
   descriptionFa: z.string().nullable(),
   parentId: idSchema.nullable(),
   isActive: z.boolean(),
+  kind: categoryKindSchema.default("PRODUCTS"),
   sortOrder: z.number().int(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
   parent: z.object({ id: idSchema, nameFa: z.string() }).nullable().optional(),
+  /** List only: how many services a SERVICES category holds, visible or not. */
+  linkCount: z.number().int().min(0).optional(),
+  /** Detail only. */
+  links: z.array(adminCategoryLinkSchema).optional(),
   /** Every product in the category. */
   productCount: z.number().int().min(0).optional(),
   /** The subset a customer can actually see. */
@@ -116,10 +155,35 @@ const categoryMutableFields = {
   isActive: z.boolean().default(true),
   sortOrder: z.coerce.number().int().default(0),
 };
-export const createCategoryRequestSchema = z.object(categoryMutableFields);
+/** `kind` is fixed at creation: a category cannot change what it holds later. */
+export const createCategoryRequestSchema = z.object({
+  ...categoryMutableFields,
+  kind: categoryKindSchema.default("PRODUCTS"),
+});
 export type CreateCategoryRequest = z.infer<typeof createCategoryRequestSchema>;
 export const updateCategoryRequestSchema = z.object(categoryMutableFields).partial();
 export type UpdateCategoryRequest = z.infer<typeof updateCategoryRequestSchema>;
+
+/** Exactly one target — the same rule the API enforces. */
+export const addCategoryLinkRequestSchema = z
+  .object({
+    topUpGameId: idSchema.optional(),
+    productId: idSchema.optional(),
+    serviceId: idSchema.optional(),
+    titleFa: z.string().trim().max(120).nullable().optional(),
+    sortOrder: z.coerce.number().int().default(0),
+  })
+  .refine(
+    (value) => [value.topUpGameId, value.productId, value.serviceId].filter((id) => id !== undefined).length === 1,
+    "یک خدمت را انتخاب کنید.",
+  );
+export type AddCategoryLinkRequest = z.infer<typeof addCategoryLinkRequestSchema>;
+
+export const updateCategoryLinkRequestSchema = z.object({
+  titleFa: z.string().trim().max(120).nullable().optional(),
+  sortOrder: z.coerce.number().int().optional(),
+});
+export type UpdateCategoryLinkRequest = z.infer<typeof updateCategoryLinkRequestSchema>;
 
 export const adminBrandSchema = z.object({
   id: idSchema,

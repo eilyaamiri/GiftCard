@@ -372,7 +372,8 @@ a { color:inherit; text-decoration:none; }
 .nav-dropdown-trending-heading { margin:0 0 8px; padding:0 6px; color:var(--text-secondary); font-size:11px; font-weight:800; }
 .nav-dropdown-trending-list { display:flex; flex-direction:column; gap:2px; margin:0; padding:0; list-style:none; }
 .nav-dropdown-trending-item { display:flex; align-items:center; gap:9px; min-width:0; min-height:38px; padding:6px; color:var(--text-primary); border-radius:9px; font-size:13px; font-weight:700; transition:background .16s ease,color .16s ease; }
-.nav-dropdown-trending-item:hover,.nav-dropdown-trending-item:focus-visible { color:var(--text-primary); background:var(--surface-card); outline:none; }
+.nav-dropdown-trending-item:hover,.nav-dropdown-trending-item:focus-visible,.nav-dropdown-trending-item[data-active=true] { color:var(--text-primary); background:var(--surface-card); outline:none; }
+.nav-dropdown-sections { align-self:stretch; }
 /* Column count comes from `--nav-dropdown-cols` (set inline, from item
  * count) instead of a hardcoded 3 — see `menuColumnCount` in nav-dropdown.tsx. */
 .nav-dropdown-menu { flex:0 0 auto; min-width:0; display:grid; grid-template-columns:repeat(var(--nav-dropdown-cols,3),minmax(170px,220px)); gap:2px 20px; margin:0; padding:16px; list-style:none; max-height:var(--nav-dropdown-menu-max,74vh); overflow-y:auto; }
@@ -790,6 +791,11 @@ a { color:inherit; text-decoration:none; }
   .mobile-nav-drawer-subgroup-title { display:block; padding:4px 0 2px; color:var(--text-secondary); font-size:11px; font-weight:800; }
   .mobile-nav-drawer-subgroup ul { margin:0 0 5px; padding-inline-start:8px; }
   .mobile-nav-drawer-subgroup li a { min-height:38px; padding-block:5px; font-size:12px; }
+  .mobile-nav-drawer-subgroup-summary { display:flex; align-items:center; justify-content:space-between; min-height:42px; color:var(--text-primary); font-size:13px; font-weight:800; cursor:pointer; list-style:none; }
+  .mobile-nav-drawer-subgroup-summary::-webkit-details-marker { display:none; }
+  .mobile-nav-drawer-subgroup-summary span { display:inline-flex; align-items:center; gap:9px; }
+  .mobile-nav-drawer-subgroup-summary svg { color:var(--text-secondary); transition:transform .18s ease; }
+  .mobile-nav-drawer-subgroup details[open] > .mobile-nav-drawer-subgroup-summary svg { transform:rotate(180deg); }
   .mobile-nav-drawer-empty { margin:2px 0 8px; padding:6px 4px; color:var(--text-secondary); font-size:12px; }
   .mobile-nav-drawer-link { display:flex; align-items:center; min-height:46px; padding:0 4px; color:var(--text-primary); border-bottom:1px solid var(--border-primary); font-size:14px; font-weight:800; }
   .mobile-nav-drawer-link:last-child { border-bottom:0; }

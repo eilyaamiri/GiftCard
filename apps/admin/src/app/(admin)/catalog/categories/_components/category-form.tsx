@@ -6,8 +6,10 @@ import { ApiClientError, api } from "@/lib/api";
 import {
   CATEGORY_ICON_KEYS,
   CATEGORY_ICON_LABELS,
+  CATEGORY_KIND_LABELS,
   type AdminCategory,
   type CategoryIconKey,
+  type CategoryKind,
 } from "../../_lib/catalog-contracts";
 import { CategoryIcon } from "../../_components/category-icon";
 import { FormError } from "../../_components/form-error";
@@ -38,6 +40,7 @@ export function CategoryForm({
   const [parentId, setParentId] = useState(category?.parentId ?? "");
   const [sortOrder, setSortOrder] = useState(String(category?.sortOrder ?? 0));
   const [isActive, setIsActive] = useState(category?.isActive ?? true);
+  const [kind, setKind] = useState<CategoryKind>(category?.kind ?? "PRODUCTS");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,7 +62,7 @@ export function CategoryForm({
       if (category) {
         await api.put(`/api/admin/catalog/categories/${category.id}`, payload);
       } else {
-        await api.post("/api/admin/catalog/categories", payload);
+        await api.post("/api/admin/catalog/categories", { ...payload, kind });
       }
       router.push("/catalog/categories");
       router.refresh();
@@ -73,6 +76,23 @@ export function CategoryForm({
     <form onSubmit={onSubmit} className="card panel">
       <FormError message={error} />
       <div className="form-grid">
+        <label>
+          نوع دسته‌بندی
+          {isEdit ? (
+            <input value={CATEGORY_KIND_LABELS[kind]} readOnly disabled />
+          ) : (
+            <select value={kind} onChange={(event) => setKind(event.target.value as CategoryKind)}>
+              <option value="PRODUCTS">{CATEGORY_KIND_LABELS.PRODUCTS}</option>
+              <option value="SERVICES">{CATEGORY_KIND_LABELS.SERVICES}</option>
+            </select>
+          )}
+          <small>
+            {kind === "SERVICES"
+              ? "فهرستی از خدمات سایت (شارژ مستقیم، گیفت‌کارت، پرداخت بین‌المللی) که هر کدام به صفحهٔ خودش پیوند دارد. بعد از ساخت، خدمات را از صفحهٔ ویرایش اضافه کنید."
+              : "محصولات گیفت‌کارت را در این دسته قرار می‌دهید."}
+            {isEdit ? " نوع بعد از ساخت تغییر نمی‌کند." : ""}
+          </small>
+        </label>
         <label>
           نام فارسی
           <input value={nameFa} onChange={(event) => setNameFa(event.target.value)} required maxLength={120} />

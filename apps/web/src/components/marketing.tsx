@@ -5,6 +5,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { visibleBrandsQuery } from "@/lib/brand-art";
 import type { CatalogProduct, Category } from "@/lib/catalog";
 import { CatalogProductCard } from "@/components/catalog-product-card";
+import { buildCategoryStrip } from "@/lib/category-menu";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
@@ -231,6 +232,7 @@ function TypewriterHeading({
 
 export async function HomePage() {
   const categories = await homeCategories();
+  const stripEntries = buildCategoryStrip(categories);
   const [shelves, services, faqs, telegramGames, gameTopUps] = await Promise.all([
     homeShelves(categories),
     homeServices(),
@@ -267,19 +269,15 @@ export async function HomePage() {
             </div>
           </div>
         </section>
-        {categories.length > 0 ? (
+        {stripEntries.length > 0 ? (
           <section className="container category-tiles-section">
             <CategoryScroller>
-              {categories.map((category) => (
-                <Link
-                  key={category.id}
-                  href={`/gift-cards?category=${encodeURIComponent(category.slug)}`}
-                  className="category-tile"
-                >
+              {stripEntries.map((entry) => (
+                <Link key={entry.key} href={entry.href} className="category-tile">
                   <span className="category-tile-icon" aria-hidden="true">
-                    <CategoryIcon iconKey={category.iconKey} size={16} />
+                    <CategoryIcon iconKey={entry.iconKey} size={16} />
                   </span>
-                  <span className="category-tile-label">{category.nameFa}</span>
+                  <span className="category-tile-label">{entry.label}</span>
                 </Link>
               ))}
             </CategoryScroller>

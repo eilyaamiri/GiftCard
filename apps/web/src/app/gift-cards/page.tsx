@@ -35,7 +35,11 @@ export default async function GiftCardsPage({
     /* Three independent reads. The results are meaningless without the facets
      * beside them, so they go out together rather than one after the other. */
     [categories, brands, products] = await Promise.all([
-      api.categories(visibleBrandsQuery()).then((response) => response.items),
+      /* A service list is not a facet of the product grid: filtering by it
+       * would always come back empty. */
+      api
+        .categories(visibleBrandsQuery())
+        .then((response) => response.items.filter((category) => category.kind === "PRODUCTS")),
       api.brands(visibleBrandsQuery()).then((response) => response.items),
       api.products(
         catalogQueryString({

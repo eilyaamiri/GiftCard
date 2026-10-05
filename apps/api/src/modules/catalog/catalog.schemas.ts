@@ -154,7 +154,11 @@ const slugSchema = z
   .max(90)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u, 'نشانه باید با حروف کوچک انگلیسی و خط تیره باشد.');
 
-const categoryShape = {
+/** Mirrors the Prisma `CategoryKind` enum. */
+export const CATEGORY_KINDS = ['PRODUCTS', 'SERVICES'] as const;
+export const categoryKindSchema = z.enum(CATEGORY_KINDS);
+
+const categoryBaseShape = {
   slug: slugSchema,
   name: z.string().trim().min(1).max(120),
   nameFa: z.string().trim().min(1).max(120),
@@ -165,8 +169,43 @@ const categoryShape = {
   sortOrder: z.number().int().default(0),
 };
 
-export const createCategorySchema = z.object(categoryShape);
-export const updateCategorySchema = patchSchema(categoryShape);
+export const createCategorySchema = z.object({
+  ...categoryBaseShape,
+  kind: categoryKindSchema.default('PRODUCTS'),
+});
+/**
+ * `kind` is fixed at creation. Flipping a category that already holds products
+ * to SERVICES would strand them behind a list that cannot show them, and the
+ * reverse would orphan its links, so the patch simply does not accept it.
+ */
+export const updateCategorySchema = patchSchema(categoryBaseShape);
+
+/**
+ * One entry in a SERVICES category. Exactly one target, because a link that
+ * pointed at two pages would have no single place to send the customer.
+ */
+const categoryLinkShape = {
+  topUpGameId: idSchema.optional(),
+  productId: idSchema.optional(),
+  serviceId: idSchema.optional(),
+  titleFa: z.string().trim().max(120).nullable().optional(),
+  sortOrder: z.number().int().default(0),
+};
+
+export const createCategoryLinkSchema = z
+  .object(categoryLinkShape)
+  .refine(
+    (value) =>
+      [value.topUpGameId, value.productId, value.serviceId].filter((id) => id !== undefined)
+        .length === 1,
+    { path: ['topUpGameId'], message: 'دقیقاً یک خدمت باید انتخاب شود.' },
+  );
+
+/** The target cannot be re-pointed: remove the link and add another. */
+export const updateCategoryLinkSchema = patchSchema({
+  titleFa: categoryLinkShape.titleFa,
+  sortOrder: categoryLinkShape.sortOrder,
+});
 
 const brandShape = {
   slug: slugSchema,
@@ -212,6 +251,8 @@ export const mergeBrandsSchema = z
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+export type CreateCategoryLinkInput = z.infer<typeof createCategoryLinkSchema>;
+export type UpdateCategoryLinkInput = z.infer<typeof updateCategoryLinkSchema>;
 export type CreateBrandInput = z.infer<typeof createBrandSchema>;
 export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
 export type AssignCategoryInput = z.infer<typeof assignCategorySchema>;

@@ -5,6 +5,7 @@ import { requireRole } from "@/lib/session";
 import { adminCategoryListSchema, adminCategorySchema } from "../../_lib/catalog-contracts";
 import { formatCount } from "../../_lib/format";
 import { CategoryForm } from "../_components/category-form";
+import { CategoryLinksPanel } from "../_components/category-links-panel";
 
 export const metadata = { title: "ویرایش دسته‌بندی | پنل ادمین سنتو" };
 
@@ -37,14 +38,23 @@ export default async function CategoryDetailPage({ params }: { params: Promise<{
           <h1>{category.nameFa}</h1>
         </div>
         <p className="muted">
-          {/* Both counts, because a product can sit here as a related category
-              as well as its primary one. */}
-          {formatCount(total)} محصول در این دسته ·{" "}
-          <Link href={`/catalog?categoryId=${category.id}`}>مشاهدهٔ محصول‌ها</Link>
+          {category.kind === "SERVICES" ? (
+            <>{formatCount(category.links?.length ?? 0)} خدمت در این فهرست</>
+          ) : (
+            <>
+              {/* Both counts, because a product can sit here as a related category
+                  as well as its primary one. */}
+              {formatCount(total)} محصول در این دسته ·{" "}
+              <Link href={`/catalog?categoryId=${category.id}`}>مشاهدهٔ محصول‌ها</Link>
+            </>
+          )}
         </p>
       </div>
 
       <CategoryForm category={category} parents={parents} />
+      {category.kind === "SERVICES" ? (
+        <CategoryLinksPanel categoryId={category.id} links={category.links ?? []} />
+      ) : null}
     </div>
   );
 }
