@@ -13,8 +13,11 @@ export default function manifest(): MetadataRoute.Manifest {
     background_color: "#FFFFFF",
     theme_color: "#FFFFFF",
     icons: [
-      { src: "/brand/cento/icon-192.png", sizes: "192x192", type: "image/png" },
-      { src: "/brand/cento/icon-512.png", sizes: "512x512", type: "image/png" },
+      /* Opaque and full-bleed. iOS builds the Home Screen icon from these and
+       * shows any transparent edge as a white band; the rounded icon-192/512
+       * keep a transparent margin top and bottom, so they stay tab-icon only. */
+      { src: "/brand/cento/icon-opaque-192.png", sizes: "192x192", type: "image/png" },
+      { src: "/brand/cento/icon-opaque-512.png", sizes: "512x512", type: "image/png" },
       { src: "/brand/cento/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
