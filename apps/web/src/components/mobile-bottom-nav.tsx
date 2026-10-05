@@ -50,7 +50,9 @@ const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
   CONTACT,
   {
     href: "/account",
-    label: "حساب کاربری",
+    /* Short on purpose: six equal cells leave ~52px of text on a 360px phone,
+     * and «حساب کاربری» at 11px bold does not fit — it was cut to «حساب کار…». */
+    label: "حساب من",
     icon: CircleUserRound,
     requiresAuth: true,
     isActive: (path) => path.startsWith("/account"),
