@@ -4,6 +4,8 @@ import {
   brandSchema,
   catalogProductSchema,
   catalogQueryString,
+  categoryHref,
+  categoryLinkHref,
   categorySchema,
   listCategoriesResponseSchema,
 } from "./catalog";
@@ -148,5 +150,18 @@ describe("catalogQueryString", () => {
 
   it("drops page 0 rather than asking for an invalid page", () => {
     expect(catalogQueryString({ page: 0, pageSize: 60 })).toBe("pageSize=60");
+  });
+});
+
+describe("category destinations", () => {
+  it("sends every service-list link to the target's own page", () => {
+    expect(categoryLinkHref({ type: "TOP_UP_GAME", slug: "capcut" })).toBe("/games/capcut");
+    expect(categoryLinkHref({ type: "PRODUCT", slug: "netflix" })).toBe("/gift-cards/netflix");
+    expect(categoryLinkHref({ type: "SERVICE", slug: "wise" })).toBe("/services/wise");
+  });
+
+  it("opens a gift-card category as a filter and a service list as its own page", () => {
+    expect(categoryHref({ kind: "PRODUCTS", slug: "gaming" })).toBe("/gift-cards?category=gaming");
+    expect(categoryHref({ kind: "SERVICES", slug: "utility-software" })).toBe("/categories/utility-software");
   });
 });

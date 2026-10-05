@@ -720,6 +720,10 @@ model Category {
   iconKey       String  @default("gift")
   descriptionFa String?
   parentId      String?
+  /// PRODUCTS: the gift-card catalogue's own grouping (the original meaning).
+  /// SERVICES: a hand-curated list of links to services sold elsewhere on the
+  /// site — see `CategoryLink`. It holds no products of its own.
+  kind          CategoryKind @default(PRODUCTS)
   isActive      Boolean @default(true)
   sortOrder     Int     @default(0)
 
@@ -730,9 +734,50 @@ model Category {
   children    Category[]        @relation("CategoryTree")
   products    Product[]         @relation("ProductPrimaryCategory")
   productTags ProductCategory[]
+  links       CategoryLink[]
 
   @@index([isActive, sortOrder])
   @@index([parentId])
+}
+
+enum CategoryKind {
+  PRODUCTS
+  SERVICES
+}
+
+/// One entry in a `SERVICES` category: a pointer at a page the site already has
+/// (a direct top-up, a gift-card product or an international service). It is a
+/// reference, never a copy — the title, image and availability are read from the
+/// target at request time, so a link can never advertise something that has been
+/// withdrawn. Exactly one of the three target columns is set; the API enforces
+/// it and the migration adds a CHECK constraint as a second line of defence.
+model CategoryLink {
+  id         String @id @default(cuid())
+  categoryId String
+
+  topUpGameId String?
+  productId   String?
+  serviceId   String?
+
+  /// Optional customer-facing label. Empty means "use the target's own name";
+  /// it exists so the two Telegram games can read as one «تلگرام» entry.
+  titleFa String?
+
+  /// Ascending display order inside the category.
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  category Category              @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  topUpGame TopUpGame?           @relation(fields: [topUpGameId], references: [id], onDelete: Cascade)
+  product   Product?             @relation(fields: [productId], references: [id], onDelete: Cascade)
+  service   InternationalService? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, topUpGameId])
+  @@unique([categoryId, productId])
+  @@unique([categoryId, serviceId])
+  @@index([categoryId, sortOrder])
 }
 
 /// Secondary categories. A Steam card is a game card and also a software
@@ -783,6 +828,7 @@ model Product {
   brandRef      Brand?            @relation(fields: [brandId], references: [id], onDelete: SetNull)
   categoryRef   Category?         @relation("ProductPrimaryCategory", fields: [categoryId], references: [id], onDelete: SetNull)
   extraCategories ProductCategory[]
+  categoryLinks   CategoryLink[]
 
   @@index([category, isActive, sortOrder])
   @@index([brand, isActive])
@@ -891,6 +937,7 @@ model InternationalService {
   fields    ServiceFieldDefinition[]
   cartItems CartItem[]
   quotes    Quote[]
+  categoryLinks CategoryLink[]
 
   @@index([category, isActive, sortOrder])
 }
@@ -964,6 +1011,7 @@ model TopUpGame {
   supplier Supplier       @relation(fields: [supplierId], references: [id])
   fields   TopUpField[]
   offers   TopUpOffer[]
+  categoryLinks CategoryLink[]
 
   @@unique([supplierId, providerCategoryId])
   @@index([isActive, isListed, sortOrder])

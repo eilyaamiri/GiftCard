@@ -10,8 +10,31 @@
 
 import type { ProductDetailDto, ProductDto } from '@barat/contracts';
 
+/** `PRODUCTS` groups gift-card products; `SERVICES` is a curated list of links. */
+export type CategoryKindDto = 'PRODUCTS' | 'SERVICES';
+
+/** What a link in a `SERVICES` category points at. */
+export type CategoryLinkType = 'TOP_UP_GAME' | 'PRODUCT' | 'SERVICE';
+
+/**
+ * One entry in a service-list category: a reference to a page that exists
+ * elsewhere on the storefront. The title and image are the target's own (or the
+ * label an operator chose), read at request time, never a stored copy.
+ */
+export interface CategoryLinkDto {
+  readonly id: string;
+  readonly type: CategoryLinkType;
+  /** The target's slug; the web app maps `type` + `slug` to its page. */
+  readonly slug: string;
+  readonly title: string;
+  readonly imageUrl: string | null;
+}
+
 /** A storefront category, with the number of products actually in it. */
 export interface CategoryDto {
+  readonly kind: CategoryKindDto;
+  /** Visible links of a `SERVICES` category, in display order; empty otherwise. */
+  readonly links: readonly CategoryLinkDto[];
   readonly id: string;
   readonly slug: string;
   readonly name: string;

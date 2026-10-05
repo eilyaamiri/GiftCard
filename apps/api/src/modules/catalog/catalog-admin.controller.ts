@@ -26,6 +26,7 @@ import {
   bulkSetProductActiveSchema,
   bulkSetTopUpGameActiveSchema,
   createBrandSchema,
+  createCategoryLinkSchema,
   createCategorySchema,
   adminServiceFieldListSchema,
   adminSkuListSchema,
@@ -39,6 +40,7 @@ import {
   createSupplierSchema,
   mergeBrandsSchema,
   updateBrandSchema,
+  updateCategoryLinkSchema,
   updateCategorySchema,
   updateInternationalServiceSchema,
   updateProductSchema,
@@ -62,6 +64,7 @@ import type {
   BulkSetTopUpGameActiveInput,
   CreateBrandInput,
   CreateCategoryInput,
+  CreateCategoryLinkInput,
   CreateInternationalServiceInput,
   CreateProductInput,
   CreateServiceFieldInput,
@@ -71,6 +74,7 @@ import type {
   MergeBrandsInput,
   UpdateBrandInput,
   UpdateCategoryInput,
+  UpdateCategoryLinkInput,
   UpdateInternationalServiceInput,
   UpdateProductInput,
   UpdateServiceFieldInput,
@@ -152,6 +156,28 @@ export class CatalogAdminController {
   @Post('categories/assign')
   assignCategory(@Body(zodPipe(assignCategorySchema)) body: AssignCategoryInput) {
     return this.catalog.adminAssignCategory(body);
+  }
+
+  /** Add a service to a service-list category. */
+  @Post('categories/:id/links')
+  addCategoryLink(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(createCategoryLinkSchema)) body: CreateCategoryLinkInput,
+  ) {
+    return this.catalog.adminAddCategoryLink(params.id, body);
+  }
+
+  @Put('category-links/:id')
+  updateCategoryLink(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(updateCategoryLinkSchema)) body: UpdateCategoryLinkInput,
+  ) {
+    return this.catalog.adminUpdateCategoryLink(params.id, body);
+  }
+
+  @Delete('category-links/:id')
+  removeCategoryLink(@Param(zodPipe(idParamSchema)) params: IdParam) {
+    return this.catalog.adminRemoveCategoryLink(params.id);
   }
 
   @Get('brands')

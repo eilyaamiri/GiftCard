@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ApiClientError, CATALOG_WRITE_ROLES, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
-import { adminCategoryListSchema } from "../_lib/catalog-contracts";
+import { adminCategoryListSchema, CATEGORY_KIND_LABELS } from "../_lib/catalog-contracts";
 import { formatCount } from "../_lib/format";
 import { CategoryIcon } from "../_components/category-icon";
 import { ToggleActiveButton } from "../_components/toggle-active-button";
@@ -52,6 +52,7 @@ export default async function CategoriesPage() {
               <tr>
                 <th>دسته‌بندی</th>
                 <th>نشانه</th>
+                <th>نوع</th>
                 <th>والد</th>
                 <th>محصول فعال</th>
                 <th>کل محصول</th>
@@ -75,9 +76,16 @@ export default async function CategoriesPage() {
                     </span>
                   </td>
                   <td dir="ltr">{category.slug}</td>
+                  <td>
+                    <span className="badge">{CATEGORY_KIND_LABELS[category.kind]}</span>
+                  </td>
                   <td>{category.parent?.nameFa ?? "—"}</td>
-                  <td>{formatCount(category.activeProductCount ?? 0)}</td>
-                  <td>{formatCount(category.productCount ?? 0)}</td>
+                  <td>{category.kind === "SERVICES" ? "—" : formatCount(category.activeProductCount ?? 0)}</td>
+                  <td>
+                    {category.kind === "SERVICES"
+                      ? `${formatCount(category.linkCount ?? 0)} خدمت`
+                      : formatCount(category.productCount ?? 0)}
+                  </td>
                   <td>{formatCount(category.sortOrder)}</td>
                   <td>
                     <span className={`badge ${category.isActive ? "badge-success" : "badge-danger"}`}>
@@ -86,12 +94,14 @@ export default async function CategoriesPage() {
                   </td>
                   <td>
                     <span style={{ display: "inline-flex", gap: 8 }}>
-                      <Link
-                        href={`/catalog?categoryId=${category.id}`}
-                        className="secondary-btn taxonomy-cta"
-                      >
-                        محصول‌ها
-                      </Link>
+                      {category.kind === "PRODUCTS" ? (
+                        <Link
+                          href={`/catalog?categoryId=${category.id}`}
+                          className="secondary-btn taxonomy-cta"
+                        >
+                          محصول‌ها
+                        </Link>
+                      ) : null}
                       {category.isActive ? (
                         <ToggleActiveButton
                           path={`/api/admin/catalog/categories/${category.id}`}

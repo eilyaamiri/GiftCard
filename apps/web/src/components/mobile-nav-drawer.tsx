@@ -7,6 +7,7 @@ import { ChevronDown, Menu, X } from "lucide-react";
 import { CategoryIcon } from "@/components/category-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
+import { buildCategoryMenu } from "@/lib/category-menu";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { BrandLogo } from "@/components/brand-logo";
 
@@ -28,6 +29,7 @@ export function MobileNavDrawer({
   const [open, setOpen] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const pathname = usePathname();
+  const categorySections = buildCategoryMenu(categories);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -79,16 +81,34 @@ export function MobileNavDrawer({
                 <span>دسته‌بندی‌ها</span>
                 <ChevronDown size={16} aria-hidden="true" />
               </summary>
-              {categories.length === 0 ? (
+              {categorySections.length === 0 ? (
                 <p className="mobile-nav-drawer-empty">دسته‌بندی‌ای موجود نیست</p>
               ) : (
                 <ul>
-                  {categories.map((category) => (
-                    <li key={category.id}>
-                      <Link href={`/gift-cards?category=${encodeURIComponent(category.slug)}`}>
-                        <CategoryIcon iconKey={category.iconKey} size={15} />
-                        <span>{category.nameFa}</span>
-                      </Link>
+                  {categorySections.map((section) => (
+                    <li key={section.key} className="mobile-nav-drawer-subgroup">
+                      <details>
+                        <summary className="mobile-nav-drawer-subgroup-summary">
+                          <span>
+                            <CategoryIcon iconKey={section.iconKey} size={15} />
+                            {section.label}
+                          </span>
+                          <ChevronDown size={14} aria-hidden="true" />
+                        </summary>
+                        <ul>
+                          <li>
+                            <Link href={section.href}>همه‌ی {section.label}</Link>
+                          </li>
+                          {section.entries.map((entry) => (
+                            <li key={entry.key}>
+                              <Link href={entry.href}>
+                                <CategoryIcon iconKey={entry.iconKey} size={14} />
+                                <span>{entry.label}</span>
+                              </Link>
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
                     </li>
                   ))}
                 </ul>

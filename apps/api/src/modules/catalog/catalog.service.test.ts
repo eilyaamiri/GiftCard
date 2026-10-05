@@ -13,7 +13,7 @@ vi.mock('@barat/database', () => ({
 import type { AppConfigService } from '../../common/config/app-config.service';
 import type { CatalogDatabase } from './catalog.tokens';
 import { CatalogService } from './catalog.service';
-import { adminTopUpGameListSchema } from './catalog.schemas';
+import { adminTopUpGameListSchema, createCategoryLinkSchema } from './catalog.schemas';
 
 const TEST_CONFIG = { productImageDir: '/tmp/baratpay-catalog-tests' } as AppConfigService;
 
@@ -112,8 +112,10 @@ function categoryRow(overrides: Record<string, unknown> = {}) {
     iconKey: 'gamepad-2',
     descriptionFa: null,
     parentId: null,
+    kind: 'PRODUCTS',
     sortOrder: 20,
     _count: { products: 3, productTags: 0 },
+    links: [],
     ...overrides,
   };
 }
@@ -796,11 +798,22 @@ function adminHarness() {
     findUnique: vi.fn().mockResolvedValue({ brandId: 'brnd_steam', categoryId: 'cat_gaming' }),
   };
   const productCategory = { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) };
+  const categoryLink = {
+    count: vi.fn().mockResolvedValue(0),
+    create: vi.fn().mockResolvedValue({ id: 'link_1' }),
+    update: vi.fn().mockResolvedValue({ id: 'link_1' }),
+    delete: vi.fn().mockResolvedValue({ id: 'link_1' }),
+  };
+  const topUpGame = { count: vi.fn().mockResolvedValue(1) };
+  const internationalService = { count: vi.fn().mockResolvedValue(1) };
   const db = {
     product,
     productCategory,
     category,
     brand,
+    categoryLink,
+    topUpGame,
+    internationalService,
     $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
   } as unknown as CatalogDatabase;
   return {
@@ -809,6 +822,9 @@ function adminHarness() {
     productCategory,
     category,
     brand,
+    categoryLink,
+    topUpGame,
+    internationalService,
   };
 }
 
@@ -973,6 +989,161 @@ describe('CatalogService admin category management', () => {
       service.adminAssignCategory({ productIds: ['product-1'], categoryId: 'cat_ghost' }),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
     expect(product.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CatalogService service-list categories', () => {
+  const link = (overrides: Record<string, unknown> = {}) => ({
+    id: 'link_capcut',
+    titleFa: null,
+    topUpGame: { slug: 'capcut', name: 'CapCut', nameFa: 'کپ‌کات', imageUrl: null },
+    product: null,
+    service: null,
+    ...overrides,
+  });
+  const listRow = (overrides: Record<string, unknown> = {}) =>
+    categoryRow({
+      id: 'cat_utility_software',
+      slug: 'utility-software',
+      nameFa: 'نرم‌افزارهای کاربردی',
+      kind: 'SERVICES',
+      _count: { products: 0, productTags: 0 },
+      links: [link()],
+      ...overrides,
+    });
+
+  it('lists a service category by its links, with a product count of zero', async () => {
+    const { service, category } = harness();
+    category.findMany.mockResolvedValue([listRow()]);
+
+    const { items } = await service.listCategories();
+
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ slug: 'utility-software', kind: 'SERVICES', productCount: 0 });
+    expect(items[0]?.links).toEqual([
+      { id: 'link_capcut', type: 'TOP_UP_GAME', slug: 'capcut', title: 'کپ‌کات', imageUrl: null },
+    ]);
+  });
+
+  it('hides a service category until one of its links is visible', async () => {
+    const { service, category } = harness();
+    category.findMany.mockResolvedValue([listRow({ links: [] }), categoryRow()]);
+
+    const { items } = await service.listCategories();
+
+    expect(items.map((item) => item.slug)).toEqual(['gaming']);
+  });
+
+  it('asks the database for visible links only, gated on the target being on sale', async () => {
+    const { service, category } = harness();
+    await service.listCategories();
+
+    const where = category.findMany.mock.calls[0]?.[0].select.links.where;
+    const topUp = where.OR.find((arm: { topUpGame?: unknown }) => arm.topUpGame);
+    /* The same gates the game's own page enforces: a link must never lead to a 404. */
+    expect(topUp.topUpGame).toMatchObject({
+      isActive: true,
+      isListed: true,
+      requiresCredentials: false,
+      supplier: { isActive: true },
+      offers: { some: { isActive: true, isListed: true } },
+    });
+    expect(where.OR.some((arm: { service?: unknown }) => arm.service)).toBe(true);
+  });
+
+  it('prefers the label an operator typed over the target name', async () => {
+    const { service, category } = harness();
+    category.findMany.mockResolvedValue([listRow({ links: [link({ titleFa: '  ویرایشگر ویدیو  ' })] })]);
+
+    expect((await service.listCategories()).items[0]?.links[0]?.title).toBe('ویرایشگر ویدیو');
+  });
+
+  it('refuses to move products into a service category', async () => {
+    const { service, category, product } = adminHarness();
+    category.findUnique.mockResolvedValue({ kind: 'SERVICES' });
+
+    await expect(
+      service.adminAssignCategory({ productIds: ['product-1'], categoryId: 'cat_utility_software' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(product.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('adds a link that references its target', async () => {
+    const { service, category, categoryLink, topUpGame } = adminHarness();
+    category.findUnique.mockResolvedValue({ kind: 'SERVICES' });
+
+    await service.adminAddCategoryLink('cat_utility_software', { topUpGameId: 'game-1', sortOrder: 2 });
+
+    expect(topUpGame.count).toHaveBeenCalledWith({ where: { id: 'game-1' } });
+    expect(categoryLink.create.mock.calls[0]?.[0]?.data).toEqual({
+      categoryId: 'cat_utility_software',
+      topUpGameId: 'game-1',
+      titleFa: null,
+      sortOrder: 2,
+    });
+  });
+
+  it('refuses a link on a gift-card category', async () => {
+    const { service, category, categoryLink } = adminHarness();
+    category.findUnique.mockResolvedValue({ kind: 'PRODUCTS' });
+
+    await expect(
+      service.adminAddCategoryLink('cat_gaming', { serviceId: 'svc-1', sortOrder: 0 }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(categoryLink.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses to add the same service twice', async () => {
+    const { service, category, categoryLink } = adminHarness();
+    category.findUnique.mockResolvedValue({ kind: 'SERVICES' });
+    categoryLink.count.mockResolvedValue(1);
+
+    await expect(
+      service.adminAddCategoryLink('cat_utility_software', { topUpGameId: 'game-1', sortOrder: 0 }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(categoryLink.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses a target that does not exist', async () => {
+    const { service, category, categoryLink, internationalService } = adminHarness();
+    category.findUnique.mockResolvedValue({ kind: 'SERVICES' });
+    internationalService.count.mockResolvedValue(0);
+
+    await expect(
+      service.adminAddCategoryLink('cat_utility_software', { serviceId: 'ghost', sortOrder: 0 }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' });
+    expect(categoryLink.create).not.toHaveBeenCalled();
+  });
+
+  it('needs exactly one target', () => {
+    expect(createCategoryLinkSchema.safeParse({}).success).toBe(false);
+    expect(createCategoryLinkSchema.safeParse({ topUpGameId: 'a', productId: 'b' }).success).toBe(false);
+    expect(createCategoryLinkSchema.safeParse({ productId: 'b' }).success).toBe(true);
+  });
+
+  it('cannot re-point a link, only relabel and reorder it', async () => {
+    const { service, categoryLink } = adminHarness();
+    categoryLink.count.mockResolvedValue(1);
+
+    await service.adminUpdateCategoryLink('link_1', {
+      titleFa: 'برچسب',
+      sortOrder: 5,
+      topUpGameId: 'game-2',
+    } as never);
+
+    expect(categoryLink.update.mock.calls[0]?.[0]).toEqual({
+      where: { id: 'link_1' },
+      data: { titleFa: 'برچسب', sortOrder: 5 },
+    });
+  });
+
+  it('removes a link without touching its target', async () => {
+    const { service, categoryLink, topUpGame } = adminHarness();
+    categoryLink.count.mockResolvedValue(1);
+
+    expect(await service.adminRemoveCategoryLink('link_1')).toEqual({ id: 'link_1' });
+    expect(categoryLink.delete).toHaveBeenCalledWith({ where: { id: 'link_1' } });
+    expect(topUpGame.count).not.toHaveBeenCalled();
   });
 });
 

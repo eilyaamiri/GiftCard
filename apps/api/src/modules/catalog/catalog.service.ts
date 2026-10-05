@@ -24,6 +24,7 @@ import { topUpProviderSku } from '../suppliers/topup-provider-sku';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
 import type {
   CatalogProductDto,
+  CategoryLinkDto,
   GetCatalogProductResponse,
   ListBrandsResponse,
   ListCatalogProductsResponse,
@@ -34,6 +35,7 @@ import {
   bulkSetProductActiveSchema,
   bulkSetTopUpGameActiveSchema,
   createBrandSchema,
+  createCategoryLinkSchema,
   createCategorySchema,
   createInternationalServiceSchema,
   createProductSchema,
@@ -43,6 +45,7 @@ import {
   createSupplierSchema,
   mergeBrandsSchema,
   updateBrandSchema,
+  updateCategoryLinkSchema,
   updateCategorySchema,
   updateInternationalServiceSchema,
   updateProductSchema,
@@ -63,6 +66,7 @@ import {
   type BulkSetTopUpGameActiveInput,
   type CreateBrandInput,
   type CreateCategoryInput,
+  type CreateCategoryLinkInput,
   type CreateInternationalServiceInput,
   type CreateProductInput,
   type CreateServiceFieldInput,
@@ -72,6 +76,7 @@ import {
   type MergeBrandsInput,
   type UpdateBrandInput,
   type UpdateCategoryInput,
+  type UpdateCategoryLinkInput,
   type UpdateInternationalServiceInput,
   type UpdateProductInput,
   type UpdateServiceFieldInput,
@@ -413,6 +418,7 @@ export class CatalogService {
         iconKey: true,
         descriptionFa: true,
         parentId: true,
+        kind: true,
         sortOrder: true,
         _count: {
           select: {
@@ -420,20 +426,30 @@ export class CatalogService {
             productTags: { where: { product: visible } },
           },
         },
+        links: {
+          where: VISIBLE_CATEGORY_LINK,
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: PUBLIC_CATEGORY_LINK_SELECT,
+        },
       },
       orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
     });
 
     return {
       items: rows
-        .map(({ _count, ...category }) => ({
+        .map(({ _count, links, ...category }) => ({
           ...category,
           /* Summed, not deduplicated: a product may not carry the same category
            * as both its primary and a secondary one. The admin write path
            * rejects that, which is what keeps this addition exact. */
-          productCount: _count.products + _count.productTags,
+          productCount: category.kind === 'PRODUCTS' ? _count.products + _count.productTags : 0,
+          links: category.kind === 'SERVICES' ? links.flatMap(toCategoryLinkDto) : [],
         }))
-        .filter((category) => category.productCount > 0),
+        /* A service list with nothing visible in it is as much a dead end as an
+         * empty product category: it stays out until something in it is live. */
+        .filter((category) =>
+          category.kind === 'SERVICES' ? category.links.length > 0 : category.productCount > 0,
+        ),
     };
   }
 
@@ -1349,7 +1365,7 @@ export class CatalogService {
       this.db.category.findMany({
         include: {
           parent: { select: { id: true, nameFa: true } },
-          _count: { select: { products: true, productTags: true } },
+          _count: { select: { products: true, productTags: true, links: true } },
         },
         orderBy: [{ sortOrder: 'asc' }, { nameFa: 'asc' }],
       }),
@@ -1374,6 +1390,7 @@ export class CatalogService {
       items: rows.map(({ _count, ...category }) => ({
         ...category,
         productCount: _count.products + _count.productTags,
+        linkCount: _count.links,
         activeProductCount: activeCount.get(category.id) ?? 0,
       })),
     };
@@ -1385,10 +1402,50 @@ export class CatalogService {
       include: {
         parent: { select: { id: true, nameFa: true } },
         _count: { select: { products: true, productTags: true } },
+        links: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          select: {
+            id: true,
+            titleFa: true,
+            sortOrder: true,
+            topUpGame: { select: { id: true, slug: true, name: true, nameFa: true, imageUrl: true } },
+            product: { select: { id: true, slug: true, titleFa: true, imageUrl: true } },
+            service: { select: { id: true, slug: true, nameFa: true } },
+          },
+        },
       },
     });
     if (!category) throw DomainErrors.notFound('category');
-    return category;
+
+    /* Whether a link shows on the storefront is answered by the same predicate
+     * the public list uses, not re-derived here, so the admin badge cannot
+     * disagree with what a customer sees. */
+    const visibleRows = await this.db.categoryLink.findMany({
+      where: { categoryId: id, ...VISIBLE_CATEGORY_LINK },
+      select: { id: true },
+    });
+    const visibleIds = new Set(visibleRows.map((row) => row.id));
+
+    const { links, ...rest } = category;
+    return {
+      ...rest,
+      links: links.map((link) => {
+        const target = link.topUpGame
+          ? { type: 'TOP_UP_GAME' as const, targetId: link.topUpGame.id, slug: link.topUpGame.slug, name: link.topUpGame.nameFa ?? link.topUpGame.name }
+          : link.product
+            ? { type: 'PRODUCT' as const, targetId: link.product.id, slug: link.product.slug, name: link.product.titleFa }
+            : link.service
+              ? { type: 'SERVICE' as const, targetId: link.service.id, slug: link.service.slug, name: link.service.nameFa }
+              : null;
+        return {
+          id: link.id,
+          titleFa: link.titleFa,
+          sortOrder: link.sortOrder,
+          target,
+          isVisible: visibleIds.has(link.id),
+        };
+      }),
+    };
   }
 
   async adminCreateCategory(input: CreateCategoryInput) {
@@ -1429,6 +1486,9 @@ export class CatalogService {
   async adminAssignCategory(input: AssignCategoryInput) {
     const { productIds, categoryId } = assignCategorySchema.parse(input);
     await this.assertExists(this.db.category.count({ where: { id: categoryId } }), 'category');
+    /* A service list holds links, not products; moving a product into one would
+     * make it vanish from every product listing. */
+    await this.assertCategoryKind(categoryId, 'PRODUCTS', 'categoryId');
 
     const ids = [...new Set(productIds)];
     const [, moved] = await this.db.$transaction([
@@ -1439,6 +1499,76 @@ export class CatalogService {
     ]);
 
     return { requested: ids.length, updated: moved.count };
+  }
+
+  /** Add a service to a service-list category. The target is referenced, never copied. */
+  async adminAddCategoryLink(categoryId: string, input: CreateCategoryLinkInput) {
+    const data = createCategoryLinkSchema.parse(input);
+    await this.assertExists(this.db.category.count({ where: { id: categoryId } }), 'category');
+    await this.assertCategoryKind(categoryId, 'SERVICES', 'categoryId');
+
+    if (data.topUpGameId !== undefined) {
+      await this.assertExists(this.db.topUpGame.count({ where: { id: data.topUpGameId } }), 'top-up game');
+    } else if (data.productId !== undefined) {
+      await this.assertExists(this.db.product.count({ where: { id: data.productId } }), 'product');
+    } else if (data.serviceId !== undefined) {
+      await this.assertExists(this.db.internationalService.count({ where: { id: data.serviceId } }), 'service');
+    }
+
+    const duplicate = await this.db.categoryLink.count({
+      where: {
+        categoryId,
+        ...(data.topUpGameId !== undefined ? { topUpGameId: data.topUpGameId } : {}),
+        ...(data.productId !== undefined ? { productId: data.productId } : {}),
+        ...(data.serviceId !== undefined ? { serviceId: data.serviceId } : {}),
+      },
+    });
+    if (duplicate > 0) {
+      throw DomainErrors.validation([{ path: 'topUpGameId', message: 'این مورد قبلاً به این دسته اضافه شده است.' }]);
+    }
+
+    return this.db.categoryLink.create({
+      data: {
+        categoryId,
+        ...(data.topUpGameId !== undefined ? { topUpGameId: data.topUpGameId } : {}),
+        ...(data.productId !== undefined ? { productId: data.productId } : {}),
+        ...(data.serviceId !== undefined ? { serviceId: data.serviceId } : {}),
+        titleFa: data.titleFa ?? null,
+        sortOrder: data.sortOrder,
+      },
+    });
+  }
+
+  async adminUpdateCategoryLink(id: string, input: UpdateCategoryLinkInput) {
+    const data = updateCategoryLinkSchema.parse(input);
+    await this.assertExists(this.db.categoryLink.count({ where: { id } }), 'category link');
+    return this.db.categoryLink.update({ where: { id }, data });
+  }
+
+  /** A link is presentation config, not financial history, so it is deleted outright. */
+  async adminRemoveCategoryLink(id: string) {
+    await this.assertExists(this.db.categoryLink.count({ where: { id } }), 'category link');
+    await this.db.categoryLink.delete({ where: { id } });
+    return { id };
+  }
+
+  private async assertCategoryKind(
+    categoryId: string,
+    expected: 'PRODUCTS' | 'SERVICES',
+    path: string,
+  ): Promise<void> {
+    const category = await this.db.category.findUnique({ where: { id: categoryId }, select: { kind: true } });
+    if (category && category.kind !== expected) {
+      throw DomainErrors.validation([
+        {
+          path,
+          message:
+            expected === 'SERVICES'
+              ? 'فقط دسته‌های فهرست خدمات می‌توانند لینک داشته باشند.'
+              : 'محصول را نمی‌توان در دسته‌ی فهرست خدمات قرار داد.',
+        },
+      ]);
+    }
   }
 
   async adminListBrands(query: AdminBrandListInput) {
@@ -1986,6 +2116,60 @@ function decimalString(value: DecimalLike): string {
  * and opening onto nine.
  */
 const topUpOfferVisible = { isActive: true, isListed: true } as const;
+
+/**
+ * A link a customer may follow: its target is something the storefront is
+ * selling right now. The top-up arm repeats the gates the game's own page
+ * enforces, so a list never advertises a page that would 404.
+ */
+const VISIBLE_CATEGORY_LINK = {
+  OR: [
+    {
+      topUpGame: {
+        isActive: true,
+        isListed: true,
+        requiresCredentials: false,
+        supplier: { isActive: true },
+        offers: { some: topUpOfferVisible },
+      },
+    },
+    { product: VISIBLE_PRODUCT },
+    { service: { isActive: true } },
+  ],
+} satisfies Prisma.CategoryLinkWhereInput;
+
+const PUBLIC_CATEGORY_LINK_SELECT = {
+  id: true,
+  titleFa: true,
+  topUpGame: { select: { slug: true, name: true, nameFa: true, imageUrl: true } },
+  product: { select: { slug: true, titleFa: true, imageUrl: true } },
+  service: { select: { slug: true, nameFa: true } },
+} satisfies Prisma.CategoryLinkSelect;
+
+/** Zero or one DTO; a row with no target cannot exist (CHECK constraint) but is skipped, not thrown on. */
+function toCategoryLinkDto(
+  row: Prisma.CategoryLinkGetPayload<{ select: typeof PUBLIC_CATEGORY_LINK_SELECT }>,
+): CategoryLinkDto[] {
+  const label = row.titleFa?.trim();
+  const custom = label === undefined || label === '' ? null : label;
+  if (row.topUpGame) {
+    const game = row.topUpGame;
+    return [
+      { id: row.id, type: 'TOP_UP_GAME', slug: game.slug, title: custom ?? game.nameFa ?? game.name, imageUrl: game.imageUrl },
+    ];
+  }
+  if (row.product) {
+    const product = row.product;
+    return [
+      { id: row.id, type: 'PRODUCT', slug: product.slug, title: custom ?? product.titleFa, imageUrl: product.imageUrl },
+    ];
+  }
+  if (row.service) {
+    const service = row.service;
+    return [{ id: row.id, type: 'SERVICE', slug: service.slug, title: custom ?? service.nameFa, imageUrl: null }];
+  }
+  return [];
+}
 
 /**
  * The cheapest visible offer, or null.

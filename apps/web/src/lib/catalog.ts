@@ -49,6 +49,14 @@ const iconKeySchema = z
     (CATEGORY_ICON_KEYS as readonly string[]).includes(value) ? (value as CategoryIconKey) : "gift",
   );
 
+export const categoryLinkSchema = z.object({
+  id: z.string(),
+  type: z.enum(["TOP_UP_GAME", "PRODUCT", "SERVICE"]),
+  slug: z.string(),
+  title: z.string(),
+  imageUrl: z.string().nullable(),
+});
+
 export const categorySchema = z.object({
   id: z.string(),
   slug: z.string(),
@@ -57,9 +65,38 @@ export const categorySchema = z.object({
   iconKey: iconKeySchema,
   descriptionFa: z.string().nullable(),
   parentId: z.string().nullable(),
+  /**
+   * PRODUCTS: a grouping of gift-card products (`/gift-cards?category=`).
+   * SERVICES: a hand-curated list of links to pages sold elsewhere on the site.
+   */
+  kind: z.enum(["PRODUCTS", "SERVICES"]).default("PRODUCTS"),
   sortOrder: z.number().int(),
   productCount: z.number().int().nonnegative(),
+  /** Only the links a customer can follow right now; always empty for PRODUCTS. */
+  links: z.array(categoryLinkSchema).default([]),
 });
+
+export type CategoryLink = z.infer<typeof categoryLinkSchema>;
+
+/** Where a link in a service list sends the customer: always the service's own page. */
+export function categoryLinkHref(link: Pick<CategoryLink, "type" | "slug">): string {
+  switch (link.type) {
+    case "TOP_UP_GAME":
+      /* `/games/<slug>` already hands Telegram and Steam to their own pages. */
+      return `/games/${link.slug}`;
+    case "PRODUCT":
+      return `/gift-cards/${link.slug}`;
+    case "SERVICE":
+      return `/services/${link.slug}`;
+  }
+}
+
+/** Where a category tile or menu entry leads. */
+export function categoryHref(category: Pick<Category, "kind" | "slug">): string {
+  return category.kind === "SERVICES"
+    ? `/categories/${category.slug}`
+    : `/gift-cards?category=${encodeURIComponent(category.slug)}`;
+}
 
 export const brandSchema = z.object({
   id: z.string(),

@@ -27,6 +27,11 @@ export interface NavDropdownItem {
   readonly icon?: ReactNode;
 }
 
+/** A top-level entry whose own list opens beside the section column. */
+export interface NavDropdownSection extends NavDropdownItem {
+  readonly items: readonly NavDropdownItem[];
+}
+
 export interface NavDropdownTrending {
   readonly heading: string;
   readonly items: readonly NavDropdownItem[];
@@ -47,16 +52,30 @@ export interface NavDropdownTrending {
  */
 export function NavDropdown({
   label,
-  items,
+  items = [],
   emptyLabel,
   trending,
+  sections,
 }: Readonly<{
   label: string;
-  items: readonly NavDropdownItem[];
+  items?: readonly NavDropdownItem[];
   emptyLabel: string;
   trending?: NavDropdownTrending;
+  sections?: readonly NavDropdownSection[];
 }>) {
   const [open, setOpen] = useState(false);
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  /* A touch tap fires hover and click together; the first tap on a section
+   * should reveal its list rather than navigate away from it. */
+  const lastPointer = useRef<string>("mouse");
+  const activeSection =
+    sections?.find((section) => section.key === activeKey) ?? sections?.[0];
+  const listItems = sections ? (activeSection?.items ?? []) : items;
+  /* Sized for the longest list, so the panel does not resize as the pointer
+   * moves between sections. */
+  const columnCount = menuColumnCount(
+    sections ? Math.max(0, ...sections.map((section) => section.items.length)) : items.length,
+  );
   const rootRef = useRef<HTMLDivElement>(null);
   const trendingRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -144,6 +163,42 @@ export function NavDropdown({
       </button>
       {open ? (
         <div className="nav-dropdown-panel" role="menu" ref={panelRef}>
+          {sections && sections.length > 0 ? (
+            <div className="nav-dropdown-trending nav-dropdown-sections">
+              <ul className="nav-dropdown-trending-list">
+                {sections.map((section) => (
+                  <li key={section.key} role="none">
+                    <Link
+                      href={section.href}
+                      role="menuitem"
+                      className="nav-dropdown-trending-item"
+                      aria-haspopup="true"
+                      data-active={section.key === activeSection?.key ? "true" : undefined}
+                      onPointerEnter={(event) => {
+                        lastPointer.current = event.pointerType;
+                        if (event.pointerType === "mouse") setActiveKey(section.key);
+                      }}
+                      onFocus={() => setActiveKey(section.key)}
+                      onPointerDown={(event) => {
+                        lastPointer.current = event.pointerType;
+                      }}
+                      onClick={(event) => {
+                        if (lastPointer.current !== "mouse" && section.key !== activeSection?.key) {
+                          event.preventDefault();
+                          setActiveKey(section.key);
+                          return;
+                        }
+                        setOpen(false);
+                      }}
+                    >
+                      {section.icon}
+                      <span className="nav-dropdown-item-label">{section.label}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           {trending && trending.items.length > 0 ? (
             <div className="nav-dropdown-trending" ref={trendingRef}>
               <div className="nav-dropdown-trending-heading">{trending.heading}</div>
@@ -167,14 +222,14 @@ export function NavDropdown({
           <ul
             className="nav-dropdown-menu"
             style={{
-              "--nav-dropdown-cols": menuColumnCount(items.length),
+              "--nav-dropdown-cols": columnCount,
               ...(menuMaxHeight ? { "--nav-dropdown-menu-max": `${menuMaxHeight}px` } : {}),
             } as CSSProperties}
           >
-            {items.length === 0 ? (
+            {listItems.length === 0 ? (
               <li className="nav-dropdown-empty">{emptyLabel}</li>
             ) : (
-              items.map((item) => (
+              listItems.map((item) => (
                 <li key={item.key} role="none">
                   <Link
                     href={item.href}
