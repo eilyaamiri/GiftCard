@@ -221,13 +221,6 @@ export function SiteChrome({
               <NavDropdown
                 label="پرداخت بین‌المللی"
                 emptyLabel="سرویسی موجود نیست"
-                trending={{
-                  heading: "تلگرام",
-                  items: [
-                    { key: "telegram-stars", label: "استارز", href: "/telegram/stars" },
-                    { key: "telegram-premium", label: "پرمیوم", href: "/telegram/premium" },
-                  ],
-                }}
                 items={SERVICE_CATEGORIES.map((category) => ({
                   key: category.slug,
                   label: category.labelFa,

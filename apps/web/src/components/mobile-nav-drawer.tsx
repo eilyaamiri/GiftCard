@@ -139,13 +139,6 @@ export function MobileNavDrawer({
                 <ChevronDown size={16} aria-hidden="true" />
               </summary>
               <ul>
-                <li className="mobile-nav-drawer-subgroup" aria-label="تلگرام">
-                  <span className="mobile-nav-drawer-subgroup-title">تلگرام</span>
-                  <ul>
-                    <li><Link href="/telegram/stars">استارز</Link></li>
-                    <li><Link href="/telegram/premium">پرمیوم</Link></li>
-                  </ul>
-                </li>
                 {SERVICE_CATEGORIES.map((category) => (
                   <li key={category.slug}>
                     <Link href={`/services?category=${encodeURIComponent(category.slug)}`}>
