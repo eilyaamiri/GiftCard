@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { Ltr, toPersianDigits } from "@barat/ui";
 import type { QuoteSnapshot } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
+import { COMMERCE_SESSION_COOKIE } from "@/lib/commerce-session";
+import { getSession } from "@/lib/session";
 import { tomanFromIrr } from "@/app/checkout/purchase";
 import { QuoteActions } from "./quote-actions";
 
@@ -18,11 +21,17 @@ export const dynamic = "force-dynamic";
 export default async function QuotePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
+  /* A quote made before login belongs to the browser's commerce session, not to
+   * a customer. The token lives in a cookie precisely so this server render can
+   * present it — without it, every anonymous quote reads as "not found". */
+  const commerceToken = (await cookies()).get(COMMERCE_SESSION_COOKIE)?.value;
+  const customer = await getSession();
+
   let quote: QuoteSnapshot;
   try {
-    quote = (await api.quote(id)).quote;
+    quote = (await api.quote(id, commerceToken)).quote;
   } catch (error) {
-    return <QuoteUnavailable error={error} />;
+    return <QuoteUnavailable quoteId={id} error={error} />;
   }
 
   return (
@@ -34,7 +43,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
       </p>
 
       <div className="card pad" style={{ marginBlockStart: 18 }}>
-        <QuoteActions quote={quote}>
+        <QuoteActions quote={quote} isSignedIn={customer !== null}>
           {quote.components.map((component) => (
             <div className="summary-line" key={`${component.kind}-${component.sortOrder}`}>
               <span>{component.labelFa}</span>
@@ -64,7 +73,7 @@ export default async function QuotePage({ params }: { params: Promise<{ id: stri
   );
 }
 
-function QuoteUnavailable({ error }: { error: unknown }) {
+function QuoteUnavailable({ quoteId, error }: { quoteId: string; error: unknown }) {
   const notFound = error instanceof ApiClientError && (error.isNotFound || error.isUnauthenticated);
   if (!notFound) throw error;
 
@@ -79,7 +88,9 @@ function QuoteUnavailable({ error }: { error: unknown }) {
           <Link className="btn btn-primary" href="/gift-cards">
             انتخاب محصول
           </Link>
-          <Link className="btn btn-outline" href="/login">
+          {/* Back to THIS quote after login — a quote made under the customer's
+              account becomes readable the moment the session cookie is set. */}
+          <Link className="btn btn-outline" href={`/login?next=${encodeURIComponent(`/quote/${quoteId}`)}`}>
             ورود به حساب
           </Link>
         </div>

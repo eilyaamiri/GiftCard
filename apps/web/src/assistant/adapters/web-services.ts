@@ -303,18 +303,21 @@ export function createWebServices(): AssistantServices {
 
     checkout: {
       async placeOrder(shown) {
+        /* The same token the quote was created under — it is this browser's
+         * claim on the quote until an order binds it to the customer. */
+        const commerceToken = getCommerceSessionToken();
         let snapshot: QuoteSnapshot;
         try {
-          snapshot = (await api.quote(shown.id)).quote;
+          snapshot = (await api.quote(shown.id, commerceToken)).quote;
         } catch (error) {
           return toRequoteOrThrow(error);
         }
         const usable = snapshot.status === "ACTIVE" ? Date.parse(snapshot.expiresAt) > Date.now() : snapshot.status === "ACCEPTED";
         if (!usable || snapshot.finalAmountIrr !== shown.finalAmountIrr) throw new RequoteRequiredError();
         try {
-          const accepted = await acceptQuote(snapshot);
+          const accepted = await acceptQuote(snapshot, commerceToken);
           if (accepted.requoteRequired) throw new RequoteRequiredError();
-          const { order } = await createOrder(snapshot);
+          const { order } = await createOrder(snapshot, commerceToken);
           return { orderId: order.id, orderNumber: order.orderNumber };
         } catch (error) {
           return toRequoteOrThrow(error);

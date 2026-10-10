@@ -370,7 +370,14 @@ export const api = {
   brands: (query = "") => request<ListBrandsResponse>(`/api/catalog/brands${query ? `?${query}` : ""}`, undefined, listBrandsResponseSchema),
   services: (params?: { readonly search?: string; readonly page?: number; readonly pageSize?: number; readonly category?: string }) =>
     request<ListServicesResponse>(`/api/catalog/services${serviceQuery(params)}`, undefined, listServicesResponseSchema),
-  quote: (id: string) => request<GetQuoteResponse>(`/api/quotes/${encodeURIComponent(id)}`, undefined, getQuoteResponseSchema),
+  /** `commerceSessionToken` identifies an anonymous reader: GET has no body, so
+   * it travels as the `x-commerce-session` header the API resolves ownership by. */
+  quote: (id: string, commerceSessionToken?: string) =>
+    request<GetQuoteResponse>(
+      `/api/quotes/${encodeURIComponent(id)}`,
+      commerceSessionToken ? { headers: { "x-commerce-session": commerceSessionToken } } : undefined,
+      getQuoteResponseSchema,
+    ),
   order: (number: string) => request<GetOrderResponse>(`/api/orders/${encodeURIComponent(number)}`, undefined, getOrderResponseSchema),
   paymentReceiptStatus: (number: string) =>
     request<z.infer<typeof paymentReceiptStatusSchema>>(
