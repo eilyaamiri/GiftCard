@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CountdownTimer, FormMessage, Ltr, OtpInput, toPersianDigits } from "@barat/ui";
 import { ShieldCheck } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
+import { peekCommerceSessionToken } from "@/lib/commerce-session";
 import { clearChallenge, saveChallenge, type OtpChallenge } from "../app/login/otp-challenge";
 
 const GENERIC_FAILURE = "کد واردشده معتبر نیست یا مهلت آن تمام شده است.";
@@ -37,7 +38,16 @@ export function AuthOtpStep({ challenge: initialChallenge, onBack }: Readonly<{ 
     setError(null);
     setVerifying(true);
     try {
-      await api.verifyOtp({ challengeId: challenge.challengeId, code: digits });
+      /* The commerce-session token ties this browser's pre-login quotes to the
+       * customer who is signing in, so a پیش‌فاکتور made before login is theirs
+       * to pay the moment the session cookie lands. Peeked, never minted: a
+       * visitor who never quoted has nothing to adopt. */
+      const commerceSessionToken = peekCommerceSessionToken();
+      await api.verifyOtp({
+        challengeId: challenge.challengeId,
+        code: digits,
+        ...(commerceSessionToken === null ? {} : { commerceSessionToken }),
+      });
       clearChallenge();
       router.replace(challenge.next as never);
       router.refresh();

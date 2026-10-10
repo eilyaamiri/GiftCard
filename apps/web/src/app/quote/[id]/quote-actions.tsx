@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { CountdownTimer } from "@barat/ui";
 import type { QuoteSnapshot } from "@barat/contracts";
 import { RefreshCw } from "lucide-react";
+import { ApiClientError } from "@/lib/api";
+import { peekCommerceSessionToken } from "@/lib/commerce-session";
 import { acceptQuote, createOrder, purchaseError } from "@/app/checkout/purchase";
 
 /**
@@ -23,35 +25,69 @@ export function requoteQuery(quote: QuoteSnapshot): Record<string, string> {
 
 type Phase = "live" | "expired" | "submitting";
 
-export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapshot; readonly children: ReactNode }) {
+/**
+ * ACCEPTED counts as payable, not as over: acceptance is idempotent (the key is
+ * derived from the quote id), so a customer who accepted, was sent to login and
+ * came back resumes exactly where they were — the replay re-confirms the same
+ * acceptance and ordering continues. Only the clock and a terminal status end it.
+ */
+function quoteOver(quote: QuoteSnapshot): boolean {
+  return (quote.status !== "ACTIVE" && quote.status !== "ACCEPTED") || quote.remainingSeconds === 0;
+}
+
+export function QuoteActions({
+  quote,
+  isSignedIn,
+  children,
+}: {
+  readonly quote: QuoteSnapshot;
+  readonly isSignedIn: boolean;
+  readonly children: ReactNode;
+}) {
   const router = useRouter();
-  const alreadyOver = quote.status !== "ACTIVE" || quote.remainingSeconds === 0;
-  const [phase, setPhase] = useState<Phase>(alreadyOver ? "expired" : "live");
+  const [phase, setPhase] = useState<Phase>(quoteOver(quote) ? "expired" : "live");
   const [error, setError] = useState<string | null>(null);
 
   const expire = useCallback(() => {
     setPhase((current) => (current === "live" ? "expired" : current));
   }, []);
 
+  const loginHref = `/login?next=${encodeURIComponent(`/quote/${quote.id}`)}`;
+
   const submit = useCallback(async () => {
+    /* Ordering needs a customer. Going to login BEFORE accepting keeps the quote
+     * untouched while the customer is away, and `next` brings them straight back
+     * here — not to the account panel — to finish the payment. */
+    if (!isSignedIn) {
+      router.push(loginHref);
+      return;
+    }
     setError(null);
     setPhase("submitting");
     try {
       /* The acknowledged amount is the snapshot's own total, so a stale tab or a
-       * tampered field is rejected by the server instead of being priced. */
-      const accepted = await acceptQuote(quote);
+       * tampered field is rejected by the server instead of being priced. The
+       * commerce-session token is this browser's claim on a quote made before
+       * login — the row still has no customer id. */
+      const commerceToken = peekCommerceSessionToken() ?? undefined;
+      const accepted = await acceptQuote(quote, commerceToken);
       if (accepted.requoteRequired) {
         setPhase("expired");
         return;
       }
-      const order = await createOrder(quote);
+      const order = await createOrder(quote, commerceToken);
       router.push(`/checkout/${order.order.orderNumber}`);
     } catch (cause) {
+      /* The session can expire between render and click; sign in and come back. */
+      if (cause instanceof ApiClientError && cause.isUnauthenticated) {
+        router.push(loginHref);
+        return;
+      }
       const failure = purchaseError(cause);
       setError(failure.message);
       setPhase(failure.requoteRequired ? "expired" : "live");
     }
-  }, [quote, router]);
+  }, [quote, isSignedIn, loginHref, router]);
 
   const expired = phase === "expired";
 
@@ -76,6 +112,12 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
         </div>
       ) : null}
 
+      {!expired && !isSignedIn ? (
+        <div className="alert" style={{ marginBlockEnd: 16 }} role="status">
+          برای پرداخت ابتدا وارد حساب خود می‌شوید و بلافاصله به همین پیش‌فاکتور برمی‌گردید.
+        </div>
+      ) : null}
+
       {error !== null ? (
         <div className="alert warn" style={{ marginBlockEnd: 16 }} role="alert">
           {error}
@@ -92,7 +134,7 @@ export function QuoteActions({ quote, children }: { readonly quote: QuoteSnapsho
         </Link>
       ) : (
         <button type="button" className="btn btn-primary" style={{ width: "100%", marginBlockStart: 18 }} onClick={() => void submit()} disabled={phase === "submitting"}>
-          {phase === "submitting" ? "در حال ثبت سفارش..." : "تأیید قیمت و ثبت سفارش"}
+          {phase === "submitting" ? "در حال ثبت سفارش..." : isSignedIn ? "تأیید قیمت و ثبت سفارش" : "ورود و ادامه خرید"}
         </button>
       )}
     </>

@@ -57,14 +57,37 @@ export function createQuote(payload: CreateQuoteRequest): Promise<CreateQuoteRes
  * Freeze the quote the customer is looking at. `acknowledgedAmountIrr` is the
  * amount that was on screen: the server refuses the acceptance if it no longer
  * matches the stored snapshot, which is what makes a silent reprice impossible.
+ *
+ * `commerceSessionToken` is how the caller proves ownership of a quote created
+ * before login — the quote row still has no customer id, so even a signed-in
+ * customer owns it only through the session it was created under.
  */
-export function acceptQuote(quote: QuoteSnapshot): Promise<AcceptQuoteResponse> {
+export function acceptQuote(quote: QuoteSnapshot, commerceSessionToken?: string): Promise<AcceptQuoteResponse> {
   const key = idempotencyKeyFor("accept", quote.id);
-  return idempotentPost(`/api/quotes/${encodeURIComponent(quote.id)}/accept`, { quoteId: quote.id, idempotencyKey: key, acknowledgedAmountIrr: quote.finalAmountIrr }, key, acceptQuoteResponseSchema);
+  return idempotentPost(
+    `/api/quotes/${encodeURIComponent(quote.id)}/accept`,
+    {
+      quoteId: quote.id,
+      idempotencyKey: key,
+      acknowledgedAmountIrr: quote.finalAmountIrr,
+      ...(commerceSessionToken === undefined ? {} : { commerceSessionToken }),
+    },
+    key,
+    acceptQuoteResponseSchema,
+  );
 }
 
-export function createOrder(quote: QuoteSnapshot): Promise<CreateOrderResponse> {
-  return idempotentPost("/api/orders", { quoteId: quote.id, acknowledgedAmountIrr: quote.finalAmountIrr }, idempotencyKeyFor("order", quote.id), createOrderResponseSchema);
+export function createOrder(quote: QuoteSnapshot, commerceSessionToken?: string): Promise<CreateOrderResponse> {
+  return idempotentPost(
+    "/api/orders",
+    {
+      quoteId: quote.id,
+      acknowledgedAmountIrr: quote.finalAmountIrr,
+      ...(commerceSessionToken === undefined ? {} : { commerceSessionToken }),
+    },
+    idempotencyKeyFor("order", quote.id),
+    createOrderResponseSchema,
+  );
 }
 
 export function createPayment(orderId: string, attempt: string): Promise<CreatePaymentResponse> {
