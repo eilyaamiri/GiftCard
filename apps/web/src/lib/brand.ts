@@ -11,7 +11,7 @@
  * deploys for no visible gain, so they stay as they are.
  */
 
-const DEFAULT_SITE_URL = "https://centopay.ir";
+const DEFAULT_SITE_URL = "https://www.centohub.com";
 
 /**
  * The public origin canonicals, the sitemap and OpenGraph point at.
@@ -33,7 +33,7 @@ export function absoluteUrl(path: string): string {
 export const BRAND = {
   name: "CENTO",
   nameFa: "سنتو",
-  domain: "centopay.ir",
+  domain: "centohub.com",
   url: DEFAULT_SITE_URL,
   tagline: "پرداخت دلاری با ریال",
   hero: {

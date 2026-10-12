@@ -31,7 +31,7 @@ jobs:
     timeout-minutes: 30
     environment:
       name: production
-      url: https://130-185-72-83.nip.io
+      url: https://www.centohub.com
     steps:
       - name: Refuse anything but main
         # The environment's branch policy already enforces this; the explicit
@@ -87,12 +87,12 @@ jobs:
               echo "ok  $1 -> $code"
             fi
           }
-          check https://130-185-72-83.nip.io/api/health 200
-          check https://130-185-72-83.nip.io/ 200
-          check https://admin.130-185-72-83.nip.io/login 200
+          check https://www.centohub.com/api/health 200
+          check https://www.centohub.com/ 200
+          check https://myspace.centohub.com/login 200
           # An unauthenticated caller must still be refused after a deploy:
           # a panel that answers 200 here would be an open back office.
-          check https://admin.130-185-72-83.nip.io/api/support/tickets 401
+          check https://myspace.centohub.com/api/support/tickets 401
           exit $fail
 
       - name: Remove the key from the runner
