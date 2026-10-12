@@ -1,7 +1,13 @@
 # Server operations
 
-The deployment at `130.185.72.83`. These files are the source of truth; the
-copies on the server are installed from here.
+The deployment at `185.236.37.201` (Ubuntu 24.04, 2 vCPU, 1.9 GiB RAM plus a 3 GiB
+swapfile). These files are the source of truth; the copies on the server are
+installed from here.
+
+The previous host, `130.185.72.83`, moved here on 2026-10-13. It is switched off
+for the application, not deleted: its three `barat-*` units are stopped and
+disabled, its nginx only redirects the old `nip.io` names to the new domain, and
+its PostgreSQL and Redis containers and `/opt/baratpay` are untouched.
 
 | file | installed to |
 |---|---|
@@ -14,13 +20,13 @@ on the server, mode 600, and are never committed.
 
 ## Public addresses
 
-- storefront — `https://130-185-72-83.nip.io`
-- admin panel — `https://admin.130-185-72-83.nip.io`
+- storefront — `https://www.centohub.com` (`https://centohub.com` redirects to it)
+- admin panel — `https://myspace.centohub.com`
 
-`nip.io` resolves any `<dashed-ip>.nip.io` name to that IP, which is what makes a
-real Let's Encrypt certificate possible without owning a domain. Replace both
-names with the real domain once there is one; nothing else in the config depends
-on them.
+DNS for `centohub.com` is served by the registrar's nameservers
+(`ns1-3.pegahtech.ir`): one A record each for `@`, `www` and `myspace`, all
+pointing at the server. One Let's Encrypt certificate covers the three names and
+renews itself through certbot's timer using the webroot authenticator.
 
 ## Why HTTPS is not optional here
 
@@ -72,13 +78,18 @@ is unreachable.
 
 ## Notes
 
-- The box has 1.9 GiB of RAM and 2 vCPU. The two Next builds are run one after
-  the other on purpose; together they OOM.
+- The box has 1.9 GiB of RAM, 2 vCPU and a 3 GiB swapfile (`/swapfile`, in
+  `/etc/fstab`). The two Next builds are run one after the other on purpose;
+  together they OOM, and without the swap even one build is killed (exit 137).
 - `next build --output standalone` does not copy `.next/static` or `public/`
   into the standalone bundle. `deploy.sh` stages them explicitly. Without that
   step the server boots cleanly and 404s every asset.
-- The certificate covers both names and renews itself through certbot's timer.
-  Port 80 must stay reachable for the renewal challenge.
+- The certificate covers all three names and renews itself through certbot's
+  timer, using the webroot authenticator. Port 80 must stay reachable for the
+  renewal challenge, and nginx must keep serving `/var/www/html` there.
+- Product images live in `/var/lib/baratpay/product-images` (`PRODUCT_IMAGE_DIR`),
+  outside the database and outside git. Move them with the data when the host
+  changes, or every product image answers 404.
 
 ## Demo sign-in
 

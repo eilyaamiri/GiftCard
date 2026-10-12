@@ -6,7 +6,7 @@ afterEach(() => vi.unstubAllEnvs());
 describe("siteUrl", () => {
   it("defaults to the production domain", () => {
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
-    expect(siteUrl()).toBe("https://centopay.ir");
+    expect(siteUrl()).toBe("https://www.centohub.com");
   });
 
   it("lets a staging host advertise itself, without a trailing slash", () => {
