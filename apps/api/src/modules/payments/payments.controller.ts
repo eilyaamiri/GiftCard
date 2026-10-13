@@ -7,6 +7,7 @@ import {
   Post,
   Query,
   Req,
+  Res,
 } from '@nestjs/common';
 import {
   createPaymentRequestSchema,
@@ -76,6 +77,34 @@ export class PaymentsController {
       ip: request.ip ?? null,
       userAgent: request.get('user-agent') ?? null,
     });
+  }
+
+  /**
+   * The customer's browser returning from BazaarPay's hosted page.
+   *
+   * Public because the browser carries no payment session here, and a GET that
+   * only redirects. `token` is untrusted input used to find a payment we stored;
+   * the outcome is decided by a server-to-server verify inside `handleReturn`.
+   * The redirect carries our own ids and nothing the gateway sent, so a forged
+   * query can at worst land a visitor on the result page of a payment that is
+   * not theirs — which asks the API, and the API checks the session.
+   */
+  @Get('bazaarpay/return')
+  @Public()
+  async bazaarpayReturn(
+    @Query('token') token: string | undefined,
+    @Req() request: RequestLike,
+    @Res() response: { redirect(status: number, url: string): void },
+  ): Promise<void> {
+    const result = await this.paymentsService.handleReturn(
+      { token },
+      { ip: request.ip ?? null, userAgent: request.get('user-agent') ?? null },
+    );
+    const target =
+      result.paymentId === null || result.orderNumber === null
+        ? '/payment/result'
+        : `/payment/result?order=${encodeURIComponent(result.orderNumber)}&payment=${encodeURIComponent(result.paymentId)}`;
+    response.redirect(303, `${this.config.webPublicUrl}${target}`);
   }
 
   @Post(':id/verify')

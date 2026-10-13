@@ -26,5 +26,17 @@ export {
   type ZarinPalPaymentProviderConfig,
 } from './providers/zarinpal/zarinpal-payment.provider';
 
+export {
+  BAZAARPAY_MAX_AMOUNT,
+  BazaarPayPaymentProvider,
+  DEFAULT_BAZAARPAY_BASE_URL,
+  DEFAULT_BAZAARPAY_TIMEOUT_MS,
+  FetchBazaarPayHttpClient,
+  toBazaarPayAmount,
+  type BazaarPayHttpClient,
+  type BazaarPayHttpResponse,
+  type BazaarPayPaymentProviderConfig,
+} from './providers/bazaarpay/bazaarpay-payment.provider';
+
 /** DI token for the selected provider. */
 export const RIAL_PAYMENT_PROVIDER = Symbol.for('BARAT_RIAL_PAYMENT_PROVIDER');

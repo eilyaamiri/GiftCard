@@ -421,6 +421,16 @@ export class PaymentsService {
 
     const committed = await this.commitSuccessfulPayment(payment, result);
     if (committed.transitioned) {
+      /* A two-phase gateway only finalises the charge when we say so, and it
+       * hands the money back on its own if we never do. That call is made here —
+       * after PAID is durably written and before fulfillment starts — so the
+       * gateway can never hold a committed charge our own database does not know
+       * about, nor can we deliver on an uncommitted one that is about to be
+       * refunded. If the commit does not go through, the order is NOT started. */
+      if (this.provider.confirmPayment !== undefined) {
+        const confirmed = await this.confirmWithGateway(committed.payment);
+        if (!confirmed) return this.responseForPayment(committed.payment, 'UNKNOWN', true);
+      }
       /* Called AFTER the payment transaction commits, never inside it: a
        * rolled-back payment would otherwise leave an operator holding work for
        * an order that was never paid. `onOrderPaid` is idempotent per order, so
@@ -436,6 +446,97 @@ export class PaymentsService {
     // `verified` means "this call performed the verification". A replay that
     // found the payment already committed reports false.
     return this.responseForPayment(committed.payment, 'PAID', committed.transitioned);
+  }
+
+  /**
+   * Finalise a two-phase charge. Returns false when the gateway did not confirm,
+   * after leaving a HIGH reconciliation issue: the money is held by us on a
+   * payment that may be refunded to the customer's wallet, and a person has to
+   * decide, not a retry loop.
+   */
+  private async confirmWithGateway(payment: PaymentRecord): Promise<boolean> {
+    const confirm = this.provider.confirmPayment;
+    if (confirm === undefined || payment.providerAuthority === null) return true;
+    let confirmed = false;
+    let providerCode: number | null = null;
+    try {
+      const result = await confirm.call(this.provider, { authority: payment.providerAuthority });
+      confirmed = result.confirmed;
+      if (!result.confirmed) providerCode = result.providerCode;
+    } catch {
+      /* Ambiguous: the commit may have landed. Treated as not confirmed. */
+    }
+    await this.recordAttempt(payment.id, 'CONFIRM', confirmed ? 'OK' : 'FAILED', providerCode);
+    if (confirmed) return true;
+    await this.createReconciliationIssue(payment, 'GATEWAY_COMMIT_NOT_CONFIRMED', {
+      providerCode: providerCode ?? 0,
+    });
+    await this.recordAudit({
+      actor: 'system:payments',
+      actorType: 'SYSTEM',
+      action: 'PAYMENT_COMMIT_NOT_CONFIRMED',
+      entity: 'Payment',
+      entityId: payment.id,
+      after: { provider: payment.provider },
+    });
+    return false;
+  }
+
+  /**
+   * The customer's browser coming back from a hosted gateway page.
+   *
+   * Everything in the query is untrusted and is used only to find a payment we
+   * already stored; the outcome comes from a server-to-server verify. The
+   * payment is matched on the token AND this provider, so a token that belongs
+   * to nobody, or to another gateway, is a `FAILED` that touches nothing.
+   *
+   * Returns the ids the result page needs. No payment detail, status text or
+   * gateway value is reflected into the redirect.
+   */
+  async handleReturn(
+    query: { readonly token?: string | undefined },
+    context: { readonly ip?: string | null; readonly userAgent?: string | null } = {},
+  ): Promise<{ readonly paymentId: string | null; readonly orderNumber: string | null }> {
+    const token = query.token;
+    if (token === undefined || !/^[A-Za-z0-9]{1,128}$/u.test(token)) {
+      await this.recordAudit({
+        actor: 'system:payments',
+        actorType: 'SYSTEM',
+        action: 'PAYMENT_CALLBACK_INVALID',
+        entity: 'Payment',
+        entityId: 'unknown',
+        after: { reason: 'missing_or_malformed_token' },
+        ...context,
+      });
+      return { paymentId: null, orderNumber: null };
+    }
+
+    const raw = await this.delegate(this.db.payment).findUnique({
+      where: {
+        provider_providerAuthority: { provider: this.provider.name, providerAuthority: token },
+      },
+    });
+    if (raw === null) {
+      await this.recordAudit({
+        actor: 'system:payments',
+        actorType: 'SYSTEM',
+        action: 'PAYMENT_CALLBACK_UNKNOWN_AUTHORITY',
+        entity: 'Payment',
+        entityId: 'unknown',
+        after: { reason: 'unknown_authority', authorityHash: shortHash(token) },
+        ...context,
+      });
+      return { paymentId: null, orderNumber: null };
+    }
+
+    const payment = this.asPayment(raw);
+    await this.recordAttempt(payment.id, 'CALLBACK', 'RETURNED', null, context);
+    if (payment.status !== 'PAID') {
+      /* The browser reaching us proves nothing; ask the gateway. */
+      const result = await this.verifyStoredPayment(payment);
+      await this.applyVerificationResult(payment, result, context);
+    }
+    return { paymentId: payment.id, orderNumber: await this.orderNumber(payment.orderId) };
   }
 
   private async commitSuccessfulPayment(
@@ -702,6 +803,10 @@ export class PaymentsService {
     if (payment.provider === 'mock') {
       return `https://mock-gateway.invalid/start/${payment.providerAuthority}`;
     }
+    /* BazaarPay's hosted page carries our return URL, which only the adapter
+     * knows, so it cannot be rebuilt here. A replayed request in a process that
+     * has since restarted returns no destination and the customer is sent to the
+     * result page, which asks the gateway for the real state. */
     return '';
   }
 
