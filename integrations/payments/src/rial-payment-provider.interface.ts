@@ -89,6 +89,18 @@ export interface RefundInput {
   readonly idempotencyKey: string;
 }
 
+export interface ConfirmPaymentInput {
+  readonly authority: string;
+}
+
+export type ConfirmPaymentResult =
+  | { readonly confirmed: true }
+  | {
+      readonly confirmed: false;
+      readonly providerCode: number | null;
+      readonly failureReason: PaymentFailureReason;
+    };
+
 /**
  * A provider must never report a fake refund. Until a real, verified refund API
  * is implemented, it returns this explicit result.
@@ -105,4 +117,17 @@ export interface RialPaymentProvider {
   verifyPayment(input: VerifyPaymentInput): Promise<VerifyResult>;
   getPaymentStatus(input: GetPaymentStatusInput): Promise<GetPaymentStatusResult>;
   refund(input: RefundInput): Promise<RefundResult>;
+
+  /**
+   * The second phase of a two-phase gateway. Optional: a single-phase gateway
+   * (ZarinPal, the mock) settles inside `verifyPayment` and has nothing to add.
+   *
+   * It exists because a gateway like BazaarPay hands the customer's money back
+   * after a few minutes unless the merchant explicitly commits. Committing from
+   * `verifyPayment` would finalise a charge before our own database says PAID,
+   * so `verifyPayment` must never do it. `PaymentsService` calls this once, after
+   * the PAID transition has been durably written, and only then starts
+   * fulfillment. Idempotent per `authority`.
+   */
+  confirmPayment?(input: ConfirmPaymentInput): Promise<ConfirmPaymentResult>;
 }
