@@ -4,7 +4,6 @@ import { prisma } from '@barat/database';
 import {
   EMAIL_PROVIDER,
   MockEmailProvider,
-  MockSmsProvider,
   SMS_PROVIDER,
 } from '@barat/notifications';
 
@@ -22,6 +21,7 @@ import { OtpService } from './otp.service';
 import { CustomerScopedGuard } from './rbac/customer-scoped.guard';
 import { RolesGuard } from './rbac/roles.guard';
 import { SessionService } from './session.service';
+import { createSmsProvider } from './sms-provider.factory';
 import { StaffAuthController } from './staff-auth.controller';
 import { StaffAuthService } from './staff-auth.service';
 
@@ -33,9 +33,9 @@ import { StaffAuthService } from './staff-auth.service';
  * APP_GUARDs is what makes authorisation a property of the server rather than
  * something each controller has to remember to opt into.
  *
- * The notification providers are the Mock implementations for the POC. A real
- * SMS/e-mail transport is swapped in here and nowhere else — no service imports
- * a concrete provider (AGENTS.md section 2).
+ * The transports are chosen here and nowhere else — no service imports a
+ * concrete provider (AGENTS.md section 2). SMS selection lives in
+ * `createSmsProvider`; e-mail is still the Mock implementation.
  */
 @Global()
 @Module({
@@ -44,7 +44,7 @@ import { StaffAuthService } from './staff-auth.service';
   providers: [
     { provide: IDENTITY_DATABASE, useValue: prisma },
     { provide: ADMIN_SETTINGS_DATABASE, useValue: prisma },
-    { provide: SMS_PROVIDER, useFactory: () => new MockSmsProvider() },
+    { provide: SMS_PROVIDER, useFactory: () => createSmsProvider() },
     { provide: EMAIL_PROVIDER, useFactory: () => new MockEmailProvider() },
     SessionService,
     StaffAuthService,
