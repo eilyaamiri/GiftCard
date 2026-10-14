@@ -71,7 +71,7 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=20 \
             "$DEPLOY_USER@$DEPLOY_HOST" \
-            "deploy $RELEASE_SHA ($RELEASE_REASON)"
+            "deploy $RELEASE_SHA"
 
       - name: Smoke-test the running services
         run: |
