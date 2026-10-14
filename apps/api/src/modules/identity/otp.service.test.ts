@@ -312,6 +312,7 @@ interface Harness {
   readonly sentCodes: string[];
   readonly auditRecords: Array<Record<string, unknown>>;
   readonly sessions: { createSession: ReturnType<typeof vi.fn>; linkCommerceSession: ReturnType<typeof vi.fn> };
+  readonly sms: { name: string; send: ReturnType<typeof vi.fn> };
 }
 
 function buildHarness(overrides: Partial<Record<string, number>> = {}): Harness {
@@ -330,13 +331,17 @@ function buildHarness(overrides: Partial<Record<string, number>> = {}): Harness 
   };
 
   const sms = {
+    name: 'stub-sms',
     send: vi.fn(async (message: any) => {
       sentCodes.push(String(message.templateParams.code));
+      return { success: true, sentAt: new Date() };
     }),
   };
   const email = {
+    name: 'stub-email',
     send: vi.fn(async (message: any) => {
       sentCodes.push(String(message.templateParams.code));
+      return { success: true, sentAt: new Date() };
     }),
   };
   const audit = {
@@ -366,7 +371,7 @@ function buildHarness(overrides: Partial<Record<string, number>> = {}): Harness 
     customers as never,
   );
 
-  return { service, database, sentCodes, auditRecords, sessions };
+  return { service, database, sentCodes, auditRecords, sessions, sms };
 }
 
 const context = { ip: '203.0.113.9', userAgent: 'vitest', customerId: null };
@@ -412,6 +417,25 @@ describe('OtpService.requestOtp', () => {
 
     expect(rig.auditRecords.length).toBeGreaterThan(0);
     expect(JSON.stringify(rig.auditRecords)).not.toContain(code);
+  });
+
+  it('refuses the request when the transport reports failure in its result', async () => {
+    /* A provider signals a rejected send by returning success: false, not by
+     * throwing. Treating that as delivered would tell the customer to check a
+     * phone that never rang, and would burn one of their hourly requests. */
+    const rig = buildHarness();
+    rig.sms.send.mockResolvedValueOnce({
+      success: false,
+      failureCode: 'HTTP_404',
+      sentAt: new Date(),
+    } as never);
+
+    await expect(
+      rig.service.requestOtp(
+        { identityType: 'MOBILE', identifier: MOBILE, purpose: 'LOGIN' } as never,
+        context,
+      ),
+    ).rejects.toThrow();
   });
 
   it('returns a masked target and never the raw identifier', async () => {
