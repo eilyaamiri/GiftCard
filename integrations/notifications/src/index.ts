@@ -74,6 +74,7 @@ export class NotificationProviderError extends Error {
 export const SMS_PROVIDER = 'BARAT_SMS_PROVIDER';
 export const EMAIL_PROVIDER = 'BARAT_EMAIL_PROVIDER';
 
+export * from './providers/ippanel-sms.provider';
 export * from './providers/mock-email.provider';
 export * from './providers/mock-sms.provider';
 export * from './providers/safe-dispatch-record';
