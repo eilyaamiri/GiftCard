@@ -1,7 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Input, Label, FormMessage, toLatinDigits } from "@barat/ui";
+import { Input, Label, FormMessage, toLatinDigits, toPersianDigits } from "@barat/ui";
 import { Phone, ShieldCheck } from "lucide-react";
 import { emailSchema, mobileSchema } from "@barat/contracts";
 import type { IdentityType } from "@barat/contracts";
@@ -19,6 +19,29 @@ function normaliseIdentifier(raw: string): string {
   return toLatinDigits(raw).replace(/[\s‌-]/g, "").trim();
 }
 
+/**
+ * The API reports a resend cooldown as a sentence with the seconds inside it:
+ * `DomainErrors.conflict` carries no structured payload and the common error
+ * layer is Foundation-owned. Reading the number back out is what lets the page
+ * tick it down, instead of showing a figure that is stale the moment it renders.
+ */
+const COOLDOWN_SECONDS_RE = /(\d+)\s*ثانیه/u;
+/** `OTP_RESEND_SECONDS` cannot exceed this, so neither can a real cooldown. */
+const MAX_COOLDOWN_SECONDS = 900;
+
+function resendCooldownSeconds(error: unknown): number | null {
+  if (!(error instanceof ApiClientError) || error.status !== 409) return null;
+  const match = COOLDOWN_SECONDS_RE.exec(error.message);
+  if (match === null) return null;
+  const seconds = Number(match[1]);
+  /* The hourly-limit conflict quotes no seconds, and a figure outside the
+   * policy's own ceiling must not freeze the button: either one falls through
+   * to showing the API's sentence as it came. */
+  return Number.isSafeInteger(seconds) && seconds > 0 && seconds <= MAX_COOLDOWN_SECONDS
+    ? seconds
+    : null;
+}
+
 function classify(identifier: string): { readonly identityType: IdentityType; readonly value: string } | null {
   const mobile = mobileSchema.safeParse(identifier);
   if (mobile.success) return { identityType: "MOBILE", value: mobile.data };
@@ -34,7 +57,14 @@ function LoginForm() {
   const [identifier, setIdentifier] = useState("");
   const [challenge, setChallenge] = useState<OtpChallenge | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cooldown, setCooldown] = useState(0);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setInterval(() => setCooldown((seconds) => Math.max(0, seconds - 1)), 1000);
+    return () => clearInterval(timer);
+  }, [cooldown]);
 
   useEffect(() => {
     let active = true;
@@ -71,7 +101,16 @@ function LoginForm() {
       saveChallenge(savedChallenge);
       setChallenge(savedChallenge);
     } catch (err) {
-      setError(err instanceof ApiClientError ? err.message : "ارسال کد ممکن نشد. دوباره تلاش کنید.");
+      const seconds = resendCooldownSeconds(err);
+      if (seconds === null) {
+        setError(err instanceof ApiClientError ? err.message : "ارسال کد ممکن نشد. دوباره تلاش کنید.");
+      } else {
+        /* The countdown owns the message while it runs. Keeping the API's
+         * sentence as well would leave its frozen figure on screen once the
+         * ticker reaches zero. */
+        setCooldown(seconds);
+        setError(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -107,14 +146,29 @@ function LoginForm() {
                     startAdornment={<Phone size={16} />}
                     placeholder="۰۹۱۲۱۲۳۴۵۶۷"
                     value={identifier}
-                    onChange={(e) => setIdentifier(e.target.value)}
+                    onChange={(e) => {
+                      setIdentifier(e.target.value);
+                      /* The cooldown the API reported belongs to the identity it
+                       * was asked about. Editing the field aims at a different
+                       * one, which may well be free to request a code now. */
+                      setCooldown(0);
+                    }}
                     invalid={Boolean(error)}
-                    aria-describedby="identifier-error"
+                    aria-describedby={cooldown > 0 ? "identifier-error identifier-cooldown" : "identifier-error"}
                   />
                   <FormMessage tone="error" id="identifier-error">{error}</FormMessage>
+                  {cooldown > 0 ? (
+                    /* Deliberately a hint, not an error: the caller did nothing
+                     * wrong, and `tone="error"` carries role="alert", which would
+                     * make a screen reader re-read the whole sentence every
+                     * second as the figure ticks. */
+                    <FormMessage tone="hint" id="identifier-cooldown">
+                      برای ارسال دوبارهٔ کد {toPersianDigits(cooldown)} ثانیه صبر کنید.
+                    </FormMessage>
+                  ) : null}
                 </div>
-                <button type="submit" className="btn btn-primary auth-submit" disabled={loading || identifier.trim().length === 0}>
-                  {loading ? "در حال ارسال کد..." : "ارسال کد ورود"}
+                <button type="submit" className="btn btn-primary auth-submit" disabled={loading || cooldown > 0 || identifier.trim().length === 0}>
+                  {loading ? "در حال ارسال کد..." : cooldown > 0 ? `ارسال کد ورود (${toPersianDigits(cooldown)} ثانیه)` : "ارسال کد ورود"}
                 </button>
               </form>
               <p className="auth-note"><ShieldCheck size={16} /> با ادامه، شرایط استفاده سنتو و حریم خصوصی سنتو را می‌پذیرید.</p>
