@@ -168,14 +168,22 @@ describe('send', () => {
     expect(http.requests[0]?.body['recipients']).toHaveLength(1);
   });
 
-  it('uses a configured pattern variable name', async () => {
+  it('renames the code onto the merchant template variable, case included', async () => {
+    /* The domain always hands the code over as `code`; the vendor template may
+     * call it anything, e.g. a pattern written `%CODE%`. The two namespaces are
+     * separate, so the adapter translates rather than demanding they match. */
     const http = new ScriptedHttpClient([json(SEND_OK)]);
-    await provider(http, { patternCodeParam: 'otp' }).send({
-      ...MESSAGE,
-      templateParams: { otp: CODE },
-    });
+    const result = await provider(http, { patternCodeParam: 'CODE' }).send(MESSAGE);
 
-    expect(http.requests[0]?.body['params']).toEqual({ otp: CODE });
+    expect(http.requests[0]?.body['params']).toEqual({ CODE });
+    expect(result).toMatchObject({ success: true });
+  });
+
+  it('accepts any merchant variable name without the domain knowing it', async () => {
+    const http = new ScriptedHttpClient([json(SEND_OK)]);
+    await provider(http, { patternCodeParam: 'otp_value' }).send(MESSAGE);
+
+    expect(http.requests[0]?.body['params']).toEqual({ otp_value: CODE });
   });
 
   it.each([
