@@ -183,6 +183,57 @@ export function resetPaymentAttempt(orderId: string): void {
   }
 }
 
+const PENDING_STORAGE_KEY = "bp.payment.pending";
+
+export interface PendingPayment {
+  readonly orderNumber: string;
+  readonly paymentId: string;
+}
+
+/**
+ * Remembers which order this browser left to pay for.
+ *
+ * A gateway can send the customer back without the query string we attached —
+ * then the result screen knows neither the payment to verify nor the order to
+ * return to, and every button on it is dead. This is the only record that
+ * survives that round trip.
+ *
+ * Our own ids and nothing else: no amount, no status, no gateway token. They
+ * are used solely to ASK the API, which answers against the session cookie, so
+ * an edited record can at worst request a payment the server refuses to
+ * describe.
+ */
+export function rememberPendingPayment(orderNumber: string, paymentId: string): void {
+  writeSession(PENDING_STORAGE_KEY, JSON.stringify({ orderNumber, paymentId }));
+}
+
+export function recallPendingPayment(): PendingPayment | null {
+  const raw = readSession(PENDING_STORAGE_KEY);
+  if (raw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { orderNumber, paymentId } = parsed as Record<string, unknown>;
+    return typeof orderNumber === "string" &&
+      orderNumber.length > 0 &&
+      typeof paymentId === "string" &&
+      paymentId.length > 0
+      ? { orderNumber, paymentId }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dropped once the outcome is settled, so a later visit starts clean. */
+export function clearPendingPayment(): void {
+  try {
+    window.sessionStorage.removeItem(PENDING_STORAGE_KEY);
+  } catch {
+    /* Private browsing can refuse storage; there was nothing to clear. */
+  }
+}
+
 function readSession(key: string): string | null {
   try {
     const value = window.sessionStorage.getItem(key);

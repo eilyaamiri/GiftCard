@@ -6,7 +6,13 @@ import { Badge, Ltr } from "@barat/ui";
 import type { OrderDetailDto, PaymentDto } from "@barat/contracts";
 import { CheckCircle2, HelpCircle, Loader2, RefreshCw, XCircle } from "lucide-react";
 import { api, ApiClientError } from "@/lib/api";
-import { tomanFromIrr, verifyPayment } from "@/app/checkout/purchase";
+import {
+  clearPendingPayment,
+  recallPendingPayment,
+  tomanFromIrr,
+  verifyPayment,
+  type PendingPayment,
+} from "@/app/checkout/purchase";
 import { orderStatusView, paymentFailureText, paymentStatusView } from "@/lib/status";
 
 /**
@@ -19,14 +25,30 @@ import { orderStatusView, paymentFailureText, paymentStatusView } from "@/lib/st
  */
 function ResultContent() {
   const params = useSearchParams();
-  const paymentId = params.get("payment");
-  const orderNumber = params.get("order");
+  const paramPaymentId = params.get("payment");
+  const paramOrderNumber = params.get("order");
 
   const [payment, setPayment] = useState<PaymentDto | null>(null);
   const [order, setOrder] = useState<OrderDetailDto | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
-  const started = useRef(false);
+  const [recalled, setRecalled] = useState<PendingPayment | null>(null);
+  const [recallDone, setRecallDone] = useState(false);
+  const checkedKey = useRef<string | null>(null);
+
+  /* A gateway can return the customer with our query string stripped. The ids
+   * this browser stored on its way out are then the only way to know which
+   * payment to verify and which order to offer a way back to. Read after mount
+   * because sessionStorage does not exist while the page is server-rendered. */
+  useEffect(() => {
+    if (paramPaymentId === null && paramOrderNumber === null) {
+      setRecalled(recallPendingPayment());
+    }
+    setRecallDone(true);
+  }, [paramPaymentId, paramOrderNumber]);
+
+  const paymentId = paramPaymentId ?? recalled?.paymentId ?? null;
+  const orderNumber = paramOrderNumber ?? recalled?.orderNumber ?? null;
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -50,14 +72,32 @@ function ResultContent() {
   }, [paymentId, orderNumber]);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
+    /* Wait for the recall attempt: firing before it resolves would verify
+     * nothing and then settle the screen as if the answer had come back. */
+    if (!recallDone) return;
+    const key = `${paymentId ?? ""}|${orderNumber ?? ""}`;
+    if (checkedKey.current === key) return;
+    checkedKey.current = key;
+    if (paymentId === null && orderNumber === null) {
+      /* Nothing identifies the payment, so there is nothing to ask about. */
+      setChecking(false);
+      return;
+    }
     void check();
-  }, [check]);
+  }, [check, recallDone, paymentId, orderNumber]);
 
   const settled = payment !== null && payment.status === "PAID";
   const failed = payment !== null && (payment.status === "FAILED" || payment.status === "CANCELLED");
   const undecided = !settled && !failed;
+
+  /* The stored ids exist to survive the trip through the gateway. Once the
+   * outcome is settled they are stale, and a later visit to this page should
+   * not resurrect a payment the customer already saw resolved. An undecided
+   * payment keeps them, because that is exactly the case this page is asked
+   * about again. */
+  useEffect(() => {
+    if (settled || failed) clearPendingPayment();
+  }, [settled, failed]);
 
   return (
     <main className="page container" style={{ maxWidth: 560 }}>
@@ -121,7 +161,10 @@ function ResultContent() {
         ) : null}
 
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBlockStart: 20 }}>
-          {undecided && !checking ? (
+          {/* Offered only when there is a payment to ask about. Without one the
+            * button would call an endpoint with nothing and leave the screen
+            * exactly as it was, which reads as a broken page. */}
+          {undecided && !checking && paymentId !== null ? (
             <button type="button" className="btn btn-outline" onClick={() => void check()}>
               <RefreshCw size={16} aria-hidden="true" /> بررسی دوباره
             </button>
