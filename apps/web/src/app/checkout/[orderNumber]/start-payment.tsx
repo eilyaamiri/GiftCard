@@ -2,7 +2,14 @@
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Lock } from "lucide-react";
-import { createPayment, gatewayDestination, paymentAttempt, purchaseError, resetPaymentAttempt } from "../purchase";
+import {
+  createPayment,
+  gatewayDestination,
+  paymentAttempt,
+  purchaseError,
+  rememberPendingPayment,
+  resetPaymentAttempt,
+} from "../purchase";
 
 /**
  * Opens a payment session and hands the browser over to wherever the API says
@@ -37,6 +44,10 @@ export function StartPayment({
       const result = await createPayment(orderId, paymentAttempt(orderId));
       const destination = gatewayDestination(result.redirectUrl);
       const resultPath = `/payment/result?order=${encodeURIComponent(orderNumber)}&payment=${encodeURIComponent(result.payment.id)}`;
+      /* Written before we hand the browser over: a gateway can return the
+       * customer without our query string, and this is then the only way the
+       * result screen knows which payment to verify and which order to offer. */
+      rememberPendingPayment(orderNumber, result.payment.id);
       if (destination !== null) {
         window.location.assign(destination);
         return;
