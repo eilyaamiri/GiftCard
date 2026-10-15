@@ -51,6 +51,9 @@ export function readIppanelEnv(env: Env = process.env): IppanelEnv {
     if (fromNumber === '') throw new Error('IPPANEL_FROM_NUMBER is required when IPPANEL_ENABLED is true');
   }
 
+  /* The variable name inside the merchant's own template, case-sensitive: a
+   * pattern written `%CODE%` needs `CODE` here. Unrelated to the key the domain
+   * uses to hand the code to the transport, which is always `code`. */
   const patternCodeParam = (env['IPPANEL_PATTERN_CODE_PARAM'] ?? '').trim() || 'code';
   const baseUrl = (env['IPPANEL_BASE_URL'] ?? '').trim();
   return {

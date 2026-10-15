@@ -3,6 +3,16 @@ import type { NotificationResult, SmsMessage, SmsProvider } from '../index';
 export const DEFAULT_IPPANEL_BASE_URL = 'https://edge.ippanel.com/v1';
 export const DEFAULT_IPPANEL_TIMEOUT_MS = 10_000;
 
+/**
+ * The key the domain hands the code over under, in `SmsMessage.templateParams`.
+ *
+ * This is our own side of the contract and is fixed. It is deliberately not the
+ * same setting as `patternCodeParam`, which names the variable inside the
+ * vendor's template: the two live in different namespaces and a merchant can
+ * call their template variable whatever they like.
+ */
+const DOMAIN_CODE_PARAM = 'code';
+
 export interface IppanelSmsProviderConfig {
   /** The merchant API key, sent as the `Authorization` header. A secret: never logged, never in an error. */
   readonly apiKey: string;
@@ -10,7 +20,12 @@ export interface IppanelSmsProviderConfig {
   readonly patternCode: string;
   /** Sender line, E.164-shaped per the vendor docs (e.g. `+983000505`). */
   readonly fromNumber: string;
-  /** The pattern's single variable name that carries the code, e.g. `code`. */
+  /**
+   * The variable name inside the vendor's template that carries the code.
+   *
+   * Case-sensitive and merchant-chosen: a template written `%CODE%` needs
+   * `CODE` here. Unrelated to the key the domain uses internally.
+   */
   readonly patternCodeParam?: string;
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
@@ -96,7 +111,7 @@ export class IppanelSmsProvider implements SmsProvider {
   }
 
   async send(message: SmsMessage): Promise<NotificationResult> {
-    const code = message.templateParams?.[this.patternCodeParam];
+    const code = message.templateParams?.[DOMAIN_CODE_PARAM];
     if (code === undefined || code === '') {
       /* Nothing to deliver: a pattern send with no variable value would still
        * reach the vendor, so this is refused before any network call. */

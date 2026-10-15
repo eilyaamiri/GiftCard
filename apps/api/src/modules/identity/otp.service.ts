@@ -12,7 +12,7 @@ import type {
   VerifyOtpRequest,
   VerifyOtpResponse,
 } from '@barat/contracts';
-import type { EmailProvider, SmsProvider } from '@barat/notifications';
+import type { EmailProvider, NotificationResult, SmsProvider } from '@barat/notifications';
 import { EMAIL_PROVIDER, SMS_PROVIDER } from '@barat/notifications';
 
 import { AppConfigService } from '../../common/config/app-config.service';
@@ -209,16 +209,17 @@ export class OtpService implements OnModuleInit {
     normalized: string,
     code: string,
   ): Promise<void> {
+    let result: NotificationResult;
     try {
       if (identityType === 'MOBILE') {
-        await this.sms.send({
+        result = await this.sms.send({
           to: normalized,
           body: `کد ورود شما به سنتو: ${code}`,
           templateId: 'AUTH_OTP',
           templateParams: { code },
         });
       } else {
-        await this.email.send({
+        result = await this.email.send({
           to: normalized,
           subject: 'کد ورود سنتو',
           text: `کد ورود شما: ${code}`,
@@ -233,6 +234,22 @@ export class OtpService implements OnModuleInit {
       throw DomainErrors.conflict(
         'ارسال کد تأیید انجام نشد. لطفاً دوباره تلاش کنید.',
         'OTP notification delivery failed',
+      );
+    }
+
+    if (!result.success) {
+      /* A provider that reports failure in its result rather than by throwing
+       * must not pass for a delivered code: the customer would be told to check
+       * a phone that never rang. `failureCode` is the provider's own normalised
+       * label and carries no message body, so it is safe to log; `sentAt` and
+       * the recipient are deliberately left out of the log line. */
+      this.logger.error(
+        `OTP delivery rejected by ${identityType === 'MOBILE' ? this.sms.name : this.email.name}: ` +
+          `${result.failureCode ?? 'unknown'}`,
+      );
+      throw DomainErrors.conflict(
+        'ارسال کد تأیید انجام نشد. لطفاً دوباره تلاش کنید.',
+        'OTP notification delivery rejected by provider',
       );
     }
   }
