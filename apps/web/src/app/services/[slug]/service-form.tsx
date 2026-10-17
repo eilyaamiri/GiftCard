@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Input, Label, Select, Textarea, FormMessage, Ltr } from "@barat/ui";
+import { Input, Label, Select, Textarea, FormMessage, Ltr, toLatinDigits } from "@barat/ui";
 import { Info } from "lucide-react";
 import type { InternationalServiceDto, CreateQuoteResponse } from "@barat/contracts";
 import { createQuoteResponseSchema } from "@barat/contracts";
@@ -11,6 +11,23 @@ import { ServiceArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
+
+/**
+ * An Iranian keyboard produces ۱۲۳, and a pasted figure often carries the
+ * Persian decimal separator. Both are normalised as the customer types, so the
+ * field always holds what will actually be sent: `Number()` on a Persian digit
+ * is NaN, and a NaN min/max comparison is silently false — the amount limits
+ * would stop being enforced rather than loudly failing.
+ *
+ * Only `٫` (U+066B) becomes a decimal point, and only unambiguous thousands
+ * separators are dropped. A plain `،` is deliberately left in place: it is a
+ * text comma, so reading it either way could silently change the amount by a
+ * factor of ten or more. It stays and fails validation, and the customer
+ * retypes rather than being quoted something they did not ask for.
+ */
+function normaliseAmount(raw: string): string {
+  return toLatinDigits(raw).replace(/٫/gu, ".").replace(/[\s,٬]/gu, "");
+}
 
 /**
  * The account keys every international payment carries, on top of whatever
@@ -133,7 +150,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       <form className="card pad" style={{ marginTop: 18 }} onSubmit={submit} noValidate>
         <div className="field">
           <Label htmlFor="amount" required>{`مبلغ به ${service.currency}`}</Label>
-          <Input id="amount" type="text" inputMode="decimal" ltr value={amount} onChange={(e) => setAmount(e.target.value)} invalid={Boolean(errors.amount)} />
+          <Input id="amount" type="text" inputMode="decimal" ltr value={amount} onChange={(e) => setAmount(normaliseAmount(e.target.value))} invalid={Boolean(errors.amount)} />
           <FormMessage tone={errors.amount ? "error" : "hint"}>
             {errors.amount ?? (service.minAmount || service.maxAmount ? <Ltr>{`${service.minAmount ?? "0"} - ${service.maxAmount ?? "∞"} ${service.currency}`}</Ltr> : null)}
           </FormMessage>
