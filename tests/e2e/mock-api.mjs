@@ -237,6 +237,23 @@ const approvedReviews = {
 };
 const myReviews = new Map();
 
+/**
+ * The admin moderation queue. Separate from the storefront fixtures above so
+ * a decision here never changes what the web e2e suite asserts. `updatedAt` is
+ * the version a decision must name; a mismatch answers 409 like the API.
+ */
+const moderationQueue = [
+  { id: "mod-1", rating: 5, body: "کد بلافاصله رسید، ممنون از پشتیبانی سریع.", status: "PENDING", isVerifiedBuyer: true, authorNameFa: "مریم ک.", customerCode: "BP-7H2K9Q", target: { itemType: "PRODUCT", titleFa: "گیفت‌کارت استیم", href: "/gift-cards/steam-wallet" }, createdAt: "2026-10-17T08:00:00.000Z", updatedAt: "2026-10-17T08:00:00.000Z", moderatedAt: null, moderatedByName: null },
+  { id: "mod-2", rating: 1, body: "برای خرید بیشتر به شماره ۰۹۱۲۰۰۰۰۰۰۰ پیام بدهید.", status: "PENDING", isVerifiedBuyer: false, authorNameFa: "کاربر سنتو", customerCode: "BP-3M8X1Z", target: { itemType: "TOPUP_GAME", titleFa: "پابجی موبایل", href: "/games/pubg-mobile" }, createdAt: "2026-10-17T09:30:00.000Z", updatedAt: "2026-10-17T09:30:00.000Z", moderatedAt: null, moderatedByName: null },
+  { id: "mod-3", rating: 4, body: null, status: "APPROVED", isVerifiedBuyer: true, authorNameFa: "رضا ن.", customerCode: "BP-9Q4W2E", target: { itemType: "SERVICE", titleFa: "پرداخت سرویس میزبانی", href: "/services/hosting-payment" }, createdAt: "2026-10-15T12:00:00.000Z", updatedAt: "2026-10-16T07:00:00.000Z", moderatedAt: "2026-10-16T07:00:00.000Z", moderatedByName: "پشتیبانی سنتو" },
+];
+
+function staffSignedIn(request) {
+  /* The admin panel's own cookie name; it does not contain `barat_session=`,
+   * so a staff session never reads as a customer one here. */
+  return (request.headers.cookie ?? "").includes("barat_staff_session=");
+}
+
 function reviewSummary(items) {
   const distribution = [0, 0, 0, 0, 0];
   for (const item of items) distribution[item.rating - 1] += 1;
@@ -318,6 +335,33 @@ createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
     return json(response, 201, quoteFor(JSON.parse(text || "{}")));
+  }
+  if (url.pathname === "/api/auth/staff/me" || url.pathname.startsWith("/api/admin/reviews")) {
+    if (!staffSignedIn(request)) return json(response, 401, { code: "UNAUTHENTICATED", message: "ابتدا وارد شوید." });
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/staff/me") {
+    return json(response, 200, { id: "staff-e2e", email: "support@centohub.com", role: "SUPPORT" });
+  }
+  if (request.method === "GET" && url.pathname === "/api/admin/reviews") {
+    const status = url.searchParams.get("status") ?? "PENDING";
+    const counts = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
+    for (const review of moderationQueue) counts[review.status] += 1;
+    const items = moderationQueue.filter((review) => review.status === status);
+    return json(response, 200, { items, counts, page: 1, totalPages: 1 });
+  }
+  const decisionRoute = /^\/api\/admin\/reviews\/([^/]+)\/decision$/u.exec(url.pathname);
+  if (request.method === "POST" && decisionRoute) {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const input = JSON.parse(text || "{}");
+    const review = moderationQueue.find((item) => item.id === decodeURIComponent(decisionRoute[1]));
+    if (!review) return json(response, 404, { code: "NOT_FOUND", message: "Not found" });
+    if (review.updatedAt !== input.expectedUpdatedAt) {
+      return json(response, 409, { code: "CONFLICT", message: "این دیدگاه پس از بارگذاری صفحه تغییر کرده است. صفحه را تازه کنید و دوباره بررسی کنید." });
+    }
+    const now = new Date().toISOString();
+    Object.assign(review, { status: input.decision, moderatedAt: now, moderatedByName: "support@centohub.com", updatedAt: now });
+    return json(response, 200, { status: input.decision });
   }
   if (request.method === "GET" && url.pathname === "/api/reviews") {
     const items = approvedReviews[`${url.searchParams.get("itemType")}:${url.searchParams.get("itemSlug")}`] ?? [];

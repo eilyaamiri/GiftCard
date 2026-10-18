@@ -45,3 +45,28 @@ export const submitReviewRequestSchema = z.object({
     .transform((value) => (value === undefined || value === null || value === '' ? null : value)),
 });
 export type SubmitReviewRequest = z.infer<typeof submitReviewRequestSchema>;
+
+/* ------------------------------------------------------------ moderation */
+
+export const REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as const;
+export const ADMIN_REVIEWS_PAGE_SIZE = 20;
+
+export const adminListReviewsQuerySchema = z.object({
+  status: z.enum(REVIEW_STATUSES).default('PENDING'),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+});
+export type AdminListReviewsQuery = z.infer<typeof adminListReviewsQuerySchema>;
+
+export const reviewIdParamSchema = z.object({ id: z.string().trim().min(1).max(64) });
+export type ReviewIdParam = z.infer<typeof reviewIdParamSchema>;
+
+/**
+ * The version of the review the moderator actually read. A customer can edit
+ * while the queue is open; approving without this would publish text nobody
+ * looked at, so a stale version is refused rather than applied.
+ */
+export const moderateReviewSchema = z.object({
+  decision: z.enum(['APPROVED', 'REJECTED']),
+  expectedUpdatedAt: z.iso.datetime({ offset: true }),
+});
+export type ModerateReviewInput = z.infer<typeof moderateReviewSchema>;
