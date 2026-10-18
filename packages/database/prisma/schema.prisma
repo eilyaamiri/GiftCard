@@ -630,6 +630,30 @@ enum ReviewStatus {
   REJECTED
 }
 
+/// Per-product FAQ, asked by any customer and answered by staff.
+/// Exactly one of productId / topUpGameId / serviceId is non-null.
+model ProductFaq {
+  id          String  @id @default(cuid())
+  productId   String?
+  topUpGameId String?
+  serviceId   String?
+  question    String
+  answer      String
+  isEnabled   Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product   Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  topUpGame TopUpGame?            @relation("TopUpGameFaqs", fields: [topUpGameId], references: [id], onDelete: Cascade)
+  service   InternationalService? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([productId, isEnabled, sortOrder])
+  @@index([topUpGameId, isEnabled, sortOrder])
+  @@index([serviceId, isEnabled, sortOrder])
+}
+
 // ===========================================================================
 // GROUP 2 — STAFF, TEAMS & QUEUES
 // ===========================================================================
@@ -882,6 +906,7 @@ model Product {
   extraCategories ProductCategory[]
   categoryLinks   CategoryLink[]
   reviews         ProductReview[]
+  faqs            ProductFaq[]
 
   @@index([category, isActive, sortOrder])
   @@index([brand, isActive])
@@ -994,6 +1019,7 @@ model InternationalService {
   quotes    Quote[]
   categoryLinks CategoryLink[]
   reviews       ProductReview[]
+  faqs          ProductFaq[]
 
   @@index([category, isActive, sortOrder])
 }
@@ -1072,6 +1098,7 @@ model TopUpGame {
   offers   TopUpOffer[]
   categoryLinks CategoryLink[]
   reviews       ProductReview[]
+  faqs          ProductFaq[]   @relation("TopUpGameFaqs")
 
   @@unique([supplierId, providerCategoryId])
   @@index([isActive, isListed, sortOrder])

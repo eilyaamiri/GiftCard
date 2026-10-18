@@ -518,6 +518,42 @@ export const updateInternationalServiceSchema = patchSchema(
 export const createServiceFieldSchema = serviceFieldInputSchema.extend({ serviceId: idSchema });
 export const updateServiceFieldSchema = patchSchema(serviceFieldInputSchema.shape);
 
+/* ================================================================ product FAQ
+ * Per-product frequently asked questions. Displayed on the product page (like
+ * reviews); managed by staff through the admin panel.
+ * ==========================================================================*/
+
+export const FAQ_ITEM_TYPES = ['PRODUCT', 'TOPUP_GAME', 'SERVICE'] as const;
+export type FaqItemType = (typeof FAQ_ITEM_TYPES)[number];
+
+/** Matches reviews.schemas' ReviewItemType for consistency. */
+const faqTargetShape = {
+  itemType: z.enum(FAQ_ITEM_TYPES),
+  itemSlug: z.string().trim().min(1).max(160),
+};
+
+export const listFaqsQuerySchema = z.object(faqTargetShape);
+export type ListFaqsQuery = z.infer<typeof listFaqsQuerySchema>;
+
+const productFaqMutableShape = {
+  question: z.string().trim().min(4, 'پرسش را وارد کنید.').max(400),
+  answer: z.string().trim().min(4, 'پاسخ را وارد کنید.').max(4_000),
+  isEnabled: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+};
+
+export const createProductFaqSchema = z.object({
+  ...faqTargetShape,
+  ...productFaqMutableShape,
+});
+export type CreateProductFaqInput = z.infer<typeof createProductFaqSchema>;
+
+export const updateProductFaqSchema = patchSchema(productFaqMutableShape);
+export type UpdateProductFaqInput = z.infer<typeof updateProductFaqSchema>;
+
+export const productFaqIdParamSchema = z.object({ id: idSchema });
+export type ProductFaqIdParam = z.infer<typeof productFaqIdParamSchema>;
+
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
 export type CreateSkuInput = z.infer<typeof createSkuSchema>;

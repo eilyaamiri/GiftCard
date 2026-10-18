@@ -33,16 +33,20 @@ import {
   adminSupplierOfferListSchema,
   adminTopUpGameListSchema,
   createInternationalServiceSchema,
+  createProductFaqSchema,
   createProductSchema,
   createServiceFieldSchema,
   createSkuSchema,
   createSupplierOfferSchema,
   createSupplierSchema,
+  listFaqsQuerySchema,
   mergeBrandsSchema,
+  productFaqIdParamSchema,
   updateBrandSchema,
   updateCategoryLinkSchema,
   updateCategorySchema,
   updateInternationalServiceSchema,
+  updateProductFaqSchema,
   updateProductSchema,
   updateServiceFieldSchema,
   updateSkuSchema,
@@ -66,16 +70,20 @@ import type {
   CreateCategoryInput,
   CreateCategoryLinkInput,
   CreateInternationalServiceInput,
+  CreateProductFaqInput,
   CreateProductInput,
   CreateServiceFieldInput,
   CreateSkuInput,
   CreateSupplierInput,
   CreateSupplierOfferInput,
+  ListFaqsQuery,
   MergeBrandsInput,
+  ProductFaqIdParam,
   UpdateBrandInput,
   UpdateCategoryInput,
   UpdateCategoryLinkInput,
   UpdateInternationalServiceInput,
+  UpdateProductFaqInput,
   UpdateProductInput,
   UpdateServiceFieldInput,
   UpdateSkuInput,
@@ -474,5 +482,31 @@ export class CatalogAdminController {
     @Body(zodPipe(updateServiceFieldSchema)) body: UpdateServiceFieldInput,
   ) {
     return this.catalog.adminUpdateField(params.id, body);
+  }
+
+  /* ---------------------------------------------------- per-product FAQs */
+
+  /** Admin list: all FAQs for a product, including disabled ones. */
+  @Get('faqs')
+  listFaqs(@Query(zodPipe(listFaqsQuerySchema)) query: ListFaqsQuery) {
+    return this.catalog.adminListFaqs(query.itemType, query.itemSlug);
+  }
+
+  @Post('faqs')
+  createFaq(@Body(zodPipe(createProductFaqSchema)) body: CreateProductFaqInput) {
+    return this.catalog.adminCreateFaq(body);
+  }
+
+  @Put('faqs/:id')
+  updateFaq(
+    @Param(zodPipe(productFaqIdParamSchema)) params: ProductFaqIdParam,
+    @Body(zodPipe(updateProductFaqSchema)) body: UpdateProductFaqInput,
+  ) {
+    return this.catalog.adminUpdateFaq(params.id, body);
+  }
+
+  @Delete('faqs/:id')
+  deleteFaq(@Param(zodPipe(productFaqIdParamSchema)) params: ProductFaqIdParam) {
+    return this.catalog.adminDeleteFaq(params.id);
   }
 }

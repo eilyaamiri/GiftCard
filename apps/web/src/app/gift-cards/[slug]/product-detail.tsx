@@ -14,6 +14,7 @@ import { productTabs } from "@/components/product-description";
 import { DeliveryTime } from "@/components/delivery-time";
 import { RatingBadge } from "@/components/star-rating";
 import type { ListReviewsResponse } from "@/lib/reviews";
+import type { ProductFaq } from "@/lib/faqs";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 /**
@@ -33,12 +34,15 @@ export function ProductDetail({
   product,
   initialRegion,
   reviews = null,
+  faqs = null,
 }: {
   readonly product: CatalogProductDetail;
   /** Carried over from the catalog's region filter, when the product still offers it. */
   readonly initialRegion?: string | undefined;
   /** First page of approved reviews, fetched by the server page; null when it failed. */
   readonly reviews?: ListReviewsResponse | null;
+  /** Enabled FAQs, fetched by the server page; null when it failed. */
+  readonly faqs?: readonly ProductFaq[] | null;
 }) {
   const router = useRouter();
   const activeSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
@@ -57,8 +61,9 @@ export function ProductDetail({
     () => productTabs({
       description: product.descriptionFa,
       reviews: { itemType: "PRODUCT", itemSlug: product.slug, initial: reviews },
+      faqs: { itemType: "PRODUCT", itemSlug: product.slug, initial: faqs },
     }),
-    [product.descriptionFa, product.slug, reviews],
+    [product.descriptionFa, product.slug, reviews, faqs],
   );
   const hasDescription = (product.descriptionFa?.trim() ?? "") !== "";
 

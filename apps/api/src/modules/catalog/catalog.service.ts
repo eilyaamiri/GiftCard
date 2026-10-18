@@ -23,12 +23,14 @@ import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-
 import { topUpProviderSku } from '../suppliers/topup-provider-sku';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
 import type {
+  AdminProductFaqDto,
   CatalogProductDto,
   CategoryLinkDto,
   GetCatalogProductResponse,
   ListBrandsResponse,
   ListCatalogProductsResponse,
   ListCategoriesResponse,
+  ProductFaqDto,
 } from './catalog-taxonomy.dto';
 import {
   assignCategorySchema,
@@ -38,6 +40,7 @@ import {
   createCategoryLinkSchema,
   createCategorySchema,
   createInternationalServiceSchema,
+  createProductFaqSchema,
   createProductSchema,
   createServiceFieldSchema,
   createSkuSchema,
@@ -48,6 +51,7 @@ import {
   updateCategoryLinkSchema,
   updateCategorySchema,
   updateInternationalServiceSchema,
+  updateProductFaqSchema,
   updateProductSchema,
   updateServiceFieldSchema,
   updateSkuSchema,
@@ -68,16 +72,19 @@ import {
   type CreateCategoryInput,
   type CreateCategoryLinkInput,
   type CreateInternationalServiceInput,
+  type CreateProductFaqInput,
   type CreateProductInput,
   type CreateServiceFieldInput,
   type CreateSkuInput,
   type CreateSupplierInput,
   type CreateSupplierOfferInput,
+  type FaqItemType,
   type MergeBrandsInput,
   type UpdateBrandInput,
   type UpdateCategoryInput,
   type UpdateCategoryLinkInput,
   type UpdateInternationalServiceInput,
+  type UpdateProductFaqInput,
   type UpdateProductInput,
   type UpdateServiceFieldInput,
   type UpdateSkuInput,
@@ -2078,6 +2085,108 @@ export class CatalogService {
           }),
       ...(field.sortOrder === undefined ? {} : { sortOrder: field.sortOrder }),
     };
+  }
+
+  /* ====================================================================== FAQ
+   * Per-product frequently asked questions. Owned by staff (create/update via
+   * admin controller), read publicly on the storefront.
+   * ========================================================================*/
+
+  /** Enabled FAQs for a product, visible to any visitor. */
+  async listPublicFaqs(itemType: FaqItemType, slug: string): Promise<readonly ProductFaqDto[]> {
+    const target = await this.resolveFaqTarget(itemType, slug);
+    if (target === null) {
+      return [];
+    }
+    const rows = await this.db.productFaq.findMany({
+      where: { ...target, isEnabled: true },
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true, question: true, answer: true },
+    });
+    return rows;
+  }
+
+  /** Admin list: all FAQs for a product, including disabled ones. */
+  async adminListFaqs(itemType: FaqItemType, slug: string): Promise<readonly AdminProductFaqDto[]> {
+    const target = await this.resolveFaqTarget(itemType, slug);
+    if (target === null) {
+      return [];
+    }
+    const rows = await this.db.productFaq.findMany({
+      where: target,
+      orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+      select: { id: true, question: true, answer: true, isEnabled: true, sortOrder: true, createdAt: true, updatedAt: true },
+    });
+    return rows.map((row) => ({
+      ...row,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
+    }));
+  }
+
+  async adminCreateFaq(input: CreateProductFaqInput): Promise<{ id: string }> {
+    const parsed = createProductFaqSchema.parse(input);
+    const target = await this.resolveFaqTarget(parsed.itemType, parsed.itemSlug);
+    if (target === null) {
+      throw DomainErrors.notFound('محصول یافت نشد.');
+    }
+    const faq = await this.db.productFaq.create({
+      data: {
+        ...target,
+        question: parsed.question,
+        answer: parsed.answer,
+        isEnabled: parsed.isEnabled,
+        sortOrder: parsed.sortOrder,
+      },
+      select: { id: true },
+    });
+    return { id: faq.id };
+  }
+
+  async adminUpdateFaq(id: string, input: UpdateProductFaqInput): Promise<{ id: string }> {
+    const parsed = updateProductFaqSchema.parse(input);
+    const existing = await this.db.productFaq.findUnique({ where: { id }, select: { id: true } });
+    if (existing === null) {
+      throw DomainErrors.notFound('سوال یافت نشد.');
+    }
+    await this.db.productFaq.update({
+      where: { id },
+      data: {
+        ...(parsed.question === undefined ? {} : { question: parsed.question }),
+        ...(parsed.answer === undefined ? {} : { answer: parsed.answer }),
+        ...(parsed.isEnabled === undefined ? {} : { isEnabled: parsed.isEnabled }),
+        ...(parsed.sortOrder === undefined ? {} : { sortOrder: parsed.sortOrder }),
+      },
+    });
+    return { id };
+  }
+
+  async adminDeleteFaq(id: string): Promise<void> {
+    const existing = await this.db.productFaq.findUnique({ where: { id }, select: { id: true } });
+    if (existing === null) {
+      throw DomainErrors.notFound('سوال یافت نشد.');
+    }
+    await this.db.productFaq.delete({ where: { id } });
+  }
+
+  /** Map itemType + slug to the foreign key column for ProductFaq. */
+  private async resolveFaqTarget(
+    itemType: FaqItemType,
+    slug: string,
+  ): Promise<{ productId: string } | { topUpGameId: string } | { serviceId: string } | null> {
+    if (itemType === 'PRODUCT') {
+      const row = await this.db.product.findUnique({ where: { slug }, select: { id: true } });
+      return row === null ? null : { productId: row.id };
+    }
+    if (itemType === 'TOPUP_GAME') {
+      const row = await this.db.topUpGame.findUnique({ where: { slug }, select: { id: true } });
+      return row === null ? null : { topUpGameId: row.id };
+    }
+    if (itemType === 'SERVICE') {
+      const row = await this.db.internationalService.findUnique({ where: { slug }, select: { id: true } });
+      return row === null ? null : { serviceId: row.id };
+    }
+    return null;
   }
 }
 

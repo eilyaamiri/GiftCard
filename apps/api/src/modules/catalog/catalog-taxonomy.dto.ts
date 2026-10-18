@@ -117,3 +117,25 @@ export interface ListCatalogProductsResponse {
     readonly totalPages: number;
   };
 }
+
+/* ============================================================================
+ * Per-product FAQ
+ * ==========================================================================*/
+
+/** What the storefront shows: enabled FAQs only, no metadata. */
+export interface ProductFaqDto {
+  readonly id: string;
+  readonly question: string;
+  readonly answer: string;
+}
+
+/** What the admin panel sees: full details to edit. */
+export interface AdminProductFaqDto {
+  readonly id: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly isEnabled: boolean;
+  readonly sortOrder: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+}

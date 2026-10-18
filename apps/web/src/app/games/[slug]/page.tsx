@@ -33,8 +33,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function GamePage({ params }: Params) {
   const { slug } = await params;
-  /* Started alongside the game lookup; a failure costs only the reviews. */
+  /* Started alongside the game lookup; a failure costs only the reviews/FAQs. */
   const reviewsPromise = api.reviews("TOPUP_GAME", slug).catch(() => null);
+  const faqsPromise = api.faqs("TOPUP_GAME", slug).catch(() => null);
   const lookup = await getGameTopUp(slug);
   if (lookup.kind === "telegram") redirect("/telegram");
   if (lookup.kind === "steam") redirect("/steam");
@@ -45,9 +46,11 @@ export default async function GamePage({ params }: Params) {
   const image = gameImageUrl(game);
   const region = regionLabel(game.region);
   const reviews = await reviewsPromise;
+  const faqs = await faqsPromise;
   const infoTabs = productTabs({
     description: game.descriptionFa,
     reviews: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: reviews },
+    faqs: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: faqs },
   });
   const hasDescription = (game.descriptionFa?.trim() ?? "") !== "";
 

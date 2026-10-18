@@ -696,6 +696,21 @@ a { color:inherit; text-decoration:none; }
 .order-review-prompt strong { color:var(--text-primary); }
 .order-review-prompt p { margin:4px 0 0; font-size:13px; }
 .order-review-mine { display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+/* --------------------------------------------------------------------------
+ * Per-product FAQ (accordion on the product page)
+ *
+ * Uses button+div instead of <details> for controlled open state.
+ * --------------------------------------------------------------------------*/
+.faqs { display:grid; gap:22px; }
+.faqs .faq-list { margin:0; padding:0; list-style:none; overflow:hidden; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:18px; box-shadow:var(--shadow-sm); }
+.faqs .faq-item + .faq-item { border-top:1px solid var(--border-secondary); }
+.faqs .faq-question { display:flex; width:100%; align-items:center; justify-content:space-between; gap:18px; padding:19px 22px; background:transparent; border:0; color:var(--text-primary); font-size:15px; font-weight:800; line-height:1.7; text-align:start; cursor:pointer; transition:color .18s ease,background-color .18s ease; }
+.faqs .faq-question:hover { color:var(--interactive-accent-text); }
+.faqs .faq-question:focus-visible { outline:3px solid color-mix(in srgb,var(--interactive-accent) 42%,transparent); outline-offset:-3px; border-radius:6px; }
+.faqs .faq-question.open { background:var(--background-secondary); }
+.faqs .faq-chevron { flex:0 0 auto; color:var(--text-secondary); transition:transform .24s cubic-bezier(.2,.8,.2,1),color .18s ease; }
+.faqs .faq-question.open .faq-chevron { color:var(--interactive-accent-text); transform:rotate(180deg); }
+.faqs .faq-answer { padding:0 22px 21px; max-width:68ch; color:var(--text-secondary); font-size:14px; line-height:2; background:var(--background-secondary); white-space:pre-line; }
 .price { color:var(--text-primary); font-weight:900; font-size:17px; }
 .steps { grid-template-columns:repeat(3,1fr); }
 .step { position:relative; padding:25px; }

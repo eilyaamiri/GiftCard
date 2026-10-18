@@ -14,6 +14,7 @@ import { DeliveryTime } from "@/components/delivery-time";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 import { RatingBadge } from "@/components/star-rating";
 import type { ListReviewsResponse } from "@/lib/reviews";
+import type { ProductFaq } from "@/lib/faqs";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -57,10 +58,13 @@ function isHttpUrl(value: string): boolean {
 export function ServiceForm({
   service,
   reviews = null,
+  faqs = null,
 }: {
   readonly service: InternationalServiceDto;
   /** First page of approved reviews, fetched by the server page; null when it failed. */
   readonly reviews?: ListReviewsResponse | null;
+  /** Enabled FAQs, fetched by the server page; null when it failed. */
+  readonly faqs?: readonly ProductFaq[] | null;
 }) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
@@ -245,6 +249,7 @@ export function ServiceForm({
         tabs={productTabs({
           description: service.descriptionFa,
           reviews: { itemType: "SERVICE", itemSlug: service.slug, initial: reviews },
+          faqs: { itemType: "SERVICE", itemSlug: service.slug, initial: faqs },
         })}
       />
     </main>

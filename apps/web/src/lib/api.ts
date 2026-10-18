@@ -1,5 +1,10 @@
 import { z } from "zod";
 import {
+  listFaqsResponseSchema,
+  type FaqItemType,
+  type ListFaqsResponse,
+} from "./faqs";
+import {
   listReviewsResponseSchema,
   myReviewSchema,
   orderReviewTargetSchema,
@@ -455,6 +460,14 @@ export const api = {
       `/api/account/reviews/for-order/${encodeURIComponent(orderNumber)}`,
       undefined,
       orderReviewTargetSchema.nullable(),
+    ),
+
+  /** Enabled FAQs for a product; public. */
+  faqs: (itemType: FaqItemType, itemSlug: string) =>
+    request<ListFaqsResponse>(
+      `/api/catalog/faqs?${new URLSearchParams({ itemType, itemSlug }).toString()}`,
+      undefined,
+      listFaqsResponseSchema,
     ),
 
   get: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, undefined, schema),
