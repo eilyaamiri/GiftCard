@@ -10,6 +10,7 @@ import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ServiceArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 import { descriptionTabs } from "@/components/product-description";
+import { DeliveryTime } from "@/components/delivery-time";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
@@ -223,7 +224,8 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
           </div>
         ))}
         {submitError ? <div className="alert warn" style={{ marginBottom: 16 }}>{submitError}</div> : null}
-        <button type="submit" className="btn btn-primary" style={{ width: "100%" }} disabled={submitting}>
+        <DeliveryTime minutes={service.deliveryMinutes} />
+        <button type="submit" className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} disabled={submitting}>
           {submitting ? "در حال محاسبه قیمت..." : "دریافت قیمت"}
         </button>
       </form>

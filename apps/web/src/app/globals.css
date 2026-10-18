@@ -635,6 +635,11 @@ a { color:inherit; text-decoration:none; }
 .product-info-description { max-width:72ch; color:var(--text-secondary); font-size:15px; line-height:2.1; }
 .product-info-description p { margin:0 0 14px; white-space:pre-line; }
 .product-info-description p:last-child { margin-bottom:0; }
+/* The delivery promise beside an order button: quiet text, the value in the
+ * primary ink so it reads as a fact rather than a badge. */
+.delivery-time { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--text-secondary); font-size:13px; }
+.delivery-time strong { color:var(--text-primary); font-weight:800; }
+.delivery-time svg { flex:0 0 auto; color:var(--text-secondary); }
 .price { color:var(--text-primary); font-weight:900; font-size:17px; }
 .steps { grid-template-columns:repeat(3,1fr); }
 .step { position:relative; padding:25px; }

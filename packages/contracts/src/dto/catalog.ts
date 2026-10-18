@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { serviceFieldTypeSchema } from '../enums/commerce';
 import { deliveryAssetTypeSchema } from '../enums/operations';
 import { positiveDecimalStringSchema, positiveIrrStringSchema } from '../money/schemas';
-import { idSchema, isoDateTimeSchema, paginationMetaSchema } from './common';
+import { deliveryMinutesSchema, idSchema, isoDateTimeSchema, paginationMetaSchema } from './common';
 
 /* ============================================================================
  * SKU
@@ -64,6 +64,8 @@ export const productDetailDtoSchema = productDtoSchema.extend({
   skus: z.array(skuDtoSchema),
   /** Persian redemption instructions shown before purchase. */
   redemptionNotesFa: z.string().nullable(),
+  /** Advertised delivery time in minutes; see DELIVERY_TIME_PRESETS. Defaults so an older payload still parses. */
+  deliveryMinutes: deliveryMinutesSchema.nullable().default(null),
 });
 export type ProductDetailDto = z.infer<typeof productDetailDtoSchema>;
 
@@ -133,6 +135,8 @@ export const internationalServiceDtoSchema = z.object({
   maxAmount: positiveDecimalStringSchema.nullable(),
   isActive: z.boolean(),
   requiresManualReview: z.boolean(),
+  /** Advertised delivery time in minutes; see DELIVERY_TIME_PRESETS. */
+  deliveryMinutes: deliveryMinutesSchema.nullable().default(null),
   fields: z.array(serviceFieldDefinitionDtoSchema),
 });
 export type InternationalServiceDto = z.infer<typeof internationalServiceDtoSchema>;

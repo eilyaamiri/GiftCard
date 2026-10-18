@@ -7,6 +7,7 @@ import { Loader2 } from "lucide-react";
 import { ApiClientError } from "@/lib/api";
 import { createQuote } from "@/app/checkout/purchase";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { DeliveryTime } from "@/components/delivery-time";
 import {
   buildAccountFields,
   inputKindOf,
@@ -41,7 +42,8 @@ function fieldLabel(field: TopUpField): string {
 export function GameOrderForm({
   offers,
   fields,
-}: Readonly<{ offers: readonly GameOffer[]; fields: readonly TopUpField[] }>) {
+  deliveryMinutes = null,
+}: Readonly<{ offers: readonly GameOffer[]; fields: readonly TopUpField[]; deliveryMinutes?: number | null | undefined }>) {
   const router = useRouter();
   const ordered = [...fields].sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0));
   const [selected, setSelected] = useState<string | null>(offers.length === 1 ? (offers[0]?.id ?? null) : null);
@@ -170,6 +172,7 @@ export function GameOrderForm({
 
       {submitError ? <p className="alert warn tg-form-error" role="alert">{submitError}</p> : null}
 
+      <DeliveryTime minutes={deliveryMinutes} />
       <button type="submit" className="btn btn-primary tg-submit" disabled={submitting}>
         {submitting ? (
           <>

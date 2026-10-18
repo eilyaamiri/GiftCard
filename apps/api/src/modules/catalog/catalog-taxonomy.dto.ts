@@ -93,7 +93,7 @@ export interface CatalogProductDto extends ProductDto {
 /** The product page's payload: the detail contract plus the taxonomy keys. */
 export interface CatalogProductDetailDto
   extends CatalogProductDto,
-    Pick<ProductDetailDto, 'redemptionNotesFa' | 'skus'> {}
+    Pick<ProductDetailDto, 'redemptionNotesFa' | 'deliveryMinutes' | 'skus'> {}
 
 export interface GetCatalogProductResponse {
   readonly product: CatalogProductDetailDto;

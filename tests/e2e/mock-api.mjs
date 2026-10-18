@@ -22,7 +22,7 @@ const products = [
     descriptionFa: "اعتبار استیم برای خرید بازی و محتوای دیجیتال.", category: "Gaming", imageUrl: null, isActive: true,
     sortOrder: 1, regions: ["US", "UK"], createdAt: now,
     brandSlug: "steam", brandNameFa: "استیم", categorySlug: "gaming", categoryNameFa: "بازی و گیم", categoryIconKey: "gamepad-2",
-    needsReview: false, isQuickPick: true,
+    needsReview: false, isQuickPick: true, deliveryMinutes: 0,
   },
   {
     id: "product-apple", slug: "apple-us", brand: "Apple", title: "Apple Gift Card", titleFa: "گیفت‌کارت اپل", description: null,
@@ -80,7 +80,7 @@ const steam = {
 };
 
 const services = [{
-  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", descriptionFa: "پرداخت هزینهٔ سرویس میزبانی وب با ریال.", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false,
+  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", descriptionFa: "پرداخت هزینهٔ سرویس میزبانی وب با ریال.", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false, deliveryMinutes: 60,
   fields: [{ id: "field-invoice", key: "invoiceNumber", label: "Invoice number", labelFa: "شماره فاکتور", fieldType: "TEXT", isRequired: true, validationRegex: null, helpTextFa: "شمارهٔ فاکتور را از صفحهٔ پرداخت کپی کنید.", options: null, sortOrder: 0 }],
 }];
 
@@ -97,7 +97,7 @@ const services = [{
 const topUpGames = [
   {
     id: "topup-pubg", slug: "pubg-mobile", name: "PUBG Mobile", nameFa: "پابجی موبایل", brandName: "PUBG", region: "GLOBAL", imageUrl: null, offerCount: 2,
-    descriptionFa: null, providerNote: null,
+    descriptionFa: null, providerNote: null, deliveryMinutes: 15,
     fields: [{ key: "player_id", label: "Player ID", labelFa: "شناسه بازیکن", fieldType: "TEXT", isRequired: true, options: null, validationRegex: "^[0-9]{5,12}$", helpTextFa: "شناسه را از پروفایل بازی کپی کنید.", sortOrder: 0 }],
     offers: [
       { id: "offer-pubg-60", name: "60 UC", nameFa: "۶۰ یوسی", isAvailable: true, sortOrder: 0 },

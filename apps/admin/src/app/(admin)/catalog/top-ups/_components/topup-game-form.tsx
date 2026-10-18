@@ -6,6 +6,7 @@ import { ApiClientError, api } from "@/lib/api";
 import { toSquareCover } from "@/lib/square-image";
 import type { AdminTopUpGameDetail } from "../../_lib/catalog-contracts";
 import { FormError } from "../../_components/form-error";
+import { DeliveryTimeSelect } from "../../_components/delivery-time-select";
 
 /**
  * Curation for one top-up game.
@@ -22,6 +23,7 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
   const [brandName, setBrandName] = useState(game.brandName ?? "");
   const [descriptionFa, setDescriptionFa] = useState(game.descriptionFa ?? "");
   const [providerNote, setProviderNote] = useState(game.providerNote ?? "");
+  const [deliveryMinutes, setDeliveryMinutes] = useState<number | null>(game.deliveryMinutes ?? null);
   const [isActive, setIsActive] = useState(game.isActive);
   const [sortOrder, setSortOrder] = useState(String(game.sortOrder));
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -63,6 +65,7 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
         brandName: brandName.trim() || null,
         descriptionFa: descriptionFa.trim() || null,
         providerNote: providerNote.trim() || null,
+        deliveryMinutes,
         isActive,
         sortOrder: Number(sortOrder) || 0,
       });
@@ -101,6 +104,7 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
             <option value="false">غیرفعال</option>
           </select>
         </label>
+        <DeliveryTimeSelect value={deliveryMinutes} onChange={setDeliveryMinutes} />
       </div>
       <div className="form-grid" style={{ marginTop: 13 }}>
         <label>

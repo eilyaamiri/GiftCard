@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { z } from 'zod';
 
-import { deliveryAssetTypeSchema } from '@barat/contracts';
+import { deliveryAssetTypeSchema, deliveryMinutesInputSchema } from '@barat/contracts';
 
 const idSchema = z.string().min(1).max(64);
 const currencySchema = z.string().regex(/^[A-Z]{3}$/u);
@@ -269,6 +269,8 @@ const productShape = {
   descriptionFa: z.string().max(4_000).nullable().optional(),
   imageUrl: z.url().max(2_000).nullable().optional(),
   redemptionNotesFa: z.string().max(4_000).nullable().optional(),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   isActive: z.boolean().default(true),
   /** Data is incomplete: still listed, but not orderable. */
   needsReview: z.boolean().default(false),
@@ -423,6 +425,8 @@ const topUpGameMutableShape = {
   descriptionFa: z.string().max(4_000).nullable(),
   providerNote: z.string().max(4_000).nullable(),
   imageUrl: z.url().max(2_000).nullable(),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema,
   isActive: z.boolean().default(false),
   sortOrder: z.number().int().min(0).default(0),
 };
@@ -476,6 +480,8 @@ const internationalServiceMutableShape = {
   maxAmount: nonNegativeDecimalSchema.nullable().optional(),
   isActive: z.boolean().default(true),
   requiresManualReview: z.boolean().default(true),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   sortOrder: z.number().int().default(0),
 };
 

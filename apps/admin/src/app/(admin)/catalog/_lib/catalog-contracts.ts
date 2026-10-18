@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { deliveryAssetTypeSchema, idSchema, isoDateTimeSchema, paginatedSchema } from "@barat/contracts";
+import {
+  deliveryAssetTypeSchema,
+  deliveryMinutesInputSchema,
+  deliveryMinutesSchema,
+  idSchema,
+  isoDateTimeSchema,
+  paginatedSchema,
+} from "@barat/contracts";
 
 /**
  * Wire shapes for `/api/admin/catalog/*`.
@@ -295,6 +302,7 @@ export const adminProductSchema = z.object({
   category: z.string().min(1),
   imageUrl: z.string().nullable(),
   redemptionNotesFa: z.string().nullable().optional(),
+  deliveryMinutes: deliveryMinutesSchema.nullable().optional(),
   isActive: z.boolean(),
   /** Data is incomplete: still listed on the storefront, but not orderable. */
   needsReview: z.boolean().default(false),
@@ -328,6 +336,7 @@ const productMutableFields = {
   descriptionFa: z.string().max(4_000).nullable().optional(),
   imageUrl: z.url().max(2_000).nullable().optional(),
   redemptionNotesFa: z.string().max(4_000).nullable().optional(),
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   isActive: z.boolean().default(true),
   needsReview: z.boolean().default(false),
   isQuickPick: z.boolean().default(false),
@@ -609,6 +618,7 @@ export const adminServiceSchema = z.object({
   maxAmount: decimalStringSchema.nullable(),
   isActive: z.boolean(),
   requiresManualReview: z.boolean(),
+  deliveryMinutes: deliveryMinutesSchema.nullable().optional(),
   sortOrder: z.number().int(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,
@@ -629,6 +639,7 @@ const serviceMutableFields = {
   maxAmount: decimalStringSchema.nullable().optional(),
   isActive: z.boolean().default(true),
   requiresManualReview: z.boolean().default(true),
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   sortOrder: z.coerce.number().int().default(0),
 };
 export const createServiceRequestSchema = z.object(serviceMutableFields);
@@ -796,6 +807,7 @@ export const adminTopUpGameSchema = z.object({
   imageUrl: z.string().nullable(),
   descriptionFa: z.string().nullable(),
   providerNote: z.string().nullable(),
+  deliveryMinutes: deliveryMinutesSchema.nullable().optional(),
   /** The operator's curation switch — what this screen is for. */
   isActive: z.boolean(),
   /** The venue's answer. Read-only here; the sync owns it. */
@@ -855,6 +867,7 @@ const topUpGameMutableFields = {
   brandName: z.string().trim().min(1).max(240).nullable(),
   descriptionFa: z.string().max(4_000).nullable(),
   providerNote: z.string().max(4_000).nullable(),
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   imageUrl: z.string().max(2_000).nullable(),
   isActive: z.boolean(),
   sortOrder: z.coerce.number().int().min(0),

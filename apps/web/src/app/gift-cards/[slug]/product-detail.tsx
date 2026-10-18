@@ -11,6 +11,7 @@ import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 import { descriptionTabs } from "@/components/product-description";
+import { DeliveryTime } from "@/components/delivery-time";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 /**
@@ -151,6 +152,7 @@ export function ProductDetail({
           {!selected.isAvailable ? (
             <div className="alert warn" style={{ marginTop: 14 }}>این مبلغ در حال حاضر موجود نیست. لطفاً مبلغ یا منطقه دیگری را انتخاب کنید.</div>
           ) : null}
+          <DeliveryTime minutes={product.deliveryMinutes} />
           <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={getPrice} disabled={loading || !selected.isAvailable}>
             {loading ? "در حال محاسبه..." : error ? "تلاش دوباره برای دریافت قیمت" : "دریافت قیمت نهایی"}
           </button>

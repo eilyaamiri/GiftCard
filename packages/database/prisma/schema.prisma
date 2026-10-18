@@ -813,6 +813,10 @@ model Product {
   categoryId    String?
   imageUrl      String?
   redemptionNotesFa String?
+  /// Advertised delivery time in minutes, shown beside the buy button. 0 is
+  /// «آنی»; null shows nothing. Admin picks from DELIVERY_TIME_PRESETS in
+  /// @barat/contracts — a promise to the customer, not a measured SLA.
+  deliveryMinutes Int?
   isActive      Boolean @default(true)
   /// Incomplete data. Visible in the catalog, but the buy CTA is disabled and
   /// the admin list flags it as «نیازمند تکمیل اطلاعات».
@@ -929,6 +933,8 @@ model InternationalService {
   maxAmount            Decimal? @db.Decimal(18, 6)
   isActive             Boolean @default(true)
   requiresManualReview Boolean @default(true)
+  /// Advertised delivery time in minutes; see `Product.deliveryMinutes`.
+  deliveryMinutes      Int?
   sortOrder            Int     @default(0)
 
   createdAt DateTime @default(now())
@@ -1002,6 +1008,9 @@ model TopUpGame {
   /// The venue wants the customer's login (email + password). Never sold in
   /// phase 1; the quote path refuses these games outright.
   requiresCredentials Boolean @default(false)
+  /// Advertised delivery time in minutes; see `Product.deliveryMinutes`.
+  /// Operator-curated, so a catalogue sync never writes it.
+  deliveryMinutes    Int?
   sortOrder          Int      @default(0)
   lastSyncedAt       DateTime?
 

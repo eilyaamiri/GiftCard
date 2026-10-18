@@ -215,6 +215,7 @@ const SERVICE_PUBLIC_SELECT = {
   maxAmount: true,
   isActive: true,
   requiresManualReview: true,
+  deliveryMinutes: true,
   fields: { orderBy: { sortOrder: 'asc' }, select: SERVICE_FIELD_PUBLIC_SELECT },
 } satisfies Prisma.InternationalServiceSelect;
 
@@ -492,6 +493,7 @@ export class CatalogService {
       select: {
         ...PRODUCT_PUBLIC_SELECT,
         redemptionNotesFa: true,
+        deliveryMinutes: true,
         skus: {
           where: { isActive: true },
           select: SKU_PUBLIC_SELECT,
@@ -517,6 +519,7 @@ export class CatalogService {
       product: {
         ...this.toProductDto(product, regions),
         redemptionNotesFa: product.redemptionNotesFa,
+        deliveryMinutes: product.deliveryMinutes,
         skus: visibleSkus.map((sku) => this.toSkuDto(sku, availableSkuIds.has(sku.id))),
       },
     };
@@ -662,6 +665,7 @@ export class CatalogService {
         imageUrl: true,
         providerNote: true,
         descriptionFa: true,
+        deliveryMinutes: true,
         offers: {
           where: topUpOfferVisible,
           select: {
@@ -709,6 +713,7 @@ export class CatalogService {
         offerCount: game.offers.length,
         providerNote: game.providerNote,
         descriptionFa: game.descriptionFa,
+        deliveryMinutes: game.deliveryMinutes,
         fields: game.fields.map((field) => ({
           ...field,
           options: readTopUpFieldOptions(field.options),
@@ -1988,6 +1993,7 @@ export class CatalogService {
     maxAmount: DecimalLike | null;
     isActive: boolean;
     requiresManualReview: boolean;
+    deliveryMinutes: number | null;
     fields: ReadonlyArray<{
       id: string;
       key: string;
@@ -2013,6 +2019,7 @@ export class CatalogService {
       maxAmount: row.maxAmount === null ? null : (decimalString(row.maxAmount) as DecimalString),
       isActive: row.isActive,
       requiresManualReview: row.requiresManualReview,
+      deliveryMinutes: row.deliveryMinutes,
       fields: row.fields.map((field) => ({
         id: field.id,
         key: field.key,

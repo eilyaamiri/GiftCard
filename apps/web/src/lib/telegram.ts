@@ -79,6 +79,7 @@ export type TopUpGameSummary = z.infer<typeof topUpGameSummarySchema>;
 export const topUpGameDetailSchema = topUpGameSummarySchema.extend({
   providerNote: z.string().nullable().optional(),
   descriptionFa: z.string().nullable().optional(),
+  deliveryMinutes: z.number().int().min(0).nullable().optional(),
   fields: z.array(topUpFieldSchema).optional(),
   offers: z.array(topUpOfferSchema).optional(),
 });

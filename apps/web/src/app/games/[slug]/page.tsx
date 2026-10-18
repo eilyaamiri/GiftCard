@@ -84,6 +84,7 @@ export default async function GamePage({ params }: Params) {
           hint: offer.nameFa?.trim() ? offer.name : null,
         }))}
         fields={game.fields ?? []}
+        deliveryMinutes={game.deliveryMinutes}
       />
 
       <p className="tg-order-foot">
