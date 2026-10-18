@@ -31,7 +31,7 @@ keys at minimum:
 | Public URLs                | `API_PUBLIC_URL`, `WEB_PUBLIC_URL`, `ADMIN_PUBLIC_URL`                                                                                                                                             |
 | Secrets                    | `SESSION_JWT_SECRET`, `GIFT_CARD_ENCRYPTION_KEY`                                                                                                                                                   |
 | OTP policy                 | `OTP_LENGTH`, `OTP_TTL_SECONDS`, `OTP_RESEND_SECONDS`, `OTP_MAX_ATTEMPTS`, `OTP_MAX_REQUESTS_PER_HOUR`                                                                                             |
-| Pricing                    | `FX_STALE_THRESHOLD_SECONDS`, `QUOTE_TTL_SECONDS`                                                                                                                                                  |
+| Pricing                    | `FX_STALE_THRESHOLD_SECONDS` — quote lifetime is not an env var; it is `PricingRule.quoteTtlSeconds`, set in the admin panel                                                                        |
 | Worker                     | `WORKER_CONCURRENCY`                                                                                                                                                                               |
 | ZarinPal                   | `ZARINPAL_ENABLED`, `ZARINPAL_MERCHANT_ID`, `ZARINPAL_REQUEST_URL`, `ZARINPAL_VERIFY_URL`, `ZARINPAL_STARTPAY_URL`, `ZARINPAL_CALLBACK_URL`, `ZARINPAL_REQUEST_TIMEOUT_MS`, `ZARINPAL_AMOUNT_UNIT` |
 

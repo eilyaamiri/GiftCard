@@ -147,7 +147,13 @@ export const envSchema = z
 
     /* ------------------------------------------------------------ FX / quotes */
     FX_STALE_THRESHOLD_SECONDS: positiveInt.max(86_400).default(900),
-    QUOTE_TTL_SECONDS: positiveInt.min(30).max(3_600).default(600),
+    /*
+     * How long a quote stays payable is NOT an environment setting: it is
+     * `PricingRule.quoteTtlSeconds`, edited per rule in the admin panel and
+     * snapshotted onto the quote. A `QUOTE_TTL_SECONDS` used to be declared
+     * here and read by nothing, so setting it on a server looked like a change
+     * and silently was not one.
+     */
   })
   .superRefine((env, ctx) => {
     /* ZarinPal is either fully configured or fully off — never half-configured. */
@@ -204,17 +210,6 @@ export const envSchema = z
         code: 'custom',
         path: ['OTP_DEV_FIXED_CODE'],
         message: `OTP_DEV_FIXED_CODE must be exactly OTP_LENGTH (${env.OTP_LENGTH}) digits`,
-      });
-    }
-
-    /* A quote must never outlive the FX rate it was priced with. */
-    if (env.QUOTE_TTL_SECONDS > env.FX_STALE_THRESHOLD_SECONDS) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['QUOTE_TTL_SECONDS'],
-        message:
-          'QUOTE_TTL_SECONDS must not exceed FX_STALE_THRESHOLD_SECONDS — a quote may not outlive ' +
-          'the FX rate that produced it',
       });
     }
 

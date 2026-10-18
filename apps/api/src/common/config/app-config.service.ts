@@ -157,9 +157,8 @@ export class AppConfigService {
     return this.get('FX_STALE_THRESHOLD_SECONDS');
   }
 
-  get quoteTtlSeconds(): number {
-    return this.get('QUOTE_TTL_SECONDS');
-  }
+  /* No `quoteTtlSeconds` here on purpose: a quote's lifetime comes from the
+   * PricingRule it was priced with, never from the environment. */
 
   /* ----------------------------------------------------------------- ZarinPal */
 
