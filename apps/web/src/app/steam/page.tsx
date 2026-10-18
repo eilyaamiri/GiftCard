@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BadgeCheck, Clock3, Info, ShieldCheck } from "lucide-react";
+import { BadgeCheck, Clock3, ShieldCheck } from "lucide-react";
 import { getSteamTopUp, steamLoginField, STEAM_LOGIN_KEY } from "@/lib/steam";
+import { api } from "@/lib/api";
+import { productTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
 import { SteamOrderForm } from "./_components/steam-order-form";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +27,14 @@ export const metadata: Metadata = {
 export default async function SteamPage() {
   const entry = await getSteamTopUp();
   const field = entry === null ? undefined : steamLoginField(entry.game);
+  /* Fetched together; a failure costs only the tabs, never the order form. */
+  const [reviews, faqs] =
+    entry === null
+      ? [null, null]
+      : await Promise.all([
+          api.reviews("TOPUP_GAME", entry.game.slug).catch(() => null),
+          api.faqs("TOPUP_GAME", entry.game.slug).catch(() => null),
+        ]);
 
   return (
     <main>
@@ -60,14 +72,9 @@ export default async function SteamPage() {
           <div className="steam-order">
             <header className="card pad steam-order-head">
               <h2 className="h3">{entry.game.nameFa ?? "شارژ کیف پول استیم"}</h2>
+              <RatingBadge summary={reviews?.summary ?? null} />
               <p className="muted">با شناسهٔ ورود و مبلغ دلاری دلخواه، قیمت نهایی را ببینید.</p>
             </header>
-
-            {entry.game.providerNote ? (
-              <p className="alert tg-order-note">
-                <Info size={14} aria-hidden="true" /> {entry.game.providerNote}
-              </p>
-            ) : null}
 
             <SteamOrderForm
               accountKey={field?.key ?? STEAM_LOGIN_KEY}
@@ -81,6 +88,16 @@ export default async function SteamPage() {
               تحویل پس از تأیید پرداخت و پاسخ تأمین‌کننده انجام می‌شود؛ اگر شارژ انجام نشود، پشتیبانی
               وضعیت سفارش و بازگشت وجه را پیگیری می‌کند.
             </p>
+
+            <ProductInfoTabs
+              title={`دربارهٔ ${entry.game.nameFa ?? "شارژ کیف پول استیم"}`}
+              tabs={productTabs({
+                description: entry.game.descriptionFa,
+                guide: entry.game.providerNote,
+                reviews: { itemType: "TOPUP_GAME", itemSlug: entry.game.slug, initial: reviews },
+                faqs: { itemType: "TOPUP_GAME", itemSlug: entry.game.slug, initial: faqs },
+              })}
+            />
           </div>
         )}
       </section>
