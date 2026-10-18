@@ -1,4 +1,20 @@
 import { z } from "zod";
+import {
+  listFaqsResponseSchema,
+  type FaqItemType,
+  type ListFaqsResponse,
+} from "./faqs";
+import {
+  listReviewsResponseSchema,
+  myReviewSchema,
+  orderReviewTargetSchema,
+  reviewsQuery,
+  type ListReviewsResponse,
+  type MyReview,
+  type OrderReviewTarget,
+  type ReviewItemType,
+  type SubmitReview,
+} from "./reviews";
 import type { CustomerDto, ListServicesResponse, GetQuoteResponse, GetOrderResponse, LogoutResponse, MeResponse, RequestOtpRequest, RequestOtpResponse, VerifyOtpRequest, VerifyOtpResponse } from "@barat/contracts";
 import { listServicesResponseSchema, getQuoteResponseSchema, getOrderResponseSchema, logoutResponseSchema, meResponseSchema, requestOtpResponseSchema, verifyOtpResponseSchema, customerDtoSchema, idSchema, isoDateTimeSchema, orderStatusSchema, paymentStatusSchema, positiveIrrStringSchema, currencyCodeSchema } from "@barat/contracts";
 import {
@@ -425,6 +441,33 @@ export const api = {
       `/api/account/favorites/${encodeURIComponent(itemType)}/${encodeURIComponent(itemSlug)}`,
       { method: "DELETE" },
       z.object({ removed: z.boolean() }),
+    ),
+
+  /** Approved reviews and the approved-only average; public. */
+  reviews: (itemType: ReviewItemType, itemSlug: string, page = 1) =>
+    request<ListReviewsResponse>(`/api/reviews?${reviewsQuery(itemType, itemSlug, page)}`, undefined, listReviewsResponseSchema),
+  /** The signed-in customer's own review of one product, whatever its moderation status. */
+  myReview: (itemType: ReviewItemType, itemSlug: string) =>
+    request<MyReview | null>(
+      `/api/account/reviews/mine?${new URLSearchParams({ itemType, itemSlug }).toString()}`,
+      undefined,
+      myReviewSchema.nullable(),
+    ),
+  submitReview: (payload: SubmitReview) =>
+    request<MyReview>("/api/account/reviews", { method: "PUT", body: JSON.stringify(payload) }, myReviewSchema),
+  reviewForOrder: (orderNumber: string) =>
+    request<OrderReviewTarget | null>(
+      `/api/account/reviews/for-order/${encodeURIComponent(orderNumber)}`,
+      undefined,
+      orderReviewTargetSchema.nullable(),
+    ),
+
+  /** Enabled FAQs for a product; public. */
+  faqs: (itemType: FaqItemType, itemSlug: string) =>
+    request<ListFaqsResponse>(
+      `/api/catalog/faqs?${new URLSearchParams({ itemType, itemSlug }).toString()}`,
+      undefined,
+      listFaqsResponseSchema,
     ),
 
   get: <T>(path: string, schema?: z.ZodType<T>) => request<T>(path, undefined, schema),

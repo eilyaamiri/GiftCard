@@ -31,6 +31,13 @@ import { AccountService } from './account.service';
 import { BankDetailsService } from './bank-details.service';
 import { FavoritesService } from './favorites.service';
 import { NotificationsService } from './notifications.service';
+import {
+  reviewTargetQuerySchema,
+  submitReviewRequestSchema,
+  type ReviewTargetQuery,
+  type SubmitReviewRequest,
+} from './reviews.schemas';
+import { ReviewsService, type MyReviewDto, type OrderReviewTargetDto } from './reviews.service';
 import { SupportService, type SupportTicketDto } from './support.service';
 import type {
   AccountFavoriteDto,
@@ -62,6 +69,7 @@ export class AccountController {
     private readonly bankDetails: BankDetailsService,
     private readonly notifications: NotificationsService,
     private readonly favorites: FavoritesService,
+    private readonly reviews: ReviewsService,
   ) {}
 
   @Get('notifications')
@@ -230,5 +238,40 @@ export class AccountController {
       throw DomainErrors.validation([{ path: 'itemType', message: 'Invalid item type' }]);
     }
     return this.favorites.remove(customerId, itemType, itemSlug);
+  }
+
+  @Get('reviews/mine')
+  @ApiOperation({ summary: "The customer's own review of one product, whatever its status" })
+  async myReview(
+    @CurrentCustomer() customerId: string,
+    @Query(zodPipe(reviewTargetQuerySchema)) query: ReviewTargetQuery,
+  ): Promise<MyReviewDto | null> {
+    return this.reviews.mine(customerId, query);
+  }
+
+  /**
+   * Create or replace the customer's review. Always lands PENDING, so nothing
+   * reaches the storefront without a person reading it first.
+   */
+  @Put('reviews')
+  @Throttle({ short: { ttl: 60_000, limit: 10 } })
+  @ApiOperation({ summary: 'Rate and review a product; held for moderation' })
+  async submitReview(
+    @CurrentCustomer() customerId: string,
+    @Body(zodPipe(submitReviewRequestSchema)) body: SubmitReviewRequest,
+  ): Promise<MyReviewDto> {
+    return this.reviews.submit(customerId, body);
+  }
+
+  @Get('reviews/for-order/:orderNumber')
+  @ApiOperation({ summary: 'What a delivered order invites the customer to review, if anything' })
+  async reviewForOrder(
+    @CurrentCustomer() customerId: string,
+    @Param('orderNumber') orderNumber: string,
+  ): Promise<OrderReviewTargetDto | null> {
+    if (!/^[A-Za-z0-9-]{1,40}$/u.test(orderNumber)) {
+      throw DomainErrors.validation([{ path: 'orderNumber', message: 'Invalid order number' }]);
+    }
+    return this.reviews.forOrder(customerId, orderNumber);
   }
 }

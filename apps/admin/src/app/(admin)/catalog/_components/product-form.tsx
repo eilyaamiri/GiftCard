@@ -5,6 +5,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import type { AdminBrandOption, AdminCategory, AdminProduct } from "../_lib/catalog-contracts";
 import { CategoryIcon } from "./category-icon";
+import { DeliveryTimeSelect } from "./delivery-time-select";
 import { FormError } from "./form-error";
 
 /** The API refuses more than five related categories. */
@@ -34,6 +35,7 @@ export function ProductForm({
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [descriptionFa, setDescriptionFa] = useState(product?.descriptionFa ?? "");
   const [redemptionNotesFa, setRedemptionNotesFa] = useState(product?.redemptionNotesFa ?? "");
+  const [deliveryMinutes, setDeliveryMinutes] = useState<number | null>(product?.deliveryMinutes ?? null);
   const [sortOrder, setSortOrder] = useState(String(product?.sortOrder ?? 0));
   const [isActive, setIsActive] = useState(product?.isActive ?? true);
   const [needsReview, setNeedsReview] = useState(product?.needsReview ?? false);
@@ -76,6 +78,7 @@ export function ProductForm({
       imageUrl: imageUrl.trim() || null,
       descriptionFa: descriptionFa.trim() || null,
       redemptionNotesFa: redemptionNotesFa.trim() || null,
+      deliveryMinutes,
       sortOrder: Number(sortOrder) || 0,
       isActive,
       needsReview,
@@ -201,6 +204,7 @@ export function ProductForm({
             <option value="true">بله</option>
           </select>
         </label>
+        <DeliveryTimeSelect value={deliveryMinutes} onChange={setDeliveryMinutes} />
       </div>
 
       <fieldset className="settings-member-picker" style={{ marginTop: 16 }}>

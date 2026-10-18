@@ -16,7 +16,9 @@ import type {
   ListBrandsResponse,
   ListCatalogProductsResponse,
   ListCategoriesResponse,
+  ProductFaqDto,
 } from './catalog-taxonomy.dto';
+import { listFaqsQuerySchema, type ListFaqsQuery } from './catalog.schemas';
 
 const slugSchema = z.string().trim().min(1).max(90);
 
@@ -197,5 +199,18 @@ export class CatalogController {
     @Param(zodPipe(z.object({ slug: slugSchema }))) params: { slug: string },
   ): Promise<GetTopUpGameResponse> {
     return this.catalog.getTopUpGame(params.slug);
+  }
+
+  /* --------------------------------------------------------------------- FAQs */
+
+  /**
+   * Per-product FAQs, visible to any visitor.
+   *
+   * Used on the product page's FAQ tab. Returns only enabled FAQs, in display
+   * order.
+   */
+  @Get('faqs')
+  listFaqs(@Query(zodPipe(listFaqsQuerySchema)) query: ListFaqsQuery): Promise<readonly ProductFaqDto[]> {
+    return this.catalog.listPublicFaqs(query.itemType, query.itemSlug);
   }
 }

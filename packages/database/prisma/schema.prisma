@@ -367,6 +367,7 @@ model Customer {
   workItems         WorkItem[]
   supportMessages   SupportMessage[]
   favorites         CustomerFavorite[]
+  reviews           ProductReview[]
 
   @@index([status, createdAt])
   @@index([createdAt])
@@ -580,6 +581,77 @@ model CustomerFavorite {
 enum FavoriteItemType {
   PRODUCT
   SERVICE
+}
+
+/// A customer's 1–5 star rating of something they can buy, with optional text.
+///
+/// Exactly one of `productId` / `topUpGameId` / `serviceId` is set (enforced by
+/// a CHECK in the migration), and a customer has at most one review per target:
+/// writing again edits that review and sends it back to PENDING. Nothing is
+/// shown on the storefront, and nothing counts toward the average, until staff
+/// mark it APPROVED.
+model ProductReview {
+  id              String       @id @default(cuid())
+  customerId      String
+  productId       String?
+  topUpGameId     String?
+  serviceId       String?
+  /// 1..5, enforced by CHECK.
+  rating          Int
+  /// Plain text, never rendered as HTML. Null for a rating with no comment.
+  body            String?
+  status          ReviewStatus @default(PENDING)
+  /// Snapshot at write time: the customer had a paid order for this target.
+  /// Re-evaluated on every edit, so it never outlives the purchase it records.
+  isVerifiedBuyer Boolean      @default(false)
+  moderatedAt     DateTime?
+  moderatedById   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer  Customer              @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  product   Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  topUpGame TopUpGame?            @relation(fields: [topUpGameId], references: [id], onDelete: Cascade)
+  service   InternationalService? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, productId])
+  @@unique([customerId, topUpGameId])
+  @@unique([customerId, serviceId])
+  @@index([productId, status, createdAt])
+  @@index([topUpGameId, status, createdAt])
+  @@index([serviceId, status, createdAt])
+  @@index([status, createdAt])
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// Per-product FAQ, asked by any customer and answered by staff.
+/// Exactly one of productId / topUpGameId / serviceId is non-null.
+model ProductFaq {
+  id          String  @id @default(cuid())
+  productId   String?
+  topUpGameId String?
+  serviceId   String?
+  question    String
+  answer      String
+  isEnabled   Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product   Product?              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  topUpGame TopUpGame?            @relation("TopUpGameFaqs", fields: [topUpGameId], references: [id], onDelete: Cascade)
+  service   InternationalService? @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@index([productId, isEnabled, sortOrder])
+  @@index([topUpGameId, isEnabled, sortOrder])
+  @@index([serviceId, isEnabled, sortOrder])
 }
 
 // ===========================================================================
@@ -813,6 +885,10 @@ model Product {
   categoryId    String?
   imageUrl      String?
   redemptionNotesFa String?
+  /// Advertised delivery time in minutes, shown beside the buy button. 0 is
+  /// «آنی»; null shows nothing. Admin picks from DELIVERY_TIME_PRESETS in
+  /// @barat/contracts — a promise to the customer, not a measured SLA.
+  deliveryMinutes Int?
   isActive      Boolean @default(true)
   /// Incomplete data. Visible in the catalog, but the buy CTA is disabled and
   /// the admin list flags it as «نیازمند تکمیل اطلاعات».
@@ -829,6 +905,8 @@ model Product {
   categoryRef   Category?         @relation("ProductPrimaryCategory", fields: [categoryId], references: [id], onDelete: SetNull)
   extraCategories ProductCategory[]
   categoryLinks   CategoryLink[]
+  reviews         ProductReview[]
+  faqs            ProductFaq[]
 
   @@index([category, isActive, sortOrder])
   @@index([brand, isActive])
@@ -929,6 +1007,8 @@ model InternationalService {
   maxAmount            Decimal? @db.Decimal(18, 6)
   isActive             Boolean @default(true)
   requiresManualReview Boolean @default(true)
+  /// Advertised delivery time in minutes; see `Product.deliveryMinutes`.
+  deliveryMinutes      Int?
   sortOrder            Int     @default(0)
 
   createdAt DateTime @default(now())
@@ -938,6 +1018,8 @@ model InternationalService {
   cartItems CartItem[]
   quotes    Quote[]
   categoryLinks CategoryLink[]
+  reviews       ProductReview[]
+  faqs          ProductFaq[]
 
   @@index([category, isActive, sortOrder])
 }
@@ -1002,6 +1084,9 @@ model TopUpGame {
   /// The venue wants the customer's login (email + password). Never sold in
   /// phase 1; the quote path refuses these games outright.
   requiresCredentials Boolean @default(false)
+  /// Advertised delivery time in minutes; see `Product.deliveryMinutes`.
+  /// Operator-curated, so a catalogue sync never writes it.
+  deliveryMinutes    Int?
   sortOrder          Int      @default(0)
   lastSyncedAt       DateTime?
 
@@ -1012,6 +1097,8 @@ model TopUpGame {
   fields   TopUpField[]
   offers   TopUpOffer[]
   categoryLinks CategoryLink[]
+  reviews       ProductReview[]
+  faqs          ProductFaq[]   @relation("TopUpGameFaqs")
 
   @@unique([supplierId, providerCategoryId])
   @@index([isActive, isListed, sortOrder])

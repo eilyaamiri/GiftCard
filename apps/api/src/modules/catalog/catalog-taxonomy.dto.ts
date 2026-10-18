@@ -93,7 +93,7 @@ export interface CatalogProductDto extends ProductDto {
 /** The product page's payload: the detail contract plus the taxonomy keys. */
 export interface CatalogProductDetailDto
   extends CatalogProductDto,
-    Pick<ProductDetailDto, 'redemptionNotesFa' | 'skus'> {}
+    Pick<ProductDetailDto, 'redemptionNotesFa' | 'deliveryMinutes' | 'skus'> {}
 
 export interface GetCatalogProductResponse {
   readonly product: CatalogProductDetailDto;
@@ -116,4 +116,26 @@ export interface ListCatalogProductsResponse {
     readonly total: number;
     readonly totalPages: number;
   };
+}
+
+/* ============================================================================
+ * Per-product FAQ
+ * ==========================================================================*/
+
+/** What the storefront shows: enabled FAQs only, no metadata. */
+export interface ProductFaqDto {
+  readonly id: string;
+  readonly question: string;
+  readonly answer: string;
+}
+
+/** What the admin panel sees: full details to edit. */
+export interface AdminProductFaqDto {
+  readonly id: string;
+  readonly question: string;
+  readonly answer: string;
+  readonly isEnabled: boolean;
+  readonly sortOrder: number;
+  readonly createdAt: string;
+  readonly updatedAt: string;
 }

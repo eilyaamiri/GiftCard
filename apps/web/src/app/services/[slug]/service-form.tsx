@@ -9,6 +9,12 @@ import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ServiceArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
+import { productTabs } from "@/components/product-description";
+import { DeliveryTime } from "@/components/delivery-time";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
+import type { ListReviewsResponse } from "@/lib/reviews";
+import type { ProductFaq } from "@/lib/faqs";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -49,7 +55,17 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-export function ServiceForm({ service }: { readonly service: InternationalServiceDto }) {
+export function ServiceForm({
+  service,
+  reviews = null,
+  faqs = null,
+}: {
+  readonly service: InternationalServiceDto;
+  /** First page of approved reviews, fetched by the server page; null when it failed. */
+  readonly reviews?: ListReviewsResponse | null;
+  /** Enabled FAQs, fetched by the server page; null when it failed. */
+  readonly faqs?: readonly ProductFaq[] | null;
+}) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -138,7 +154,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       <div className="service-detail-copy">
         <div className="eyebrow">درخواست پرداخت</div>
         <h1 className="h2">{service.nameFa}</h1>
-        {service.descriptionFa ? <p className="muted">{service.descriptionFa}</p> : null}
+        <RatingBadge summary={reviews?.summary ?? null} />
         <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
       </div>
       {service.requiresManualReview ? (
@@ -222,10 +238,20 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
           </div>
         ))}
         {submitError ? <div className="alert warn" style={{ marginBottom: 16 }}>{submitError}</div> : null}
-        <button type="submit" className="btn btn-primary" style={{ width: "100%" }} disabled={submitting}>
+        <DeliveryTime minutes={service.deliveryMinutes} />
+        <button type="submit" className="btn btn-primary" style={{ width: "100%", marginTop: 14 }} disabled={submitting}>
           {submitting ? "در حال محاسبه قیمت..." : "دریافت قیمت"}
         </button>
       </form>
+
+      <ProductInfoTabs
+        title={`دربارهٔ ${service.nameFa}`}
+        tabs={productTabs({
+          description: service.descriptionFa,
+          reviews: { itemType: "SERVICE", itemSlug: service.slug, initial: reviews },
+          faqs: { itemType: "SERVICE", itemSlug: service.slug, initial: faqs },
+        })}
+      />
     </main>
   );
 }

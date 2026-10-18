@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/session";
 import { orderStatusView } from "@/lib/status";
 import { tomanFromIrr } from "@/app/checkout/purchase";
 import { DeliveryCard } from "@/components/delivery-card";
+import { OrderReviewPrompt } from "@/components/order-review-prompt";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,10 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
         }));
   const view = orderStatusView(order.status);
   const steps = timelineSteps(order);
+  /* Only a delivered order invites a review; a failure here costs only the
+   * prompt, never the order page. */
+  const reviewTarget =
+    order.status === "FULFILLED" ? await api.reviewForOrder(order.orderNumber).catch(() => null) : null;
 
   return (
     <main className="page container" style={{ maxWidth: 720 }}>
@@ -101,6 +106,8 @@ export default async function OrderDetailPage({ params }: { params: Promise<{ or
           purpose={deliveryPresentation?.purpose ?? "GIFT_CARD"}
         />
       ) : null}
+
+      {reviewTarget !== null ? <OrderReviewPrompt target={reviewTarget} /> : null}
     </main>
   );
 }

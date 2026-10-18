@@ -10,6 +10,12 @@ import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
+import { productTabs } from "@/components/product-description";
+import { DeliveryTime } from "@/components/delivery-time";
+import { RatingBadge } from "@/components/star-rating";
+import type { ListReviewsResponse } from "@/lib/reviews";
+import type { ProductFaq } from "@/lib/faqs";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 /**
  * Land on something the customer can actually buy.
@@ -27,10 +33,16 @@ function firstPurchasable<T extends { readonly id: string; readonly isAvailable:
 export function ProductDetail({
   product,
   initialRegion,
+  reviews = null,
+  faqs = null,
 }: {
   readonly product: CatalogProductDetail;
   /** Carried over from the catalog's region filter, when the product still offers it. */
   readonly initialRegion?: string | undefined;
+  /** First page of approved reviews, fetched by the server page; null when it failed. */
+  readonly reviews?: ListReviewsResponse | null;
+  /** Enabled FAQs, fetched by the server page; null when it failed. */
+  readonly faqs?: readonly ProductFaq[] | null;
 }) {
   const router = useRouter();
   const activeSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
@@ -45,6 +57,15 @@ export function ProductDetail({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const infoTabs = useMemo(
+    () => productTabs({
+      description: product.descriptionFa,
+      reviews: { itemType: "PRODUCT", itemSlug: product.slug, initial: reviews },
+      faqs: { itemType: "PRODUCT", itemSlug: product.slug, initial: faqs },
+    }),
+    [product.descriptionFa, product.slug, reviews, faqs],
+  );
+  const hasDescription = (product.descriptionFa?.trim() ?? "") !== "";
 
   function selectRegion(nextRegion: string) {
     setRegion(nextRegion);
@@ -94,9 +115,15 @@ export function ProductDetail({
           <div className="product-detail-copy">
             <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>
             <h1 className="h2">{product.titleFa}</h1>
-            <p className="muted">
-              {product.descriptionFa ?? "این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است."}
-            </p>
+            <RatingBadge summary={reviews?.summary ?? null} />
+            {/* The product's own description lives in the tabs below the order
+              * form; only the generic region warning stays up here, and only
+              * when there is no description to show instead. */}
+            {!hasDescription ? (
+              <p className="muted">
+                این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است.
+              </p>
+            ) : null}
           </div>
           <div className="card pad" style={{ marginTop: 20 }}>
             {product.regions.length > 1 ? (
@@ -143,6 +170,7 @@ export function ProductDetail({
           {!selected.isAvailable ? (
             <div className="alert warn" style={{ marginTop: 14 }}>این مبلغ در حال حاضر موجود نیست. لطفاً مبلغ یا منطقه دیگری را انتخاب کنید.</div>
           ) : null}
+          <DeliveryTime minutes={product.deliveryMinutes} />
           <button type="button" className="btn btn-primary" style={{ width: "100%", marginTop: 16 }} onClick={getPrice} disabled={loading || !selected.isAvailable}>
             {loading ? "در حال محاسبه..." : error ? "تلاش دوباره برای دریافت قیمت" : "دریافت قیمت نهایی"}
           </button>
@@ -151,6 +179,7 @@ export function ProductDetail({
           </p>
         </aside>
       </div>
+      <ProductInfoTabs title={`دربارهٔ ${product.titleFa}`} tabs={infoTabs} />
     </main>
   );
 }

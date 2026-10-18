@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import type { AdminService } from "../../catalog/_lib/catalog-contracts";
 import { FormError } from "../../catalog/_components/form-error";
+import { DeliveryTimeSelect } from "../../catalog/_components/delivery-time-select";
 
 export function ServiceForm({ service }: { service?: AdminService }) {
   const router = useRouter();
@@ -19,6 +20,7 @@ export function ServiceForm({ service }: { service?: AdminService }) {
   const [maxAmount, setMaxAmount] = useState(service?.maxAmount ?? "");
   const [sortOrder, setSortOrder] = useState(String(service?.sortOrder ?? 0));
   const [requiresManualReview, setRequiresManualReview] = useState(service?.requiresManualReview ?? true);
+  const [deliveryMinutes, setDeliveryMinutes] = useState<number | null>(service?.deliveryMinutes ?? null);
   const [isActive, setIsActive] = useState(service?.isActive ?? true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +40,7 @@ export function ServiceForm({ service }: { service?: AdminService }) {
       maxAmount: maxAmount.trim() || null,
       sortOrder: Number(sortOrder) || 0,
       requiresManualReview,
+      deliveryMinutes,
       isActive,
     };
     try {
@@ -106,6 +109,7 @@ export function ServiceForm({ service }: { service?: AdminService }) {
             <option value="false">غیرفعال</option>
           </select>
         </label>
+        <DeliveryTimeSelect value={deliveryMinutes} onChange={setDeliveryMinutes} />
       </div>
       <div className="form-grid" style={{ marginTop: 13 }}>
         <label>

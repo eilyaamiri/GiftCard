@@ -11,7 +11,8 @@ export const CUSTOMERS_DATABASE = Symbol('CUSTOMERS_DATABASE');
  * result (AGENTS.md section 4; those transitions belong to the payments
  * workstream and are human-gated). `product`/`internationalService` exist only
  * to hydrate a favorited slug with its display title and taxonomy — favoriting
- * never touches catalog data.
+ * never touches catalog data. `topUpGame` is likewise read-only, to resolve the
+ * game a review is about; `productReview` is the one table here reviews write.
  */
 export type CustomersDatabase = Pick<
   PrismaClient,
@@ -22,11 +23,13 @@ export type CustomersDatabase = Pick<
   | 'customerNote'
   | 'customerFlag'
   | 'customerFavorite'
+  | 'productReview'
   | 'order'
   | 'payment'
   | 'refund'
   | 'product'
   | 'internationalService'
+  | 'topUpGame'
   | 'workItem'
   | 'queue'
   | 'staffUser'

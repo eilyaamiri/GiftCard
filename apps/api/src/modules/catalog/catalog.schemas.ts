@@ -1,7 +1,7 @@
 import Decimal from 'decimal.js';
 import { z } from 'zod';
 
-import { deliveryAssetTypeSchema } from '@barat/contracts';
+import { deliveryAssetTypeSchema, deliveryMinutesInputSchema } from '@barat/contracts';
 
 const idSchema = z.string().min(1).max(64);
 const currencySchema = z.string().regex(/^[A-Z]{3}$/u);
@@ -269,6 +269,8 @@ const productShape = {
   descriptionFa: z.string().max(4_000).nullable().optional(),
   imageUrl: z.url().max(2_000).nullable().optional(),
   redemptionNotesFa: z.string().max(4_000).nullable().optional(),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   isActive: z.boolean().default(true),
   /** Data is incomplete: still listed, but not orderable. */
   needsReview: z.boolean().default(false),
@@ -423,6 +425,8 @@ const topUpGameMutableShape = {
   descriptionFa: z.string().max(4_000).nullable(),
   providerNote: z.string().max(4_000).nullable(),
   imageUrl: z.url().max(2_000).nullable(),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema,
   isActive: z.boolean().default(false),
   sortOrder: z.number().int().min(0).default(0),
 };
@@ -476,6 +480,8 @@ const internationalServiceMutableShape = {
   maxAmount: nonNegativeDecimalSchema.nullable().optional(),
   isActive: z.boolean().default(true),
   requiresManualReview: z.boolean().default(true),
+  /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
+  deliveryMinutes: deliveryMinutesInputSchema.optional(),
   sortOrder: z.number().int().default(0),
 };
 
@@ -511,6 +517,42 @@ export const updateInternationalServiceSchema = patchSchema(
 
 export const createServiceFieldSchema = serviceFieldInputSchema.extend({ serviceId: idSchema });
 export const updateServiceFieldSchema = patchSchema(serviceFieldInputSchema.shape);
+
+/* ================================================================ product FAQ
+ * Per-product frequently asked questions. Displayed on the product page (like
+ * reviews); managed by staff through the admin panel.
+ * ==========================================================================*/
+
+export const FAQ_ITEM_TYPES = ['PRODUCT', 'TOPUP_GAME', 'SERVICE'] as const;
+export type FaqItemType = (typeof FAQ_ITEM_TYPES)[number];
+
+/** Matches reviews.schemas' ReviewItemType for consistency. */
+const faqTargetShape = {
+  itemType: z.enum(FAQ_ITEM_TYPES),
+  itemSlug: z.string().trim().min(1).max(160),
+};
+
+export const listFaqsQuerySchema = z.object(faqTargetShape);
+export type ListFaqsQuery = z.infer<typeof listFaqsQuerySchema>;
+
+const productFaqMutableShape = {
+  question: z.string().trim().min(4, 'پرسش را وارد کنید.').max(400),
+  answer: z.string().trim().min(4, 'پاسخ را وارد کنید.').max(4_000),
+  isEnabled: z.boolean().default(true),
+  sortOrder: z.number().int().min(0).max(9999).default(0),
+};
+
+export const createProductFaqSchema = z.object({
+  ...faqTargetShape,
+  ...productFaqMutableShape,
+});
+export type CreateProductFaqInput = z.infer<typeof createProductFaqSchema>;
+
+export const updateProductFaqSchema = patchSchema(productFaqMutableShape);
+export type UpdateProductFaqInput = z.infer<typeof updateProductFaqSchema>;
+
+export const productFaqIdParamSchema = z.object({ id: idSchema });
+export type ProductFaqIdParam = z.infer<typeof productFaqIdParamSchema>;
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

@@ -622,6 +622,95 @@ a { color:inherit; text-decoration:none; }
 .service-detail-page > form { max-width:560px; margin-inline:auto; }
 .service-detail-page > .alert { max-width:560px; margin-inline:auto; }
 .service-detail-copy { max-width:560px; margin-inline:auto; }
+/* Product reading material, below the order form: a tab strip on the theme's
+ * own border and accent, so it follows light, dark and deep without overrides. */
+.product-info { position:relative; margin-top:32px; }
+/* Fragment targets for `#reviews` and friends. Zero-size, at the top of the
+ * section, with room left for the sticky header above. */
+.product-info-anchor { position:absolute; inset-block-start:0; scroll-margin-top:120px; }
+.service-detail-page > .product-info { max-width:560px; margin-inline:auto; }
+.product-info-tablist { display:flex; gap:4px; overflow-x:auto; border-bottom:1px solid var(--border-primary); scrollbar-width:none; }
+.product-info-tab { flex:0 0 auto; min-height:46px; padding:0 16px; border:0; border-bottom:2px solid transparent; margin-bottom:-1px; background:none; color:var(--text-secondary); font:inherit; font-size:15px; font-weight:800; cursor:pointer; white-space:nowrap; transition:color .18s ease,border-color .18s ease; }
+.product-info-tab:hover { color:var(--text-primary); }
+.product-info-tab[aria-selected="true"] { color:var(--text-primary); border-bottom-color:var(--interactive-accent); }
+.product-info-panel { padding-top:20px; }
+.product-info-panel:focus-visible { outline-offset:6px; border-radius:8px; }
+.product-info-description { max-width:72ch; color:var(--text-secondary); font-size:15px; line-height:2.1; }
+.product-info-description p { margin:0 0 14px; white-space:pre-line; }
+.product-info-description p:last-child { margin-bottom:0; }
+/* The delivery promise beside an order button: quiet text, the value in the
+ * primary ink so it reads as a fact rather than a badge. */
+.delivery-time { display:flex; align-items:center; gap:6px; margin:14px 0 0; color:var(--text-secondary); font-size:13px; }
+.delivery-time strong { color:var(--text-primary); font-weight:800; }
+.delivery-time svg { flex:0 0 auto; color:var(--text-secondary); }
+/* Ratings and reviews. Stars use the brand yellow; everything else is the
+ * theme's own ink, border and surface, so light/dark/deep need no overrides. */
+.stars { position:relative; display:inline-flex; flex:0 0 auto; color:var(--brand-yellow); vertical-align:middle; }
+.stars-track { display:inline-flex; gap:2px; color:var(--border-primary); }
+.stars-track svg { color:var(--text-secondary); opacity:.45; }
+.stars-fill { position:absolute; inset-block:0; inset-inline-start:0; display:inline-flex; gap:2px; overflow:hidden; white-space:nowrap; }
+/* Never shrink: the fill row is narrower than the track by design and must be
+ * clipped, not squeezed, or its stars drift off the outlines behind them. */
+.stars svg { flex:0 0 auto; }
+.rating-badge { display:inline-flex; align-items:center; gap:7px; margin:2px 0 8px; color:var(--text-secondary); font-size:13px; text-decoration:none; }
+.rating-badge strong { color:var(--text-primary); font-weight:900; }
+.rating-badge:hover span:last-child { text-decoration:underline; }
+.reviews { display:grid; gap:22px; }
+.reviews-summary { display:grid; grid-template-columns:minmax(150px,auto) minmax(0,1fr); gap:28px; align-items:center; }
+.reviews-score { display:grid; justify-items:center; gap:6px; text-align:center; }
+.reviews-score strong { color:var(--text-primary); font-size:40px; font-weight:900; line-height:1; }
+.reviews-bars { display:grid; gap:7px; margin:0; padding:0; list-style:none; }
+.reviews-bars li { display:grid; grid-template-columns:34px minmax(0,1fr) 34px; gap:10px; align-items:center; font-size:12px; color:var(--text-secondary); }
+.reviews-bar-label { display:inline-flex; align-items:center; gap:3px; color:var(--text-primary); font-weight:800; }
+.reviews-bar-label svg { color:var(--brand-yellow); }
+.reviews-bar-track { height:7px; border-radius:99px; background:var(--surface-input); overflow:hidden; }
+.reviews-bar-fill { display:block; height:100%; border-radius:inherit; background:var(--brand-yellow); }
+.reviews-bar-count { text-align:start; }
+.reviews-empty { margin:0; }
+.reviews-write { display:flex; flex-wrap:wrap; align-items:center; gap:12px; }
+.reviews-mine { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0; color:var(--text-secondary); font-size:13px; }
+.reviews-list { display:grid; gap:0; margin:0; padding:0; list-style:none; border-top:1px solid var(--border-primary); }
+.review { display:grid; gap:7px; padding:16px 0; border-bottom:1px solid var(--border-primary); }
+.review-head { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:14px; color:var(--text-primary); }
+.review-buyer { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:99px; background:var(--surface-input); color:var(--text-secondary); font-size:11px; font-weight:800; }
+.review-date { margin-inline-start:auto; font-size:12px; }
+.review-body { margin:0; max-width:72ch; color:var(--text-secondary); font-size:14px; line-height:2; white-space:pre-line; overflow-wrap:anywhere; }
+.reviews-more { justify-self:center; }
+.review-form { display:grid; gap:14px; width:100%; }
+.review-stars-input { display:flex; flex-wrap:wrap; align-items:center; gap:2px; margin:0; padding:0; border:0; }
+.review-stars-input legend { margin-bottom:8px; color:var(--text-primary); font-weight:800; font-size:14px; }
+.review-stars-input label { position:relative; display:inline-flex; padding:3px; border-radius:8px; color:var(--text-secondary); cursor:pointer; }
+.review-stars-input label.on { color:var(--brand-yellow); }
+.review-stars-input input { position:absolute; inset:0; opacity:0; margin:0; cursor:pointer; }
+.review-stars-input label:has(input:focus-visible) { outline:2px solid var(--interactive-accent); outline-offset:1px; }
+.review-stars-word { margin-inline-start:10px; color:var(--text-secondary); font-size:13px; font-weight:800; }
+.review-body-input { display:grid; gap:6px; color:var(--text-primary); font-size:14px; font-weight:800; }
+.review-body-input textarea { width:100%; padding:10px 12px; border:1px solid var(--border-primary); border-radius:12px; background:var(--surface-input); color:var(--text-primary); font:inherit; font-weight:400; line-height:1.9; resize:vertical; }
+.review-counter { justify-self:end; font-size:11px; font-weight:400; }
+.review-note { margin:0; font-size:12px; }
+.review-actions { display:flex; flex-wrap:wrap; gap:10px; }
+@media (max-width:640px) { .reviews-summary { grid-template-columns:1fr; gap:16px; } }
+.order-review-prompt { display:flex; flex-wrap:wrap; align-items:center; gap:14px; margin-top:16px; }
+.order-review-prompt > svg { flex:0 0 auto; color:var(--brand-yellow); }
+.order-review-prompt > div { flex:1 1 220px; min-width:0; }
+.order-review-prompt strong { color:var(--text-primary); }
+.order-review-prompt p { margin:4px 0 0; font-size:13px; }
+.order-review-mine { display:inline-flex; flex-wrap:wrap; align-items:center; gap:8px; }
+/* --------------------------------------------------------------------------
+ * Per-product FAQ (accordion on the product page)
+ *
+ * Uses button+div instead of <details> for controlled open state.
+ * --------------------------------------------------------------------------*/
+.faqs { display:grid; gap:22px; }
+.faqs .faq-list { margin:0; padding:0; list-style:none; overflow:hidden; background:var(--surface-card); border:1px solid var(--border-primary); border-radius:18px; box-shadow:var(--shadow-sm); }
+.faqs .faq-item + .faq-item { border-top:1px solid var(--border-secondary); }
+.faqs .faq-question { display:flex; width:100%; align-items:center; justify-content:space-between; gap:18px; padding:19px 22px; background:transparent; border:0; color:var(--text-primary); font-size:15px; font-weight:800; line-height:1.7; text-align:start; cursor:pointer; transition:color .18s ease,background-color .18s ease; }
+.faqs .faq-question:hover { color:var(--interactive-accent-text); }
+.faqs .faq-question:focus-visible { outline:3px solid color-mix(in srgb,var(--interactive-accent) 42%,transparent); outline-offset:-3px; border-radius:6px; }
+.faqs .faq-question.open { background:var(--background-secondary); }
+.faqs .faq-chevron { flex:0 0 auto; color:var(--text-secondary); transition:transform .24s cubic-bezier(.2,.8,.2,1),color .18s ease; }
+.faqs .faq-question.open .faq-chevron { color:var(--interactive-accent-text); transform:rotate(180deg); }
+.faqs .faq-answer { padding:0 22px 21px; max-width:68ch; color:var(--text-secondary); font-size:14px; line-height:2; background:var(--background-secondary); white-space:pre-line; }
 .price { color:var(--text-primary); font-weight:900; font-size:17px; }
 .steps { grid-template-columns:repeat(3,1fr); }
 .step { position:relative; padding:25px; }

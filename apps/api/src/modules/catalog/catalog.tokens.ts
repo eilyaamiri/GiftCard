@@ -30,6 +30,8 @@ export type CatalogDatabase = Pick<
   | 'topUpGame'
   | 'topUpField'
   | 'topUpOffer'
+  /* Per-product FAQ. */
+  | 'productFaq'
   /* The array form of `$transaction` is used for list + count pairs, so the
    * page and its total always come from one consistent read. */
   | '$transaction'

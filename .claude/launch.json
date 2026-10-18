@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mock-api",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["MOCK_API_PORT=4021", "node", "/Users/ilyaamiri/Documents/GiftCard/tests/e2e/mock-api.mjs"],
+      "port": 4021
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["API_INTERNAL_URL=http://127.0.0.1:4021", "NEXT_PUBLIC_API_URL=http://127.0.0.1:4021", "pnpm", "--dir", "/Users/ilyaamiri/Documents/GiftCard/apps/web", "exec", "next", "dev", "-p", "3121"],
+      "port": 3121
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["API_INTERNAL_URL=http://127.0.0.1:4021", "pnpm", "--dir", "/Users/ilyaamiri/Documents/GiftCard/apps/admin", "exec", "next", "dev", "-p", "3122"],
+      "port": 3122
+    }
+  ]
+}

@@ -3,6 +3,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowRight, Info } from "lucide-react";
 import { gameImageUrl, gameMonogram, gameTitle, getGameTopUp, regionLabel } from "@/lib/game-topups";
+import { productTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
+import { api } from "@/lib/api";
 import { GameOrderForm } from "../_components/game-order-form";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +33,9 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function GamePage({ params }: Params) {
   const { slug } = await params;
+  /* Started alongside the game lookup; a failure costs only the reviews/FAQs. */
+  const reviewsPromise = api.reviews("TOPUP_GAME", slug).catch(() => null);
+  const faqsPromise = api.faqs("TOPUP_GAME", slug).catch(() => null);
   const lookup = await getGameTopUp(slug);
   if (lookup.kind === "telegram") redirect("/telegram");
   if (lookup.kind === "steam") redirect("/steam");
@@ -38,6 +45,14 @@ export default async function GamePage({ params }: Params) {
   const title = gameTitle(game);
   const image = gameImageUrl(game);
   const region = regionLabel(game.region);
+  const reviews = await reviewsPromise;
+  const faqs = await faqsPromise;
+  const infoTabs = productTabs({
+    description: game.descriptionFa,
+    reviews: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: reviews },
+    faqs: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: faqs },
+  });
+  const hasDescription = (game.descriptionFa?.trim() ?? "") !== "";
 
   return (
     <main className="page container tg-order-page">
@@ -57,9 +72,10 @@ export default async function GamePage({ params }: Params) {
         </span>
         <div>
           <h1 className="h2">شارژ مستقیم {title}</h1>
-          <p className="muted">
-            {game.descriptionFa ?? "بسته را انتخاب کنید و مشخصات حساب بازی را وارد کنید تا قیمت نهایی را ببینید."}
-          </p>
+          <RatingBadge summary={reviews?.summary ?? null} />
+          {!hasDescription ? (
+            <p className="muted">بسته را انتخاب کنید و مشخصات حساب بازی را وارد کنید تا قیمت نهایی را ببینید.</p>
+          ) : null}
           {region !== null ? (
             <p className="gt-order-region">
               منطقه: <span className="gt-chip">{region}</span>
@@ -81,6 +97,7 @@ export default async function GamePage({ params }: Params) {
           hint: offer.nameFa?.trim() ? offer.name : null,
         }))}
         fields={game.fields ?? []}
+        deliveryMinutes={game.deliveryMinutes}
       />
 
       <p className="tg-order-foot">
@@ -88,6 +105,8 @@ export default async function GamePage({ params }: Params) {
         انجام می‌شود. فقط اگر شارژ با مشکل روبه‌رو شود، سفارش برای پیگیری ثبت می‌شود و پشتیبانی تا انجام
         شارژ یا بازگشت وجه آن را دنبال می‌کند.
       </p>
+
+      <ProductInfoTabs title={`دربارهٔ ${title}`} tabs={infoTabs} />
     </main>
   );
 }

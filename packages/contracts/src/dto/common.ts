@@ -110,3 +110,46 @@ export const actorRefSchema = z.object({
   role: z.string().nullable(),
 });
 export type ActorRef = z.infer<typeof actorRefSchema>;
+
+/* ============================================================================
+ * Advertised delivery time
+ * ==========================================================================*/
+
+/**
+ * The delivery times an operator may promise on a product page, in minutes.
+ *
+ * One list, read by the admin dropdown, the API's write validation and the
+ * storefront label, so the three can never drift apart. `0` is «آنی». A
+ * product with no value set shows no delivery line at all.
+ *
+ * This is a promise shown to the customer before they pay, not a measured SLA:
+ * nothing schedules, times out or refunds against it.
+ */
+export const DELIVERY_TIME_PRESETS = [
+  { minutes: 0, labelFa: 'آنی' },
+  { minutes: 15, labelFa: 'حدود ۱۵ دقیقه' },
+  { minutes: 30, labelFa: 'حدود ۳۰ دقیقه' },
+  { minutes: 60, labelFa: 'حدود ۱ ساعت' },
+  { minutes: 180, labelFa: 'حدود ۳ ساعت' },
+  { minutes: 1440, labelFa: 'حدود ۲۴ ساعت' },
+] as const;
+
+const DELIVERY_PRESET_MINUTES: ReadonlySet<number> = new Set(
+  DELIVERY_TIME_PRESETS.map((preset) => preset.minutes),
+);
+
+/** A delivery time on the wire. Reads accept any non-negative integer; writes are checked against the presets. */
+export const deliveryMinutesSchema = z.number().int().min(0);
+
+/** What an admin write may set: one of the presets, or null to show nothing. */
+export const deliveryMinutesInputSchema = deliveryMinutesSchema
+  .refine((minutes) => DELIVERY_PRESET_MINUTES.has(minutes), {
+    message: 'Delivery time must be one of DELIVERY_TIME_PRESETS',
+  })
+  .nullable();
+
+/** The Persian label for a stored delivery time, or null when there is nothing to show. */
+export function deliveryTimeLabelFa(minutes: number | null | undefined): string | null {
+  if (minutes === null || minutes === undefined) return null;
+  return DELIVERY_TIME_PRESETS.find((preset) => preset.minutes === minutes)?.labelFa ?? null;
+}

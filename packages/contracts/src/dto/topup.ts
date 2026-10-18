@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { serviceFieldTypeSchema } from '../enums/commerce';
 import { topUpEventTypeSchema, topUpStatusSchema } from '../enums/operations';
 import { positiveDecimalStringSchema } from '../money/schemas';
-import { idSchema, isoDateTimeSchema } from './common';
+import { deliveryMinutesSchema, idSchema, isoDateTimeSchema } from './common';
 
 /* ============================================================================
  * Direct top-up
@@ -70,6 +70,8 @@ export type TopUpGameSummary = z.infer<typeof topUpGameSummarySchema>;
 export const topUpGameDetailSchema = topUpGameSummarySchema.extend({
   providerNote: z.string().nullable(),
   descriptionFa: z.string().nullable(),
+  /** Advertised delivery time in minutes; see DELIVERY_TIME_PRESETS. */
+  deliveryMinutes: deliveryMinutesSchema.nullable().default(null),
   /** The account form, in display order. Empty for games needing no input. */
   fields: z.array(topUpFieldDtoSchema),
   offers: z.array(topUpOfferDtoSchema),

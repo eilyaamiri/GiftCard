@@ -13,6 +13,9 @@ export const dynamic = "force-dynamic";
  */
 export default async function ServiceDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+  /* Started alongside the catalogue read; a failure costs only the reviews/FAQs. */
+  const reviewsPromise = api.reviews("SERVICE", slug).catch(() => null);
+  const faqsPromise = api.faqs("SERVICE", slug).catch(() => null);
 
   let items;
   try {
@@ -32,5 +35,5 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
   const service = items.find((item) => item.slug === slug);
   if (!service) notFound();
 
-  return <ServiceForm service={service} />;
+  return <ServiceForm service={service} reviews={await reviewsPromise} faqs={await faqsPromise} />;
 }

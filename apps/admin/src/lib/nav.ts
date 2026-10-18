@@ -11,6 +11,7 @@ import {
   REPORT_ROLES,
   SUPPORT_TICKET_ROLES,
 } from "@/lib/api";
+import { REVIEW_MODERATION_ROLES } from "@/lib/reviews";
 
 export interface NavItem {
   href: string;
@@ -74,6 +75,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/operator/tasks", label: "تسک‌ها", icon: "clipboard-list", roles: OPERATOR_ROLES },
       { href: "/work-queue", label: "صف کارها", icon: "list-checks", roles: QUEUE_VIEW_ROLES },
       { href: "/support", label: "تیکت‌های پشتیبانی", icon: "life-buoy", roles: SUPPORT_TICKET_ROLES },
+      { href: "/reviews", label: "بررسی دیدگاه‌ها", icon: "message-square-text", roles: REVIEW_MODERATION_ROLES },
       { href: "/gift-card-requests", label: "درخواست‌های کد گیفت‌کارت", icon: "gift", roles: QUEUE_VIEW_ROLES },
       { href: "/knowledge-base", label: "پایگاه دانش", icon: "book-open", roles: ["ADMIN"] },
       { href: "/sla", label: "SLA و کیفیت", icon: "line-chart", roles: QUEUE_VIEW_ROLES },

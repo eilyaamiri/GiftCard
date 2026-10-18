@@ -22,7 +22,7 @@ const products = [
     descriptionFa: "اعتبار استیم برای خرید بازی و محتوای دیجیتال.", category: "Gaming", imageUrl: null, isActive: true,
     sortOrder: 1, regions: ["US", "UK"], createdAt: now,
     brandSlug: "steam", brandNameFa: "استیم", categorySlug: "gaming", categoryNameFa: "بازی و گیم", categoryIconKey: "gamepad-2",
-    needsReview: false, isQuickPick: true,
+    needsReview: false, isQuickPick: true, deliveryMinutes: 0,
   },
   {
     id: "product-apple", slug: "apple-us", brand: "Apple", title: "Apple Gift Card", titleFa: "گیفت‌کارت اپل", description: null,
@@ -80,7 +80,7 @@ const steam = {
 };
 
 const services = [{
-  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", descriptionFa: "پرداخت هزینهٔ سرویس میزبانی وب با ریال.", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false,
+  id: "service-hosting", slug: "hosting-payment", name: "Hosting payment", nameFa: "پرداخت سرویس میزبانی", descriptionFa: "پرداخت هزینهٔ سرویس میزبانی وب با ریال.", category: "Hosting", currency: "USD", minAmount: "5", maxAmount: "500", isActive: true, requiresManualReview: false, deliveryMinutes: 60,
   fields: [{ id: "field-invoice", key: "invoiceNumber", label: "Invoice number", labelFa: "شماره فاکتور", fieldType: "TEXT", isRequired: true, validationRegex: null, helpTextFa: "شمارهٔ فاکتور را از صفحهٔ پرداخت کپی کنید.", options: null, sortOrder: 0 }],
 }];
 
@@ -97,7 +97,7 @@ const services = [{
 const topUpGames = [
   {
     id: "topup-pubg", slug: "pubg-mobile", name: "PUBG Mobile", nameFa: "پابجی موبایل", brandName: "PUBG", region: "GLOBAL", imageUrl: null, offerCount: 2,
-    descriptionFa: null, providerNote: null,
+    descriptionFa: null, providerNote: null, deliveryMinutes: 15,
     fields: [{ key: "player_id", label: "Player ID", labelFa: "شناسه بازیکن", fieldType: "TEXT", isRequired: true, options: null, validationRegex: "^[0-9]{5,12}$", helpTextFa: "شناسه را از پروفایل بازی کپی کنید.", sortOrder: 0 }],
     offers: [
       { id: "offer-pubg-60", name: "60 UC", nameFa: "۶۰ یوسی", isAvailable: true, sortOrder: 0 },
@@ -190,13 +190,20 @@ function orderFixture(orderNumber) {
     id: `order-${orderNumber}`, orderNumber, customerId: customer.id, quoteId: "quote-e2e-001", cartId: null,
     status: "AWAITING_PAYMENT", totalAmountIrr: "21500000", displayAmountToman: "2150000", currency: "IRR",
     itemTitleFa: "گیفت‌کارت استیم — $20", createdAt: new Date().toISOString(),
-    paidAt: null, fulfilledAt: null, cancelledAt: null, failureReason: null, delivery: null, timeline: [],
+    paidAt: null, fulfilledAt: null, cancelledAt: null, failureReason: null, delivery: null, topUp: null, timeline: [],
   };
 }
 
 const orders = new Map(
   ["BP-2026-000001", "BP-2026-000002"].map((orderNumber) => [orderNumber, orderFixture(orderNumber)]),
 );
+/* A delivered order, so the «به این محصول امتیاز دهید» prompt has a page to appear on. */
+orders.set("BP-2026-000003", {
+  ...orderFixture("BP-2026-000003"),
+  status: "FULFILLED",
+  paidAt: new Date().toISOString(),
+  fulfilledAt: new Date().toISOString(),
+});
 
 /**
  * The published contact channels, already carrying the `href` the API builds.
@@ -214,6 +221,49 @@ const supportChannels = [
 /* Overridable so a second checkout can run the suite without colliding with a
  * fixture already listening on the default port. */
 const PORT = Number(process.env["MOCK_API_PORT"] ?? 4001);
+
+/**
+ * Product reviews: approved ones on the Steam card only, so one page shows a
+ * full summary and every other page shows the empty «first review» state. A
+ * signed-in customer's own review is kept in memory and always comes back
+ * PENDING, as the API's moderation rule demands.
+ */
+const approvedReviews = {
+  "PRODUCT:steam-wallet": [
+    { id: "rev-1", rating: 5, body: "کد بلافاصله بعد از پرداخت رسید و روی حساب آمریکا بدون مشکل فعال شد.", authorNameFa: "علی م.", isVerifiedBuyer: true, createdAt: "2026-10-12T09:00:00.000Z" },
+    { id: "rev-2", rating: 4, body: "قیمت منصفانه بود. فقط کاش منطقه‌های بیشتری داشت.", authorNameFa: "سارا", isVerifiedBuyer: true, createdAt: "2026-10-10T15:30:00.000Z" },
+    { id: "rev-3", rating: 5, body: null, authorNameFa: "کاربر سنتو", isVerifiedBuyer: false, createdAt: "2026-10-08T11:00:00.000Z" },
+  ],
+};
+const myReviews = new Map();
+
+/**
+ * The admin moderation queue. Separate from the storefront fixtures above so
+ * a decision here never changes what the web e2e suite asserts. `updatedAt` is
+ * the version a decision must name; a mismatch answers 409 like the API.
+ */
+const moderationQueue = [
+  { id: "mod-1", rating: 5, body: "کد بلافاصله رسید، ممنون از پشتیبانی سریع.", status: "PENDING", isVerifiedBuyer: true, authorNameFa: "مریم ک.", customerCode: "BP-7H2K9Q", target: { itemType: "PRODUCT", titleFa: "گیفت‌کارت استیم", href: "/gift-cards/steam-wallet" }, createdAt: "2026-10-17T08:00:00.000Z", updatedAt: "2026-10-17T08:00:00.000Z", moderatedAt: null, moderatedByName: null },
+  { id: "mod-2", rating: 1, body: "برای خرید بیشتر به شماره ۰۹۱۲۰۰۰۰۰۰۰ پیام بدهید.", status: "PENDING", isVerifiedBuyer: false, authorNameFa: "کاربر سنتو", customerCode: "BP-3M8X1Z", target: { itemType: "TOPUP_GAME", titleFa: "پابجی موبایل", href: "/games/pubg-mobile" }, createdAt: "2026-10-17T09:30:00.000Z", updatedAt: "2026-10-17T09:30:00.000Z", moderatedAt: null, moderatedByName: null },
+  { id: "mod-3", rating: 4, body: null, status: "APPROVED", isVerifiedBuyer: true, authorNameFa: "رضا ن.", customerCode: "BP-9Q4W2E", target: { itemType: "SERVICE", titleFa: "پرداخت سرویس میزبانی", href: "/services/hosting-payment" }, createdAt: "2026-10-15T12:00:00.000Z", updatedAt: "2026-10-16T07:00:00.000Z", moderatedAt: "2026-10-16T07:00:00.000Z", moderatedByName: "پشتیبانی سنتو" },
+];
+
+function staffSignedIn(request) {
+  /* The admin panel's own cookie name; it does not contain `barat_session=`,
+   * so a staff session never reads as a customer one here. */
+  return (request.headers.cookie ?? "").includes("barat_staff_session=");
+}
+
+function reviewSummary(items) {
+  const distribution = [0, 0, 0, 0, 0];
+  for (const item of items) distribution[item.rating - 1] += 1;
+  const total = items.reduce((sum, item) => sum + item.rating, 0);
+  return {
+    average: items.length === 0 ? null : Math.round((total / items.length) * 10) / 10,
+    count: items.length,
+    distribution,
+  };
+}
 
 function json(response, status, body) {
   response.writeHead(status, { "content-type": "application/json; charset=utf-8" });
@@ -285,6 +335,60 @@ createServer(async (request, response) => {
     let text = "";
     for await (const chunk of request) text += chunk;
     return json(response, 201, quoteFor(JSON.parse(text || "{}")));
+  }
+  if (url.pathname === "/api/auth/staff/me" || url.pathname.startsWith("/api/admin/reviews")) {
+    if (!staffSignedIn(request)) return json(response, 401, { code: "UNAUTHENTICATED", message: "ابتدا وارد شوید." });
+  }
+  if (request.method === "GET" && url.pathname === "/api/auth/staff/me") {
+    return json(response, 200, { id: "staff-e2e", email: "support@centohub.com", role: "SUPPORT" });
+  }
+  if (request.method === "GET" && url.pathname === "/api/admin/reviews") {
+    const status = url.searchParams.get("status") ?? "PENDING";
+    const counts = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
+    for (const review of moderationQueue) counts[review.status] += 1;
+    const items = moderationQueue.filter((review) => review.status === status);
+    return json(response, 200, { items, counts, page: 1, totalPages: 1 });
+  }
+  const decisionRoute = /^\/api\/admin\/reviews\/([^/]+)\/decision$/u.exec(url.pathname);
+  if (request.method === "POST" && decisionRoute) {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const input = JSON.parse(text || "{}");
+    const review = moderationQueue.find((item) => item.id === decodeURIComponent(decisionRoute[1]));
+    if (!review) return json(response, 404, { code: "NOT_FOUND", message: "Not found" });
+    if (review.updatedAt !== input.expectedUpdatedAt) {
+      return json(response, 409, { code: "CONFLICT", message: "این دیدگاه پس از بارگذاری صفحه تغییر کرده است. صفحه را تازه کنید و دوباره بررسی کنید." });
+    }
+    const now = new Date().toISOString();
+    Object.assign(review, { status: input.decision, moderatedAt: now, moderatedByName: "support@centohub.com", updatedAt: now });
+    return json(response, 200, { status: input.decision });
+  }
+  if (request.method === "GET" && url.pathname === "/api/reviews") {
+    const items = approvedReviews[`${url.searchParams.get("itemType")}:${url.searchParams.get("itemSlug")}`] ?? [];
+    return json(response, 200, { summary: reviewSummary(items), items, page: 1, totalPages: 1 });
+  }
+  if (url.pathname.startsWith("/api/account/reviews") && !signedIn(request)) {
+    return json(response, 401, { code: "UNAUTHENTICATED", message: "ابتدا وارد شوید." });
+  }
+  if (request.method === "GET" && url.pathname === "/api/account/reviews/mine") {
+    return json(response, 200, myReviews.get(`${url.searchParams.get("itemType")}:${url.searchParams.get("itemSlug")}`) ?? null);
+  }
+  const reviewForOrder = /^\/api\/account\/reviews\/for-order\/([^/]+)$/u.exec(url.pathname);
+  if (request.method === "GET" && reviewForOrder) {
+    const order = orders.get(decodeURIComponent(reviewForOrder[1]));
+    if (order?.status !== "FULFILLED") return json(response, 200, null);
+    return json(response, 200, {
+      itemType: "PRODUCT", itemSlug: "steam-wallet", titleFa: "گیفت‌کارت استیم", href: "/gift-cards/steam-wallet",
+      myReview: myReviews.get("PRODUCT:steam-wallet") ?? null,
+    });
+  }
+  if (request.method === "PUT" && url.pathname === "/api/account/reviews") {
+    let text = "";
+    for await (const chunk of request) text += chunk;
+    const input = JSON.parse(text || "{}");
+    const review = { rating: input.rating, body: input.body ?? null, status: "PENDING", isVerifiedBuyer: false, updatedAt: new Date().toISOString() };
+    myReviews.set(`${input.itemType}:${input.itemSlug}`, review);
+    return json(response, 200, review);
   }
   return json(response, 404, { code: "NOT_FOUND", message: "Not found" });
 }).listen(PORT, "127.0.0.1", () => console.log(`Mock E2E API listening on http://127.0.0.1:${PORT}`));

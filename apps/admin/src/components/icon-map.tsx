@@ -22,6 +22,7 @@ import {
   RotateCcw,
   LifeBuoy,
   BookOpen,
+  MessageSquareText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +50,7 @@ export const ICONS: Record<string, LucideIcon> = {
   "rotate-ccw": RotateCcw,
   "life-buoy": LifeBuoy,
   "book-open": BookOpen,
+  "message-square-text": MessageSquareText,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

@@ -4,6 +4,7 @@ import { prisma } from '@barat/database';
 import { AuditModule } from '../audit/audit.module';
 import { AccountController } from './account.controller';
 import { AdminFaqsController } from './admin-faqs.controller';
+import { AdminReviewsController } from './admin-reviews.controller';
 import { AdminSupportChannelsController } from './admin-support-channels.controller';
 import { AccountService } from './account.service';
 import { BankDetailsService } from './bank-details.service';
@@ -14,6 +15,9 @@ import { FaqsController } from './faqs.controller';
 import { FAQS_DATABASE, FaqsService } from './faqs.service';
 import { FavoritesService } from './favorites.service';
 import { NotificationsService } from './notifications.service';
+import { ReviewModerationService } from './review-moderation.service';
+import { ReviewsController } from './reviews.controller';
+import { ReviewsService } from './reviews.service';
 import { SupportChannelsController } from './support-channels.controller';
 import {
   SUPPORT_CHANNELS_DATABASE,
@@ -34,9 +38,11 @@ import { SupportService } from './support.service';
   controllers: [
     AccountController,
     AdminFaqsController,
+    AdminReviewsController,
     AdminSupportChannelsController,
     CustomersController,
     FaqsController,
+    ReviewsController,
     SupportChannelsController,
     SupportController,
   ],
@@ -50,6 +56,8 @@ import { SupportService } from './support.service';
     FaqsService,
     FavoritesService,
     NotificationsService,
+    ReviewModerationService,
+    ReviewsService,
     SupportChannelsService,
     SupportService,
   ],
