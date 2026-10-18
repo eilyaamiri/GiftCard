@@ -3,13 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CircleUserRound, Gamepad2, Headphones, Home, MessagesSquare } from "lucide-react";
-import { SteamIcon } from "@/components/steam-icon";
 import type { SupportChannel } from "@/lib/support-channels";
 
 interface NavItem {
   readonly href: string;
   readonly label: string;
-  readonly icon: typeof Home | "steam";
+  readonly icon: typeof Home;
   /** Signed-out visitors are sent to login and returned here afterwards. */
   readonly requiresAuth: boolean;
   readonly isActive: (pathname: string) => boolean;
@@ -28,14 +27,6 @@ const ITEMS: readonly (NavItem | typeof CONTACT)[] = [
     icon: Gamepad2,
     requiresAuth: false,
     isActive: (path) => path.startsWith("/games"),
-  },
-  /* Steam wallet top-ups have their own page, so they get their own tab. */
-  {
-    href: "/steam",
-    label: "استیم",
-    icon: "steam",
-    requiresAuth: false,
-    isActive: (path) => path.startsWith("/steam"),
   },
   /* The assistant took the orders tab's place. Orders are still one tap away
    * inside it («📦 سفارش‌های من»), at /orders, and in the account panel. It needs
@@ -116,7 +107,7 @@ export function MobileBottomNav({
           return (
             <li key={item.href}>
               <Link href={href} className="bottom-nav-item" aria-current={active ? "page" : undefined}>
-                {item.icon === "steam" ? <SteamIcon size={21} /> : <item.icon size={21} aria-hidden="true" />}
+                <item.icon size={21} aria-hidden="true" />
                 <span>{item.label}</span>
               </Link>
             </li>
