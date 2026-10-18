@@ -19,6 +19,9 @@ export default async function ProductDetailPage({
   const initialRegion = typeof requestedRegion === "string" ? requestedRegion : undefined;
 
   let product: CatalogProductDetail;
+  /* Fetched alongside the product, not after it: the reviews summary sits under
+   * the title. A failure here costs only the reviews, never the page. */
+  const reviewsPromise = api.reviews("PRODUCT", slug).catch(() => null);
   try {
     ({ product } = await api.product(slug));
   } catch (error) {
@@ -34,5 +37,5 @@ export default async function ProductDetailPage({
     );
   }
 
-  return <ProductDetail product={product} initialRegion={initialRegion} />;
+  return <ProductDetail product={product} initialRegion={initialRegion} reviews={await reviewsPromise} />;
 }

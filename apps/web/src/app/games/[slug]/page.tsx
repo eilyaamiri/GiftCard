@@ -3,8 +3,10 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowRight, Info } from "lucide-react";
 import { gameImageUrl, gameMonogram, gameTitle, getGameTopUp, regionLabel } from "@/lib/game-topups";
-import { descriptionTabs } from "@/components/product-description";
+import { productTabs } from "@/components/product-description";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
+import { api } from "@/lib/api";
 import { GameOrderForm } from "../_components/game-order-form";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +33,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
  */
 export default async function GamePage({ params }: Params) {
   const { slug } = await params;
+  /* Started alongside the game lookup; a failure costs only the reviews. */
+  const reviewsPromise = api.reviews("TOPUP_GAME", slug).catch(() => null);
   const lookup = await getGameTopUp(slug);
   if (lookup.kind === "telegram") redirect("/telegram");
   if (lookup.kind === "steam") redirect("/steam");
@@ -40,7 +44,12 @@ export default async function GamePage({ params }: Params) {
   const title = gameTitle(game);
   const image = gameImageUrl(game);
   const region = regionLabel(game.region);
-  const infoTabs = descriptionTabs(game.descriptionFa);
+  const reviews = await reviewsPromise;
+  const infoTabs = productTabs({
+    description: game.descriptionFa,
+    reviews: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: reviews },
+  });
+  const hasDescription = (game.descriptionFa?.trim() ?? "") !== "";
 
   return (
     <main className="page container tg-order-page">
@@ -60,7 +69,8 @@ export default async function GamePage({ params }: Params) {
         </span>
         <div>
           <h1 className="h2">شارژ مستقیم {title}</h1>
-          {infoTabs.length === 0 ? (
+          <RatingBadge summary={reviews?.summary ?? null} />
+          {!hasDescription ? (
             <p className="muted">بسته را انتخاب کنید و مشخصات حساب بازی را وارد کنید تا قیمت نهایی را ببینید.</p>
           ) : null}
           {region !== null ? (

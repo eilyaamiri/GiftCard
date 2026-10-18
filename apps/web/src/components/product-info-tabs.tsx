@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export interface ProductInfoTab {
   readonly key: string;
@@ -22,6 +22,25 @@ export function ProductInfoTabs({ tabs, title }: { readonly tabs: readonly Produ
   const [active, setActive] = useState(tabs[0]?.key ?? "");
   const buttons = useRef<Array<HTMLButtonElement | null>>([]);
 
+  /* A `#reviews` link — the rating under the title, or the return from login —
+   * opens that tab. The scrolling itself is the browser's: each tab key has a
+   * server-rendered anchor at the top of this section, so the fragment always
+   * has a real target (a hidden panel would not be one, and a scroll started
+   * from JS gets cancelled by the browser's own fragment navigation). Keyed on
+   * the tab keys, not the array: pages build `tabs` inline, and a new array
+   * every render would re-run this. */
+  const tabKeys = tabs.map((tab) => tab.key).join(" ");
+  useEffect(() => {
+    const keys = tabKeys.split(" ");
+    function openFromHash() {
+      const key = window.location.hash.slice(1);
+      if (key !== "" && keys.includes(key)) setActive(key);
+    }
+    openFromHash();
+    window.addEventListener("hashchange", openFromHash);
+    return () => window.removeEventListener("hashchange", openFromHash);
+  }, [tabKeys]);
+
   if (tabs.length === 0) return null;
 
   function focusTab(index: number) {
@@ -41,7 +60,10 @@ export function ProductInfoTabs({ tabs, title }: { readonly tabs: readonly Produ
   }
 
   return (
-    <section className="product-info" aria-label={title}>
+    <section id="product-info" className="product-info" aria-label={title}>
+      {tabs.map((tab) => (
+        <span key={tab.key} id={tab.key} className="product-info-anchor" aria-hidden="true" />
+      ))}
       <div role="tablist" className="product-info-tablist" aria-label={title}>
         {tabs.map((tab, index) => {
           const selected = tab.key === active;

@@ -1,8 +1,12 @@
+import { toPersianDigits } from "@barat/ui";
+import { REVIEWS_HASH, type ListReviewsResponse, type ReviewItemType } from "@/lib/reviews";
 import type { ProductInfoTab } from "./product-info-tabs";
+import { ProductReviews } from "./product-reviews";
 
 /*
- * No "use client" on purpose: server pages call `descriptionTabs` directly,
- * and Next refuses a server call into a function exported from a client file.
+ * No "use client" on purpose: server pages call `productTabs` directly, and
+ * Next refuses a server call into a function exported from a client file.
+ * Rendering the client `ProductReviews` from here is fine; calling it is not.
  */
 
 /**
@@ -24,8 +28,26 @@ export function DescriptionText({ text }: { readonly text: string }) {
   );
 }
 
-/** The tab set for a product, or none when it has nothing of its own to say. */
-export function descriptionTabs(description: string | null | undefined): ProductInfoTab[] {
+/**
+ * The tab set under a product's order form: its description when it has one,
+ * then its reviews, which are always there — an empty reviews tab is where the
+ * first review gets written.
+ */
+export function productTabs({
+  description,
+  reviews,
+}: {
+  readonly description: string | null | undefined;
+  readonly reviews: { readonly itemType: ReviewItemType; readonly itemSlug: string; readonly initial: ListReviewsResponse | null };
+}): ProductInfoTab[] {
   const text = description?.trim() ?? "";
-  return text === "" ? [] : [{ key: "description", label: "توضیحات محصول", content: <DescriptionText text={text} /> }];
+  const count = reviews.initial?.summary.count ?? 0;
+  return [
+    ...(text === "" ? [] : [{ key: "description", label: "توضیحات محصول", content: <DescriptionText text={text} /> }]),
+    {
+      key: REVIEWS_HASH,
+      label: count > 0 ? `دیدگاه کاربران (${toPersianDigits(count)})` : "دیدگاه کاربران",
+      content: <ProductReviews itemType={reviews.itemType} itemSlug={reviews.itemSlug} initial={reviews.initial} />,
+    },
+  ];
 }

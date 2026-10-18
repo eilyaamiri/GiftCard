@@ -9,9 +9,11 @@ import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ServiceArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
-import { descriptionTabs } from "@/components/product-description";
+import { productTabs } from "@/components/product-description";
 import { DeliveryTime } from "@/components/delivery-time";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
+import type { ListReviewsResponse } from "@/lib/reviews";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -52,7 +54,14 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-export function ServiceForm({ service }: { readonly service: InternationalServiceDto }) {
+export function ServiceForm({
+  service,
+  reviews = null,
+}: {
+  readonly service: InternationalServiceDto;
+  /** First page of approved reviews, fetched by the server page; null when it failed. */
+  readonly reviews?: ListReviewsResponse | null;
+}) {
   const router = useRouter();
   const [amount, setAmount] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
@@ -141,6 +150,7 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       <div className="service-detail-copy">
         <div className="eyebrow">درخواست پرداخت</div>
         <h1 className="h2">{service.nameFa}</h1>
+        <RatingBadge summary={reviews?.summary ?? null} />
         <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
       </div>
       {service.requiresManualReview ? (
@@ -230,7 +240,13 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
         </button>
       </form>
 
-      <ProductInfoTabs title={`دربارهٔ ${service.nameFa}`} tabs={descriptionTabs(service.descriptionFa)} />
+      <ProductInfoTabs
+        title={`دربارهٔ ${service.nameFa}`}
+        tabs={productTabs({
+          description: service.descriptionFa,
+          reviews: { itemType: "SERVICE", itemSlug: service.slug, initial: reviews },
+        })}
+      />
     </main>
   );
 }

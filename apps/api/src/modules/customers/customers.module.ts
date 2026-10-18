@@ -14,6 +14,8 @@ import { FaqsController } from './faqs.controller';
 import { FAQS_DATABASE, FaqsService } from './faqs.service';
 import { FavoritesService } from './favorites.service';
 import { NotificationsService } from './notifications.service';
+import { ReviewsController } from './reviews.controller';
+import { ReviewsService } from './reviews.service';
 import { SupportChannelsController } from './support-channels.controller';
 import {
   SUPPORT_CHANNELS_DATABASE,
@@ -37,6 +39,7 @@ import { SupportService } from './support.service';
     AdminSupportChannelsController,
     CustomersController,
     FaqsController,
+    ReviewsController,
     SupportChannelsController,
     SupportController,
   ],
@@ -50,6 +53,7 @@ import { SupportService } from './support.service';
     FaqsService,
     FavoritesService,
     NotificationsService,
+    ReviewsService,
     SupportChannelsService,
     SupportService,
   ],

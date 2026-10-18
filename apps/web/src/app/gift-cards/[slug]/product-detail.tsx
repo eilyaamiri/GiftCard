@@ -10,8 +10,10 @@ import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
-import { descriptionTabs } from "@/components/product-description";
+import { productTabs } from "@/components/product-description";
 import { DeliveryTime } from "@/components/delivery-time";
+import { RatingBadge } from "@/components/star-rating";
+import type { ListReviewsResponse } from "@/lib/reviews";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 /**
@@ -30,10 +32,13 @@ function firstPurchasable<T extends { readonly id: string; readonly isAvailable:
 export function ProductDetail({
   product,
   initialRegion,
+  reviews = null,
 }: {
   readonly product: CatalogProductDetail;
   /** Carried over from the catalog's region filter, when the product still offers it. */
   readonly initialRegion?: string | undefined;
+  /** First page of approved reviews, fetched by the server page; null when it failed. */
+  readonly reviews?: ListReviewsResponse | null;
 }) {
   const router = useRouter();
   const activeSkus = useMemo(() => product.skus.filter((sku) => sku.isActive), [product.skus]);
@@ -48,7 +53,14 @@ export function ProductDetail({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const infoTabs = useMemo(() => descriptionTabs(product.descriptionFa), [product.descriptionFa]);
+  const infoTabs = useMemo(
+    () => productTabs({
+      description: product.descriptionFa,
+      reviews: { itemType: "PRODUCT", itemSlug: product.slug, initial: reviews },
+    }),
+    [product.descriptionFa, product.slug, reviews],
+  );
+  const hasDescription = (product.descriptionFa?.trim() ?? "") !== "";
 
   function selectRegion(nextRegion: string) {
     setRegion(nextRegion);
@@ -98,10 +110,11 @@ export function ProductDetail({
           <div className="product-detail-copy">
             <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>
             <h1 className="h2">{product.titleFa}</h1>
+            <RatingBadge summary={reviews?.summary ?? null} />
             {/* The product's own description lives in the tabs below the order
               * form; only the generic region warning stays up here, and only
               * when there is no description to show instead. */}
-            {infoTabs.length === 0 ? (
+            {!hasDescription ? (
               <p className="muted">
                 این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است.
               </p>
