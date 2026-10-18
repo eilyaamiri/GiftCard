@@ -286,7 +286,8 @@ export function summarise(groups: ReadonlyArray<{ rating: number; count: number 
   let total = 0;
   for (const { rating, count: n } of groups) {
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) continue;
-    distribution[rating - 1] += n;
+    const idx = rating - 1;
+    distribution[idx] = (distribution[idx] ?? 0) + n;
     count += n;
     total += rating * n;
   }

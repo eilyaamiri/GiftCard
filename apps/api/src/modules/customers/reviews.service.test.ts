@@ -79,7 +79,8 @@ describe('listPublic', () => {
     const { db, service } = harness();
     await service.listPublic({ itemType: 'SERVICE', itemSlug: 'hosting', page: 1 });
 
-    const select = JSON.stringify(db.productReview.findMany.mock.calls[0]?.[0]);
+    const calls = db.productReview.findMany.mock.calls as unknown as unknown[][];
+    const select = JSON.stringify(calls[0]?.[0]);
     for (const leak of ['mobile', 'email', 'identities', 'customerCode', 'customerId']) {
       expect(select).not.toContain(leak);
     }
@@ -140,7 +141,8 @@ describe('submit', () => {
     const review = await service.submit(CUSTOMER, { itemType: 'PRODUCT', itemSlug: 'steam-wallet', rating: 4, body: null });
 
     expect(review.isVerifiedBuyer).toBe(true);
-    const where = (db.order.count.mock.calls[0]?.[0] as unknown as { where: Record<string, unknown> }).where;
+    const calls = db.order.count.mock.calls as unknown as unknown[][];
+    const where = (calls[0]?.[0] as { where: Record<string, unknown> }).where;
     expect(where).toMatchObject({ customerId: CUSTOMER, quote: { sku: { productId: 'prod_1' } } });
     const statuses = (where['status'] as { in: string[] }).in;
     expect(statuses).toEqual(expect.arrayContaining(['PAID', 'FULFILLED']));
