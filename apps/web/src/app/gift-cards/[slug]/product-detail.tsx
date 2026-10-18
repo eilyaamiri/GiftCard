@@ -60,10 +60,11 @@ export function ProductDetail({
   const infoTabs = useMemo(
     () => productTabs({
       description: product.descriptionFa,
+      guide: product.redemptionNotesFa,
       reviews: { itemType: "PRODUCT", itemSlug: product.slug, initial: reviews },
       faqs: { itemType: "PRODUCT", itemSlug: product.slug, initial: faqs },
     }),
-    [product.descriptionFa, product.slug, reviews, faqs],
+    [product.descriptionFa, product.redemptionNotesFa, product.slug, reviews, faqs],
   );
   const hasDescription = (product.descriptionFa?.trim() ?? "") !== "";
 
@@ -147,15 +148,9 @@ export function ProductDetail({
                 </button>
               ))}
             </div>
-            {product.redemptionNotesFa ? (
-              <div className="alert" style={{ marginTop: 14 }}>
-                <Info size={14} style={{ verticalAlign: "-2px" }} /> {product.redemptionNotesFa}
-              </div>
-            ) : (
-              <div className="alert" style={{ marginTop: 14 }}>
-                <Info size={14} style={{ verticalAlign: "-2px" }} /> قیمت نهایی پس از «دریافت قیمت» و بر اساس نرخ لحظه‌ای محاسبه می‌شود.
-              </div>
-            )}
+            <div className="alert" style={{ marginTop: 14 }}>
+              <Info size={14} style={{ verticalAlign: "-2px" }} /> قیمت نهایی پس از «دریافت قیمت» و بر اساس نرخ لحظه‌ای محاسبه می‌شود.
+            </div>
           </div>
         </div>
         <aside className="card pad" style={{ position: "sticky", top: 96 }}>

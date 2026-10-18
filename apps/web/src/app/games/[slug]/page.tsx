@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { gameImageUrl, gameMonogram, gameTitle, getGameTopUp, regionLabel } from "@/lib/game-topups";
 import { productTabs } from "@/components/product-description";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
@@ -49,6 +49,7 @@ export default async function GamePage({ params }: Params) {
   const faqs = await faqsPromise;
   const infoTabs = productTabs({
     description: game.descriptionFa,
+    guide: game.providerNote,
     reviews: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: reviews },
     faqs: { itemType: "TOPUP_GAME", itemSlug: game.slug, initial: faqs },
   });
@@ -83,12 +84,6 @@ export default async function GamePage({ params }: Params) {
           ) : null}
         </div>
       </header>
-
-      {game.providerNote ? (
-        <p className="alert tg-order-note">
-          <Info size={14} aria-hidden="true" /> {game.providerNote}
-        </p>
-      ) : null}
 
       <GameOrderForm
         offers={offers.map((offer) => ({

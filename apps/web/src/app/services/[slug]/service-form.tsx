@@ -248,6 +248,9 @@ export function ServiceForm({
         title={`دربارهٔ ${service.nameFa}`}
         tabs={productTabs({
           description: service.descriptionFa,
+          /* InternationalService carries no supplier note — the guide tab is
+           * simply absent for services. */
+          guide: null,
           reviews: { itemType: "SERVICE", itemSlug: service.slug, initial: reviews },
           faqs: { itemType: "SERVICE", itemSlug: service.slug, initial: faqs },
         })}

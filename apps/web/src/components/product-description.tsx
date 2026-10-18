@@ -32,23 +32,29 @@ export function DescriptionText({ text }: { readonly text: string }) {
 
 /**
  * The tab set under a product's order form: its description when it has one,
- * then its reviews, which are always there — an empty reviews tab is where the
- * first review gets written, and its FAQs when the product has any.
+ * a usage guide when the supplier provides one, then its reviews (always there —
+ * an empty reviews tab is where the first review gets written), and its FAQs
+ * when the product has any.
  */
 export function productTabs({
   description,
+  guide,
   reviews,
   faqs,
 }: {
   readonly description: string | null | undefined;
+  /** Supplier usage guide: redemptionNotesFa for gift cards, providerNote for top-ups. */
+  readonly guide: string | null | undefined;
   readonly reviews: { readonly itemType: ReviewItemType; readonly itemSlug: string; readonly initial: ListReviewsResponse | null };
   readonly faqs: { readonly itemType: FaqItemType; readonly itemSlug: string; readonly initial: readonly ProductFaq[] | null };
 }): ProductInfoTab[] {
   const text = description?.trim() ?? "";
+  const guideText = guide?.trim() ?? "";
   const reviewCount = reviews.initial?.summary.count ?? 0;
   const faqCount = faqs.initial?.length ?? 0;
   return [
     ...(text === "" ? [] : [{ key: "description", label: "توضیحات محصول", content: <DescriptionText text={text} /> }]),
+    ...(guideText === "" ? [] : [{ key: "guide", label: "راهنمای استفاده", content: <DescriptionText text={guideText} /> }]),
     {
       key: REVIEWS_HASH,
       label: reviewCount > 0 ? `دیدگاه کاربران (${toPersianDigits(reviewCount)})` : "دیدگاه کاربران",
