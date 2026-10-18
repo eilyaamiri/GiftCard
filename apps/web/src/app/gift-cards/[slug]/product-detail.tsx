@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Ltr } from "@barat/ui";
 import { ShieldCheck, Info } from "lucide-react";
@@ -8,6 +8,7 @@ import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { revealStep } from "@/lib/reveal-step";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 import { productTabs } from "@/components/product-description";
@@ -57,6 +58,8 @@ export function ProductDetail({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const priceStepRef = useRef<HTMLElement | null>(null);
+  const hasRevealed = useRef(false);
   const infoTabs = useMemo(
     () => productTabs({
       description: product.descriptionFa,
@@ -71,6 +74,18 @@ export function ProductDetail({
   function selectRegion(nextRegion: string) {
     setRegion(nextRegion);
     setSkuId(firstPurchasable(activeSkus.filter((sku) => sku.region === nextRegion))?.id ?? "");
+  }
+
+  /**
+   * Choosing an amount is the last thing on this column; the price panel is
+   * beside it on a desktop and below the fold on a phone. Only the first choice
+   * scrolls, so comparing two amounts does not move the page each time.
+   */
+  function selectSku(nextSkuId: string) {
+    setSkuId(nextSkuId);
+    if (hasRevealed.current) return;
+    hasRevealed.current = true;
+    requestAnimationFrame(() => revealStep(priceStepRef.current));
   }
 
   async function getPrice() {
@@ -142,7 +157,7 @@ export function ProductDetail({
             <h3 style={{ marginTop: 0 }}>مبلغ گیفت‌کارت</h3>
             <div className="filterbar" role="radiogroup" aria-label="انتخاب مبلغ">
               {skusForRegion.map((sku) => (
-                <button key={sku.id} type="button" role="radio" aria-checked={skuId === sku.id} disabled={!sku.isAvailable} className={`chip ${skuId === sku.id ? "active" : ""}`} onClick={() => setSkuId(sku.id)}>
+                <button key={sku.id} type="button" role="radio" aria-checked={skuId === sku.id} disabled={!sku.isAvailable} className={`chip ${skuId === sku.id ? "active" : ""}`} onClick={() => selectSku(sku.id)}>
                   <Ltr>{sku.denominationLabel}</Ltr>
                   {!sku.isAvailable ? " (ناموجود)" : ""}
                 </button>
@@ -153,7 +168,7 @@ export function ProductDetail({
             </div>
           </div>
         </div>
-        <aside className="card pad" style={{ position: "sticky", top: 96 }}>
+        <aside className="card pad product-price-step" style={{ position: "sticky", top: 96 }} ref={priceStepRef}>
           <div className="summary-line"><span>محصول</span><strong>{product.titleFa}</strong></div>
           <div className="summary-line"><span>منطقه</span><strong><Ltr>{region}</Ltr></strong></div>
           <div className="summary-line"><span>مبلغ</span><strong><Ltr>{selected.denominationLabel}</Ltr></strong></div>
