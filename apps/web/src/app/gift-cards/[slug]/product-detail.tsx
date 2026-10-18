@@ -10,6 +10,8 @@ import type { CatalogProductDetail } from "@/lib/catalog";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
+import { descriptionTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 /**
  * Land on something the customer can actually buy.
@@ -45,6 +47,7 @@ export function ProductDetail({
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const infoTabs = useMemo(() => descriptionTabs(product.descriptionFa), [product.descriptionFa]);
 
   function selectRegion(nextRegion: string) {
     setRegion(nextRegion);
@@ -94,9 +97,14 @@ export function ProductDetail({
           <div className="product-detail-copy">
             <div className="eyebrow">گیفت‌کارت · <Ltr>{product.brand}</Ltr></div>
             <h1 className="h2">{product.titleFa}</h1>
-            <p className="muted">
-              {product.descriptionFa ?? "این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است."}
-            </p>
+            {/* The product's own description lives in the tabs below the order
+              * form; only the generic region warning stays up here, and only
+              * when there is no description to show instead. */}
+            {infoTabs.length === 0 ? (
+              <p className="muted">
+                این گیفت‌کارت مخصوص فروشگاه منطقه انتخابی شماست. پیش از خرید، منطقه حساب مقصد را با دقت بررسی کنید؛ گیفت‌کارت هر منطقه فقط در همان منطقه قابل استفاده است.
+              </p>
+            ) : null}
           </div>
           <div className="card pad" style={{ marginTop: 20 }}>
             {product.regions.length > 1 ? (
@@ -151,6 +159,7 @@ export function ProductDetail({
           </p>
         </aside>
       </div>
+      <ProductInfoTabs title={`دربارهٔ ${product.titleFa}`} tabs={infoTabs} />
     </main>
   );
 }

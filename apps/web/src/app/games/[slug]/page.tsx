@@ -3,6 +3,8 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowRight, Info } from "lucide-react";
 import { gameImageUrl, gameMonogram, gameTitle, getGameTopUp, regionLabel } from "@/lib/game-topups";
+import { descriptionTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
 import { GameOrderForm } from "../_components/game-order-form";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,7 @@ export default async function GamePage({ params }: Params) {
   const title = gameTitle(game);
   const image = gameImageUrl(game);
   const region = regionLabel(game.region);
+  const infoTabs = descriptionTabs(game.descriptionFa);
 
   return (
     <main className="page container tg-order-page">
@@ -57,9 +60,9 @@ export default async function GamePage({ params }: Params) {
         </span>
         <div>
           <h1 className="h2">شارژ مستقیم {title}</h1>
-          <p className="muted">
-            {game.descriptionFa ?? "بسته را انتخاب کنید و مشخصات حساب بازی را وارد کنید تا قیمت نهایی را ببینید."}
-          </p>
+          {infoTabs.length === 0 ? (
+            <p className="muted">بسته را انتخاب کنید و مشخصات حساب بازی را وارد کنید تا قیمت نهایی را ببینید.</p>
+          ) : null}
           {region !== null ? (
             <p className="gt-order-region">
               منطقه: <span className="gt-chip">{region}</span>
@@ -88,6 +91,8 @@ export default async function GamePage({ params }: Params) {
         انجام می‌شود. فقط اگر شارژ با مشکل روبه‌رو شود، سفارش برای پیگیری ثبت می‌شود و پشتیبانی تا انجام
         شارژ یا بازگشت وجه آن را دنبال می‌کند.
       </p>
+
+      <ProductInfoTabs title={`دربارهٔ ${title}`} tabs={infoTabs} />
     </main>
   );
 }

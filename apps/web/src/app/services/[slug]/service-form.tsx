@@ -9,6 +9,8 @@ import { api, ApiClientError } from "@/lib/api";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { ServiceArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
+import { descriptionTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
 
 const DECIMAL_PATTERN = /^\d{1,12}(\.\d{1,6})?$/u;
 
@@ -138,7 +140,6 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
       <div className="service-detail-copy">
         <div className="eyebrow">درخواست پرداخت</div>
         <h1 className="h2">{service.nameFa}</h1>
-        {service.descriptionFa ? <p className="muted">{service.descriptionFa}</p> : null}
         <p className="muted">اطلاعات زیر را کامل کنید تا قیمت نهایی محاسبه شود.</p>
       </div>
       {service.requiresManualReview ? (
@@ -226,6 +227,8 @@ export function ServiceForm({ service }: { readonly service: InternationalServic
           {submitting ? "در حال محاسبه قیمت..." : "دریافت قیمت"}
         </button>
       </form>
+
+      <ProductInfoTabs title={`دربارهٔ ${service.nameFa}`} tabs={descriptionTabs(service.descriptionFa)} />
     </main>
   );
 }
