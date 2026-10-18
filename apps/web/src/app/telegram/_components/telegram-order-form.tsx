@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input, Label, Select, FormMessage } from "@barat/ui";
 import { Loader2 } from "lucide-react";
 import { ApiClientError } from "@/lib/api";
 import { createQuote } from "@/app/checkout/purchase";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { revealStep } from "@/lib/reveal-step";
 import { TELEGRAM_USERNAME_KEY, isValidUsername, normalizeUsername, type TelegramProduct } from "@/lib/telegram";
 
 /**
@@ -77,6 +78,19 @@ export function TelegramOrderForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const accountStepRef = useRef<HTMLFieldSetElement | null>(null);
+  const hasRevealed = useRef(false);
+
+  /**
+   * Picking a package is step 1 of 2; the first pick reveals step 2, later ones
+   * leave the page where it is so that packages stay comparable.
+   */
+  function chooseOffer(id: string) {
+    setSelected(id);
+    if (hasRevealed.current) return;
+    hasRevealed.current = true;
+    requestAnimationFrame(() => revealStep(accountStepRef.current));
+  }
 
   const key = accountFieldKey(fields);
   const accountKey = key ?? TELEGRAM_USERNAME_KEY;
@@ -171,7 +185,7 @@ export function TelegramOrderForm({
                 name="topUpOfferId"
                 value={offer.id}
                 checked={selected === offer.id}
-                onChange={() => setSelected(offer.id)}
+                onChange={() => chooseOffer(offer.id)}
               />
               <span className="tg-offer-label">{offer.label}</span>
               {/* The catalogue's own name, kept as the hint so the choice is
@@ -185,7 +199,7 @@ export function TelegramOrderForm({
         {errors["offer"] ? <FormMessage tone="error">{errors["offer"]}</FormMessage> : null}
       </fieldset>
 
-      <fieldset className="tg-account-fieldset">
+      <fieldset className="tg-account-fieldset" ref={accountStepRef}>
         <legend className="tg-offer-legend">۲. حساب مقصد</legend>
 
         <div className="field">

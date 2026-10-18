@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FormMessage, Input, Label, Select } from "@barat/ui";
 import { Loader2 } from "lucide-react";
 import { ApiClientError } from "@/lib/api";
 import { createQuote } from "@/app/checkout/purchase";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { revealStep } from "@/lib/reveal-step";
 import { DeliveryTime } from "@/components/delivery-time";
 import {
   buildAccountFields,
@@ -51,6 +52,23 @@ export function GameOrderForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const accountStepRef = useRef<HTMLFieldSetElement | null>(null);
+  const submitRef = useRef<HTMLButtonElement | null>(null);
+  const hasRevealed = useRef(false);
+
+  /**
+   * Picking a package is step 1 of 2; the first pick reveals step 2, later ones
+   * leave the page where it is so that packages stay comparable.
+   */
+  function chooseOffer(id: string) {
+    setSelected(id);
+    setErrors(({ offer: _removed, ...rest }) => rest);
+    if (hasRevealed.current) return;
+    hasRevealed.current = true;
+    /* After the commit: clearing the offer error above moves everything below
+     * it, and the scroll has to measure the layout the customer will land in. */
+    requestAnimationFrame(() => revealStep(accountStepRef.current ?? submitRef.current));
+  }
 
   function setValue(key: string, value: string) {
     setValues((prev) => ({ ...prev, [key]: value }));
@@ -106,10 +124,7 @@ export function GameOrderForm({
                 name="topUpOfferId"
                 value={offer.id}
                 checked={selected === offer.id}
-                onChange={() => {
-                  setSelected(offer.id);
-                  setErrors(({ offer: _removed, ...rest }) => rest);
-                }}
+                onChange={() => chooseOffer(offer.id)}
               />
               <span className="tg-offer-label" dir="auto">{offer.label}</span>
               {offer.hint !== null && offer.hint !== offer.label ? (
@@ -122,7 +137,7 @@ export function GameOrderForm({
       </fieldset>
 
       {ordered.length > 0 ? (
-        <fieldset className="tg-account-fieldset">
+        <fieldset className="tg-account-fieldset" ref={accountStepRef}>
           <legend className="tg-offer-legend">۲. حساب بازی</legend>
           {ordered.map((field) => {
             const kind = inputKindOf(field);
@@ -173,7 +188,7 @@ export function GameOrderForm({
       {submitError ? <p className="alert warn tg-form-error" role="alert">{submitError}</p> : null}
 
       <DeliveryTime minutes={deliveryMinutes} />
-      <button type="submit" className="btn btn-primary tg-submit" disabled={submitting}>
+      <button type="submit" className="btn btn-primary tg-submit" disabled={submitting} ref={submitRef}>
         {submitting ? (
           <>
             <Loader2 className="animate-spin" size={16} aria-hidden="true" /> در حال گرفتن قیمت…
