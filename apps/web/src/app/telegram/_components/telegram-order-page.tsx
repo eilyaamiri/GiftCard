@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import {
   type TelegramCatalogEntry,
   type TelegramProduct,
@@ -7,6 +7,10 @@ import {
   offerLabel,
   offerQuantity,
 } from "@/lib/telegram";
+import { api } from "@/lib/api";
+import { productTabs } from "@/components/product-description";
+import { ProductInfoTabs } from "@/components/product-info-tabs";
+import { RatingBadge } from "@/components/star-rating";
 import { TelegramOrderForm } from "./telegram-order-form";
 
 /**
@@ -43,7 +47,7 @@ function choice(entry: TelegramCatalogEntry, offer: TopUpOffer): { readonly id: 
   };
 }
 
-export function TelegramOrderPage({
+export async function TelegramOrderPage({
   entry,
   product,
 }: Readonly<{ entry: TelegramCatalogEntry | null; product: TelegramProduct }>) {
@@ -73,6 +77,18 @@ export function TelegramOrderPage({
     );
   }
 
+  /* Fetched together; a failure costs only the tabs, never the order form. */
+  const [reviews, faqs] = await Promise.all([
+    api.reviews("TOPUP_GAME", entry.game.slug).catch(() => null),
+    api.faqs("TOPUP_GAME", entry.game.slug).catch(() => null),
+  ]);
+  const infoTabs = productTabs({
+    description: null,
+    guide: entry.game.providerNote,
+    reviews: { itemType: "TOPUP_GAME", itemSlug: entry.game.slug, initial: reviews },
+    faqs: { itemType: "TOPUP_GAME", itemSlug: entry.game.slug, initial: faqs },
+  });
+
   return (
     <main className="page container tg-order-page">
       <nav className="tg-breadcrumb" aria-label="مسیر صفحه">
@@ -92,15 +108,10 @@ export function TelegramOrderPage({
         />
         <div>
           <h1 className="h2">{entry.game.nameFa ?? copy.title}</h1>
+          <RatingBadge summary={reviews?.summary ?? null} />
           <p className="muted">{entry.game.descriptionFa ?? copy.lead}</p>
         </div>
       </header>
-
-      {entry.game.providerNote ? (
-        <p className="alert tg-order-note">
-          <Info size={14} aria-hidden="true" /> {entry.game.providerNote}
-        </p>
-      ) : null}
 
       <TelegramOrderForm
         product={product}
@@ -122,6 +133,8 @@ export function TelegramOrderPage({
         <ArrowRight size={14} aria-hidden="true" /> تحویل پس از تأیید پرداخت و پاسخ تأمین‌کننده انجام می‌شود؛
         اگر خرید انجام نشود، پشتیبانی وضعیت سفارش و بازگشت وجه را پیگیری می‌کند.
       </p>
+
+      <ProductInfoTabs title={`دربارهٔ ${entry.game.nameFa ?? copy.title}`} tabs={infoTabs} />
     </main>
   );
 }
