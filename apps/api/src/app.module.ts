@@ -95,12 +95,17 @@ import { FinanceController } from './modules/finance/finance.controller';
     GiftCardRequestsModule,
     KbModule,
   ],
+  /* The finance read model is a single Prisma query behind one route, so it has
+   * no module of its own: a module here would need an entry in the frozen
+   * registry above for nothing but a controller. It must be listed as a
+   * CONTROLLER — Nest only maps routes for this key, and a controller left in
+   * `providers` registers an injectable nobody injects and answers 404. */
+  controllers: [FinanceController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: TimeoutInterceptor },
     { provide: APP_INTERCEPTOR, useClass: IdempotencyHeaderInterceptor },
-    FinanceController,
   ],
 })
 export class AppModule {}
