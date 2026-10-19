@@ -356,6 +356,106 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
     return this.store.findById(input.workItemId);
   }
 
+  /**
+   * Re-presents an unassigned item as a verification task after automation
+   * delivered the asset.
+   *
+   * The task stays `UNASSIGNED` and claimable: the point is that a human checks
+   * it off, not that it disappears. Returns `null` if the item was already
+   * claimed (the operator sees the delivered asset and closes it themselves).
+   */
+  async markDeliveredForReview(input: {
+    workItemId: string;
+    actor: string;
+    title: string;
+    description: string;
+    /** Higher number = lower priority, so verification sorts after fulfilment. */
+    priority: number;
+  }): Promise<WorkItemSummary | null> {
+    const changed = await this.store.markDeliveredForReview({
+      workItemId: input.workItemId,
+      title: input.title,
+      description: input.description,
+      priority: input.priority,
+    });
+    if (!changed) {
+      return null;
+    }
+
+    await this.audit.record({
+      actor: input.actor,
+      actorType: 'SYSTEM',
+      action: 'WORK_ITEM_MARKED_FOR_REVIEW',
+      entity: 'WorkItem',
+      entityId: input.workItemId,
+      after: {
+        title: input.title,
+        priority: input.priority,
+        markedAt: new Date().toISOString(),
+      },
+    });
+
+    return this.store.findById(input.workItemId);
+  }
+
+  /**
+   * Converts a `SUPPLIER_FOLLOWUP` task to a `REFUND_REVIEW` task.
+   *
+   * Used when an operator tried to fulfil a top-up manually and could not. The
+   * order moves from `REVIEW_REQUIRED` to `REFUND_PENDING` in the same
+   * transaction, and the task keeps its id, assignment and notes so the history
+   * of what was tried is not lost.
+   *
+   * The caller must hold the item; the note is required because this transition
+   * is the record of why a refund was chosen over a fulfillment.
+   */
+  async convertToRefund(
+    workItemId: string,
+    staffId: string,
+    note: string,
+  ): Promise<WorkItemSummary> {
+    const staff = await this.store.findStaff(staffId);
+    if (!staff || !staff.isActive || !CLAIMING_ROLE_SET.has(staff.role)) {
+      throw DomainErrors.forbidden('Staff user may not modify work items');
+    }
+
+    const result = await this.store.convertToRefundIfOwned({
+      workItemId,
+      staffId,
+      staffRole: staff.role,
+      from: ACTIVE_OPERATOR_STATUSES,
+      note,
+      at: new Date(),
+    });
+
+    if (!result.changed) {
+      throw DomainErrors.conflict(
+        'سفارش یا تسک در وضعیتی نیست که بتوان به بازگشت وجه تغییر داد.',
+        `Cannot convert work item ${workItemId} to refund (order may have moved)`,
+      );
+    }
+
+    await this.audit.record({
+      actor: staffId,
+      actorType: 'STAFF',
+      actorRole: staff.role,
+      action: 'WORK_ITEM_CONVERTED_TO_REFUND',
+      entity: 'WorkItem',
+      entityId: workItemId,
+      after: {
+        type: 'REFUND_REVIEW',
+        note,
+        orderId: result.orderId,
+      },
+    });
+
+    const item = await this.store.findById(workItemId);
+    if (!item) {
+      throw DomainErrors.notFound('WorkItem');
+    }
+    return item;
+  }
+
   /* ---------------------------------------------------------------- reads */
 
   async getById(workItemId: string): Promise<WorkItemSummary> {

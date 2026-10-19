@@ -5,9 +5,11 @@ import { Roles } from '../identity/rbac/roles.decorator';
 import { requireStaff } from './staff-context';
 import {
   completeWorkItemBodySchema,
+  convertToRefundBodySchema,
   failWorkItemBodySchema,
   listWorkItemsQuerySchema,
   type CompleteWorkItemBody,
+  type ConvertToRefundBody,
   type FailWorkItemBody,
   type ListWorkItemsQuery,
 } from './workitems.schemas';
@@ -87,5 +89,22 @@ export class WorkItemsController {
   ): Promise<{ item: WorkItemSummary }> {
     const staff = requireStaff(request);
     return { item: await this.workItems.fail(id, staff.id, body.resolutionNote) };
+  }
+
+  /**
+   * Converts a `SUPPLIER_FOLLOWUP` task to a `REFUND_REVIEW` task.
+   *
+   * The operator tried to fulfil a failed top-up manually and could not, so the
+   * order should move to a refund path. The note is required: it documents what
+   * was tried and why a refund is necessary.
+   */
+  @Post(':id/convert-to-refund')
+  async convertToRefund(
+    @Param('id') id: string,
+    @Body(zodPipe(convertToRefundBodySchema)) body: ConvertToRefundBody,
+    @Req() request: unknown,
+  ): Promise<{ item: WorkItemSummary }> {
+    const staff = requireStaff(request);
+    return { item: await this.workItems.convertToRefund(id, staff.id, body.note) };
   }
 }

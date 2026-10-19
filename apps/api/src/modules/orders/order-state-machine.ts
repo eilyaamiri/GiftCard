@@ -45,13 +45,15 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderSta
      * particular, none can reach CANCELLED: a refund is required instead. */
     PAID: ['FULFILLMENT_PENDING', 'REVIEW_REQUIRED', 'REFUND_PENDING'],
     FULFILLMENT_PENDING: ['FULFILLING', 'REVIEW_REQUIRED', 'REFUND_PENDING'],
-    /* `FULFILLING -> REFUND_PENDING` is for a top-up that failed *after* the
-     * purchase was in flight: the supplier has told us it charged nothing, so
-     * the customer's money is owed back. Without this edge the only exit from
-     * FULFILLING would be REVIEW_REQUIRED, which asks a person to hand-refund
-     * a case the supplier has already resolved — the manual work the top-up
-     * flow exists to remove. FULFILLED stays unreachable from here, so a failed
-     * purchase can never be recorded as delivered. */
+    /* `FULFILLING -> REFUND_PENDING` exists for a refund decided while a
+     * purchase was in flight. A top-up whose purchase FAILED no longer takes
+     * it: the supplier confirming it charged nothing means a manual top-up is
+     * safe, so that case goes to REVIEW_REQUIRED and an operator tries to serve
+     * the customer before anyone decides to hand the money back. Refunding
+     * without asking is not less manual work — it is a worse outcome for a
+     * customer who wanted the top-up, not their money returned.
+     * FULFILLED stays unreachable from here, so a failed purchase can never be
+     * recorded as delivered. */
     FULFILLING: ['FULFILLED', 'REVIEW_REQUIRED', 'REFUND_PENDING'],
     FULFILLED: [],
     /* FAILED is reserved for the pre-payment path. A fulfillment/refund problem

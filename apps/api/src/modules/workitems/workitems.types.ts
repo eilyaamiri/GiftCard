@@ -232,6 +232,55 @@ export interface WorkItemStore {
     at: Date;
     resolutionNote: string;
   }): Promise<boolean>;
+  /**
+   * Re-presents an UNASSIGNED item the system has already satisfied.
+   *
+   * Used when automation delivered the asset but the task is deliberately kept
+   * open for a human to sign off. Same `WHERE` discipline as
+   * `completeUnassignedBySystem`: an item an operator has claimed is left
+   * exactly as it is, because retitling someone's open task underneath them is
+   * not automation.
+   */
+  markDeliveredForReview(input: {
+    workItemId: string;
+    title: string;
+    description: string;
+    priority: number;
+  }): Promise<boolean>;
+  /**
+   * Moves a held item to another type, and therefore to another queue.
+   *
+   * The only mutation of `type` in the system. It exists so a task can change
+   * what it is *about* without losing who worked it or what they wrote — the
+   * operator's notes are the record of why the refund was necessary.
+   */
+  retypeIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    from: readonly WorkItemStatus[];
+    type: WorkItemType;
+    title: string;
+    note: string;
+    at: Date;
+  }): Promise<boolean>;
+  /**
+   * Atomically converts a held follow-up task to a refund task AND moves its
+   * order to `REFUND_PENDING`. Both writes succeed or neither does.
+   *
+   * The separate `transitionIfOwned` + manual order write that other modules use
+   * would require either importing the orders module (creating a cycle through
+   * fulfillment) or using forwardRef. Keeping the full operation here avoids
+   * that, and the conditional logic is the same: staff must hold the item, order
+   * must be in `REVIEW_REQUIRED`.
+   */
+  convertToRefundIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    staffRole: string;
+    from: readonly WorkItemStatus[];
+    note: string;
+    at: Date;
+  }): Promise<{ changed: boolean; orderId: string | null }>;
   /** Atomic compare-and-set across a set of allowed source statuses. */
   transitionIfOwned(input: {
     workItemId: string;

@@ -575,10 +575,21 @@ export class TopUpFulfillmentService {
 
       case 'FAILED': {
         /*
-         * The supplier states nothing was charged. That is definitive, so the
-         * order goes to refund — and a person has to actually move the money,
-         * because the gateway has no refund API. That is why this opens a task:
-         * the operator both refunds and answers the customer.
+         * The supplier states nothing was charged. That is definitive about the
+         * MONEY — nothing is owed to the venue — but it says nothing about
+         * whether the customer can still be served.
+         *
+         * So this does NOT go straight to refund. The automated purchase failing
+         * is not the same as the order being impossible: an operator can often
+         * place the same top-up by hand, through the venue's own panel or a
+         * second route, and the customer gets what they paid for instead of a
+         * refund they did not ask for. The task is therefore "do this one by
+         * hand"; it becomes a refund only when a person has tried and could not,
+         * through `convertToRefund` — see `WorkItemsService`.
+         *
+         * Safe to attempt by hand precisely because the venue confirmed no
+         * charge. That is what separates this branch from `UNKNOWN` below,
+         * where a manual top-up could deliver twice for one payment.
          */
         await this.store.transition({
           fulfillmentId: target.fulfillmentId,
@@ -596,7 +607,7 @@ export class TopUpFulfillmentService {
         await this.store.transitionOrder({
           orderId: target.orderId,
           from: ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'],
-          to: 'REFUND_PENDING',
+          to: 'REVIEW_REQUIRED',
           failureReason: common.failureCode ?? 'SUPPLIER_FAILED',
         });
         return this.escalate(
@@ -604,10 +615,12 @@ export class TopUpFulfillmentService {
           {
             decision: 'FAILED',
             reason: common.failureCode ?? 'SUPPLIER_FAILED',
-            type: 'REFUND_REVIEW',
-            title: 'بازگشت وجه شارژ ناموفق',
+            type: 'SUPPLIER_FOLLOWUP',
+            title: 'شارژ خودکار ناموفق — به‌صورت دستی انجام دهید',
             description:
-              'خرید شارژ ناموفق بود و تأمین‌کننده مبلغی کسر نکرد. بازگشت وجه به مشتری را پیگیری کنید.',
+              'خرید خودکار انجام نشد و تأمین‌کننده تأیید کرده که مبلغی کسر نکرده است، پس شارژ دستی ' +
+              'امن است. شارژ را برای مشتری انجام دهید و این کار را ببندید. اگر به هیچ روشی ممکن نشد، ' +
+              'همین کار را به «بازگشت وجه» تغییر دهید تا پول مشتری برگردد.',
           },
         );
       }

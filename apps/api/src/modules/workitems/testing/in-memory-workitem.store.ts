@@ -1,7 +1,9 @@
-import type { QueueKey, WorkItemStatus } from '@barat/contracts';
+import type { QueueKey, WorkItemStatus, WorkItemType } from '@barat/contracts';
 
 import {
   ACTIVE_OPERATOR_STATUSES,
+  DEFAULT_QUEUE_BY_WORK_ITEM_TYPE,
+  DEFAULT_TITLE_BY_WORK_ITEM_TYPE,
   type ClaimingStaff,
   type CreateWorkItemRecord,
   type OrderQuoteTarget,
@@ -249,5 +251,91 @@ export class InMemoryWorkItemStore implements WorkItemStore {
       ...(input.releaseOrderLock ? { activeOrderKey: null, completedAt: input.at } : {}),
     });
     return true;
+  }
+
+  async markDeliveredForReview(input: {
+    workItemId: string;
+    title: string;
+    description: string;
+    priority: number;
+  }): Promise<boolean> {
+    const row = this.rows.get(input.workItemId);
+    if (row === undefined || row.assignedToStaffId !== null || row.status !== 'UNASSIGNED') {
+      return false;
+    }
+    this.rows.set(input.workItemId, {
+      ...row,
+      title: input.title,
+      description: input.description,
+      priority: input.priority,
+    });
+    return true;
+  }
+
+  async retypeIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    from: readonly WorkItemStatus[];
+    type: WorkItemType;
+    title: string;
+    note: string;
+    at: Date;
+  }): Promise<boolean> {
+    const row = this.rows.get(input.workItemId);
+    if (
+      row === undefined ||
+      row.assignedToStaffId !== input.staffId ||
+      !input.from.includes(row.status)
+    ) {
+      return false;
+    }
+    this.rows.set(input.workItemId, {
+      ...row,
+      type: input.type,
+      queueKey: DEFAULT_QUEUE_BY_WORK_ITEM_TYPE[input.type],
+      title: input.title,
+      description: input.note,
+    });
+    return true;
+  }
+
+  /** Track orders and their status for convert-to-refund tests. */
+  readonly orders = new Map<string, { status: string }>();
+
+  async convertToRefundIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    staffRole: string;
+    from: readonly WorkItemStatus[];
+    note: string;
+    at: Date;
+  }): Promise<{ changed: boolean; orderId: string | null }> {
+    const row = this.rows.get(input.workItemId);
+    if (
+      row === undefined ||
+      row.assignedToStaffId !== input.staffId ||
+      !input.from.includes(row.status) ||
+      row.type !== 'SUPPLIER_FOLLOWUP'
+    ) {
+      return { changed: false, orderId: row?.orderId ?? null };
+    }
+    if (row.orderId === null) {
+      return { changed: false, orderId: null };
+    }
+
+    const order = this.orders.get(row.orderId);
+    if (!order || order.status !== 'REVIEW_REQUIRED') {
+      return { changed: false, orderId: row.orderId };
+    }
+
+    order.status = 'REFUND_PENDING';
+    this.rows.set(input.workItemId, {
+      ...row,
+      type: 'REFUND_REVIEW',
+      queueKey: DEFAULT_QUEUE_BY_WORK_ITEM_TYPE['REFUND_REVIEW'],
+      title: DEFAULT_TITLE_BY_WORK_ITEM_TYPE['REFUND_REVIEW'],
+      description: input.note,
+    });
+    return { changed: true, orderId: row.orderId };
   }
 }
