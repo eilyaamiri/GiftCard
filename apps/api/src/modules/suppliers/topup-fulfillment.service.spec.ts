@@ -223,7 +223,7 @@ describe('a top-up creates no work item for an operator', () => {
    * the other half of it, and it is deliberately restricted to these two.
    */
   describe('the two genuine error paths DO open exactly one task', () => {
-    it('opens one on a FAILED purchase, with a deterministic code', async () => {
+    it('opens one on a FAILED purchase, for manual fulfillment first', async () => {
       const h = harness();
       h.provider.setNextPurchaseResult({
         status: 'FAILED',
@@ -236,11 +236,12 @@ describe('a top-up creates no work item for an operator', () => {
       expect(outcome).toMatchObject({ decision: 'FAILED' });
       expect(outcome.workItemId).not.toBeNull();
       expect(workItemCount(h)).toBe(1);
+      // Now SUPPLIER_FOLLOWUP so the operator can try manual fulfillment first.
       expect(h.workItems.rows.get(outcome.workItemId as string)?.code).toBe(
-        `topup:REFUND_REVIEW:${ORDER_ID}`,
+        `topup:SUPPLIER_FOLLOWUP:${ORDER_ID}`,
       );
-      // The order itself is parked for a refund, which only a person completes.
-      expect(h.topUpStore.orderTransitions.at(-1)).toMatchObject({ to: 'REFUND_PENDING' });
+      // The order goes to REVIEW_REQUIRED, not directly to refund.
+      expect(h.topUpStore.orderTransitions.at(-1)).toMatchObject({ to: 'REVIEW_REQUIRED' });
     });
 
     it('opens one on an UNKNOWN outcome, and never re-buys', async () => {
@@ -390,7 +391,8 @@ describe('a top-up creates no work item for an operator', () => {
       for (const row of h.workItems.rows.values()) {
         expect(row.type).not.toBe('MANUAL_GIFT_CARD_FULFILLMENT');
       }
-      expect([...h.workItems.rows.values()].map((row) => row.type)).toEqual(['REFUND_REVIEW']);
+      // FAILED now opens SUPPLIER_FOLLOWUP (manual fulfillment first), not REFUND_REVIEW.
+      expect([...h.workItems.rows.values()].map((row) => row.type)).toEqual(['SUPPLIER_FOLLOWUP']);
     });
 
     it('leaves the order lock free, so the task does not masquerade as fulfillment', async () => {

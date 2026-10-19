@@ -225,7 +225,7 @@ beforeEach(() => {
 });
 
 describe('payment-time auto-fulfillment', () => {
-  it('buys, publishes the card and closes the task itself', async () => {
+  it('buys, publishes the card and leaves the task for sign-off', async () => {
     const h = await harness();
     succeeds(h.provider);
 
@@ -240,9 +240,12 @@ describe('payment-time auto-fulfillment', () => {
     expect(asset?.status).toBe('SENT');
     expect(h.fulfillmentStore.orderStatus).toBe('FULFILLED');
 
-    // Closed by the system, not left in the queue for an operator to re-do.
-    expect(h.workItems.rows.get(h.workItemId)?.status).toBe('COMPLETED');
-    expect(h.workItems.rows.get(h.workItemId)?.assignedToStaffId).toBeNull();
+    // The task stays UNASSIGNED for an operator to verify and close.
+    const item = h.workItems.rows.get(h.workItemId);
+    expect(item?.status).toBe('UNASSIGNED');
+    expect(item?.assignedToStaffId).toBeNull();
+    expect(item?.title).toBe('بررسی تحویل خودکار گیفت‌کارت');
+    expect(item?.priority).toBe(500); // Lower priority than actual fulfillment work.
   });
 
   it('never lets the plaintext code reach an audit payload', async () => {

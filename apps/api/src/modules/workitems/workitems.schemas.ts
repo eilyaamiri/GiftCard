@@ -32,3 +32,9 @@ export const failWorkItemBodySchema = z.object({
   resolutionNote: z.string().min(1).max(1_000),
 });
 export type FailWorkItemBody = z.infer<typeof failWorkItemBodySchema>;
+
+export const convertToRefundBodySchema = z.object({
+  /** What the operator tried before deciding a refund is necessary. Required. */
+  note: z.string().min(1).max(1_000),
+});
+export type ConvertToRefundBody = z.infer<typeof convertToRefundBodySchema>;

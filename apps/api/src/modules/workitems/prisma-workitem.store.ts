@@ -3,6 +3,8 @@ import { prisma, type Prisma } from '@barat/database';
 import type { QueueKey, WorkItemStatus, WorkItemType } from '@barat/contracts';
 
 import {
+  DEFAULT_QUEUE_BY_WORK_ITEM_TYPE,
+  DEFAULT_TITLE_BY_WORK_ITEM_TYPE,
   type ClaimingStaff,
   type CreateWorkItemRecord,
   type OrderQuoteTarget,
@@ -269,6 +271,125 @@ export class PrismaWorkItemStore implements WorkItemStore {
       },
     });
     return result.count === 1;
+  }
+
+  async markDeliveredForReview(input: {
+    workItemId: string;
+    title: string;
+    description: string;
+    priority: number;
+  }): Promise<boolean> {
+    const result = await this.db.workItem.updateMany({
+      where: { id: input.workItemId, status: 'UNASSIGNED', assignedToStaffId: null },
+      data: { title: input.title, description: input.description, priority: input.priority },
+    });
+    return result.count === 1;
+  }
+
+  async retypeIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    from: readonly WorkItemStatus[];
+    type: WorkItemType;
+    title: string;
+    note: string;
+    at: Date;
+  }): Promise<boolean> {
+    /* The destination queue comes from the shared type→queue map, never from a
+     * caller-supplied id: a retype that landed an item in the wrong queue would
+     * hide it from the only people allowed to action it. */
+    const queue = await this.ensureQueue(DEFAULT_QUEUE_BY_WORK_ITEM_TYPE[input.type]);
+
+    const result = await this.db.workItem.updateMany({
+      where: {
+        id: input.workItemId,
+        assignedToStaffId: input.staffId,
+        status: { in: [...input.from] },
+      },
+      data: {
+        type: input.type,
+        queueId: queue.id,
+        title: input.title,
+        /* Not `resolutionNote`: the item is not resolved, it changed job. The
+         * note is why, and it has to survive into the refund queue. */
+        description: input.note,
+        updatedAt: input.at,
+      },
+    });
+    return result.count === 1;
+  }
+
+  async convertToRefundIfOwned(input: {
+    workItemId: string;
+    staffId: string;
+    staffRole: string;
+    from: readonly WorkItemStatus[];
+    note: string;
+    at: Date;
+  }): Promise<{ changed: boolean; orderId: string | null }> {
+    const queue = await this.ensureQueue(DEFAULT_QUEUE_BY_WORK_ITEM_TYPE['REFUND_REVIEW']);
+
+    return this.db.$transaction(async (tx) => {
+      /* Read the work item while holding the row lock. */
+      const item = await tx.workItem.findUnique({
+        where: { id: input.workItemId },
+        select: { orderId: true, assignedToStaffId: true, status: true, type: true },
+      });
+      if (
+        item === null ||
+        item.assignedToStaffId !== input.staffId ||
+        !input.from.includes(item.status as WorkItemStatus) ||
+        item.type !== 'SUPPLIER_FOLLOWUP'
+      ) {
+        return { changed: false, orderId: item?.orderId ?? null };
+      }
+      if (item.orderId === null) {
+        return { changed: false, orderId: null };
+      }
+
+      /* The order must be in REVIEW_REQUIRED to move to REFUND_PENDING. */
+      const orderResult = await tx.order.updateMany({
+        where: { id: item.orderId, status: 'REVIEW_REQUIRED' },
+        data: { status: 'REFUND_PENDING' },
+      });
+      if (orderResult.count !== 1) {
+        /* The order was no longer in the expected state; roll back. */
+        throw new Error('ORDER_STATE_CHANGED');
+      }
+
+      /* Retype the work item. */
+      await tx.workItem.update({
+        where: { id: input.workItemId },
+        data: {
+          type: 'REFUND_REVIEW',
+          queueId: queue.id,
+          title: DEFAULT_TITLE_BY_WORK_ITEM_TYPE['REFUND_REVIEW'],
+          description: input.note,
+          updatedAt: input.at,
+        },
+      });
+
+      /* Audit the order transition. */
+      await tx.auditLog.create({
+        data: {
+          actor: input.staffId,
+          actorType: 'STAFF',
+          actorRole: input.staffRole,
+          action: 'ORDER_STATUS_CHANGED',
+          entity: 'Order',
+          entityId: item.orderId,
+          before: { status: 'REVIEW_REQUIRED' } as Prisma.InputJsonValue,
+          after: { status: 'REFUND_PENDING', reason: 'CONVERTED_TO_REFUND' } as Prisma.InputJsonValue,
+        },
+      });
+
+      return { changed: true, orderId: item.orderId };
+    }).catch((err: unknown) => {
+      if (err instanceof Error && err.message === 'ORDER_STATE_CHANGED') {
+        return { changed: false, orderId: null };
+      }
+      throw err;
+    });
   }
 
   private async ensureQueue(key: QueueKey): Promise<{ id: string }> {

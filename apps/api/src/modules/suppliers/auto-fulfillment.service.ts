@@ -215,7 +215,7 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
       return this.record(bought);
     }
 
-    return this.record(await this.deliverAndClose(target, bought.assetId));
+    return this.record(await this.deliverAndFlagForReview(target, bought.assetId));
   }
 
   /**
@@ -365,13 +365,18 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
   }
 
   /**
-   * Publish the card to the customer, then close the task.
+   * Delivers the asset and leaves the task open for an operator to sign off.
    *
-   * The close is conditional on the delivery having actually happened, and on the
-   * item still being unassigned — an operator who claimed it in the meantime
-   * keeps it, sees a delivered asset in their workspace, and closes it themselves.
+   * The customer gets the code the instant the supplier returns it — there is no
+   * delay. What changes is only what happens to the TASK: instead of vanishing,
+   * it becomes a verification item that an operator checks and closes. The
+   * product owner wants every automated purchase to pass through a human's eyes
+   * before the queue considers it done.
+   *
+   * If an operator claimed the item in the meantime, the update leaves it alone:
+   * they see a delivered asset in their workspace and close it themselves.
    */
-  private async deliverAndClose(
+  private async deliverAndFlagForReview(
     target: AutoFulfillmentTarget,
     assetId: string,
   ): Promise<AutoFulfillmentOutcome> {
@@ -395,10 +400,16 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
       };
     }
 
-    await this.workItems.completeBySystem({
+    /* Leave the task for a human to check. Priority 500 is well below the
+     * default 100, so these sort after items that still need fulfilment. */
+    await this.workItems.markDeliveredForReview({
       workItemId: target.workItemId,
       actor: AUTO_FULFILLMENT_ACTOR,
-      resolutionNote: 'کد به‌صورت خودکار از تأمین‌کننده تهیه و برای مشتری منتشر شد.',
+      title: 'بررسی تحویل خودکار گیفت‌کارت',
+      description:
+        'کد به‌صورت خودکار از تأمین‌کننده تهیه و برای مشتری منتشر شد. ' +
+        'بررسی کنید و تسک را ببندید.',
+      priority: 500,
     });
 
     return {
