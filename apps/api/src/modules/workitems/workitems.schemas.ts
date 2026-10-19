@@ -36,5 +36,11 @@ export type FailWorkItemBody = z.infer<typeof failWorkItemBodySchema>;
 export const convertToRefundBodySchema = z.object({
   /** What the operator tried before deciding a refund is necessary. Required. */
   note: z.string().min(1).max(1_000),
+  /**
+   * Refund amount in IRR (BigInt). The client sends it as a string because
+   * JSON has no native BigInt. Must be 1 or more and no more than the order's
+   * total.
+   */
+  amountIrr: z.string().regex(/^\d+$/, 'باید یک عدد صحیح باشد').transform((s) => BigInt(s)),
 });
 export type ConvertToRefundBody = z.infer<typeof convertToRefundBodySchema>;

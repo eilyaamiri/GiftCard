@@ -92,17 +92,17 @@ export const workItems = {
       )
     ).item,
   /**
-   * Converts a SUPPLIER_FOLLOWUP task to REFUND_REVIEW, moving the order to REFUND_PENDING.
+   * Converts a SUPPLIER_FOLLOWUP or MANUAL_GIFT_CARD_FULFILLMENT task to REFUND_REVIEW,
+   * moving the order to REFUND_PENDING and creating a Refund record.
    * The note is required — it records what the operator tried before deciding on a refund.
+   * The amountIrr is a string representation of a BigInt (JSON has no native BigInt).
    */
-  convertToRefund: async (id: string, note: string) =>
-    (
-      await api.post(
-        `/api/operator/work-items/${encodeURIComponent(id)}/convert-to-refund`,
-        { note },
-        workItemEnvelopeSchema,
-      )
-    ).item,
+  convertToRefund: async (id: string, note: string, amountIrr: string) =>
+    await api.post(
+      `/api/operator/work-items/${encodeURIComponent(id)}/convert-to-refund`,
+      { note, amountIrr },
+      workItemEnvelopeSchema
+    ),
 };
 
 /* ============================================================================

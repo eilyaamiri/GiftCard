@@ -304,3 +304,87 @@ describe('claiming', () => {
     expect(h.store.rows.size).toBe(2);
   });
 });
+
+describe('convertToRefund', () => {
+  function harnessWithOrder() {
+    const h = harness();
+    h.store.orders.set('order-1', { status: 'REVIEW_REQUIRED', totalAmountIrr: 2_000_000n });
+    return h;
+  }
+
+  it('converts SUPPLIER_FOLLOWUP to REFUND_REVIEW and creates a Refund record', async () => {
+    const h = harnessWithOrder();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    const result = await h.service.convertToRefund(item.id, 'op-1', 'تأمین‌کننده پاسخ نداد', 500_000n);
+
+    expect(result.item.type).toBe('REFUND_REVIEW');
+    expect(result.refundId).toBeTruthy();
+    expect(h.store.refunds.has(result.refundId)).toBe(true);
+    const refund = h.store.refunds.get(result.refundId)!;
+    expect(refund.amountIrr).toBe(500_000n);
+    expect(refund.reason).toBe('تأمین‌کننده پاسخ نداد');
+    expect(refund.status).toBe('REQUESTED');
+    expect(h.store.orders.get('order-1')!.status).toBe('REFUND_PENDING');
+  });
+
+  it('also converts MANUAL_GIFT_CARD_FULFILLMENT to REFUND_REVIEW', async () => {
+    const h = harnessWithOrder();
+    // onOrderPaid creates MANUAL_GIFT_CARD_FULFILLMENT by default for SKU orders
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+    expect(item.type).toBe('MANUAL_GIFT_CARD_FULFILLMENT');
+
+    const result = await h.service.convertToRefund(item.id, 'op-1', 'کد معیوب بود', 1_000_000n);
+
+    expect(result.item.type).toBe('REFUND_REVIEW');
+    expect(result.refundId).toBeTruthy();
+  });
+
+  it('refuses an amount larger than the order total', async () => {
+    const h = harnessWithOrder();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    await expect(
+      h.service.convertToRefund(item.id, 'op-1', 'test', 3_000_000n),
+    ).rejects.toThrow();
+  });
+
+  it('refuses zero or negative amount at service level', async () => {
+    const h = harnessWithOrder();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    await expect(h.service.convertToRefund(item.id, 'op-1', 'test', 0n)).rejects.toThrow();
+    await expect(h.service.convertToRefund(item.id, 'op-1', 'test', -100n)).rejects.toThrow();
+  });
+
+  it('refuses convert on a task not held by the caller', async () => {
+    const h = harnessWithOrder();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    await expect(
+      h.service.convertToRefund(item.id, 'op-2', 'test', 500_000n),
+    ).rejects.toThrow();
+  });
+
+  it('refuses convert on an order no longer in REVIEW_REQUIRED', async () => {
+    const h = harnessWithOrder();
+    h.store.orders.set('order-1', { status: 'FULFILLED', totalAmountIrr: 2_000_000n });
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    await expect(
+      h.service.convertToRefund(item.id, 'op-1', 'test', 500_000n),
+    ).rejects.toThrow();
+  });
+});

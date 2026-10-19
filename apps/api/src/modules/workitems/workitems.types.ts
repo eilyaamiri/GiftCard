@@ -265,22 +265,22 @@ export interface WorkItemStore {
   }): Promise<boolean>;
   /**
    * Atomically converts a held follow-up task to a refund task AND moves its
-   * order to `REFUND_PENDING`. Both writes succeed or neither does.
+   * order to `REFUND_PENDING`. Also creates a Refund record with the
+   * operator-chosen amount.
    *
-   * The separate `transitionIfOwned` + manual order write that other modules use
-   * would require either importing the orders module (creating a cycle through
-   * fulfillment) or using forwardRef. Keeping the full operation here avoids
-   * that, and the conditional logic is the same: staff must hold the item, order
-   * must be in `REVIEW_REQUIRED`.
+   * All three writes (order + work item + refund) succeed or none does. The
+   * caller validates that amountIrr is between 1 and the order's total.
    */
   convertToRefundIfOwned(input: {
     workItemId: string;
     staffId: string;
     staffRole: string;
     from: readonly WorkItemStatus[];
+    allowedTypes: readonly WorkItemType[];
     note: string;
+    amountIrr: bigint;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null }>;
+  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }>;
   /** Atomic compare-and-set across a set of allowed source statuses. */
   transitionIfOwned(input: {
     workItemId: string;

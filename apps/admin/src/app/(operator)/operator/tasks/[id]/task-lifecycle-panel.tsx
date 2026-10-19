@@ -12,6 +12,13 @@ import {
   type WorkItemSummary,
 } from "../../../_lib/work-items";
 
+/** Parses a Toman string into a positive BigInt in IRR. Returns null if invalid. */
+function parseTomanToIrr(toman: string): bigint | null {
+  const cleaned = toman.replace(/[,،٬]/g, "").replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  if (!/^\d+$/.test(cleaned) || cleaned === "0") return null;
+  return BigInt(cleaned) * 10n;
+}
+
 /**
  * Claim → start → complete/fail.
  *
@@ -26,18 +33,19 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
   const [note, setNote] = useState("");
   const [converting, setConverting] = useState(false);
   const [confirmedConvert, setConfirmedConvert] = useState(false);
+  const [refundToman, setRefundToman] = useState("");
   const [, startTransition] = useTransition();
 
   const isClosed = TERMINAL_STATUSES.includes(item.status);
   const isActive = ACTIVE_STATUSES.includes(item.status);
   const canClaim = item.status === "UNASSIGNED" && item.assignedToStaffId === null;
-  const isSupplierFollowup = item.type === "SUPPLIER_FOLLOWUP";
-  /* The convert-to-refund button only makes sense when the order is still in
-   * REVIEW_REQUIRED — once it has left (refunded, fulfilled, etc.) the server
-   * refuses the transition. We gate it on the active statuses here so the button
-   * is not even shown on closed tasks, and the server still validates as the
-   * real gate. */
-  const canConvert = isMine && isActive && isSupplierFollowup;
+  /* The convert-to-refund button makes sense for SUPPLIER_FOLLOWUP (failed
+   * top-ups) and MANUAL_GIFT_CARD_FULFILLMENT (gift cards with defective codes).
+   * The server gate is the real check; this hides the button where it has no use. */
+  const canConvert =
+    isMine &&
+    isActive &&
+    (item.type === "SUPPLIER_FOLLOWUP" || item.type === "MANUAL_GIFT_CARD_FULFILLMENT");
 
   async function run(action: NonNullable<typeof busy>, call: () => Promise<unknown>) {
     setError(null);
@@ -54,12 +62,18 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
 
   async function convertToRefund() {
     setError(null);
+    const amountIrr = parseTomanToIrr(refundToman);
+    if (amountIrr === null) {
+      setError("مبلغ بازگشت وجه نامعتبر است.");
+      return;
+    }
     setBusy("convert");
     try {
-      await workItems.convertToRefund(item.id, note.trim());
+      await workItems.convertToRefund(item.id, note.trim(), amountIrr.toString());
       setConverting(false);
       setConfirmedConvert(false);
       setNote("");
+      setRefundToman("");
       startTransition(() => router.refresh());
     } catch (caught) {
       setError(messageFor(caught));
@@ -148,7 +162,9 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
               <>
                 <div style={{ borderTop: "1px solid var(--line)", marginBlockStart: 4, paddingBlockStart: 12 }}>
                   <p className="muted" style={{ marginBlockEnd: 8 }}>
-                    شارژ نتیجه نداد و امکان شارژ دستی هم نیست. سفارش به صف بازگشت وجه می‌رود.
+                    {item.type === "SUPPLIER_FOLLOWUP"
+                      ? "شارژ نتیجه نداد و امکان شارژ دستی هم نیست. سفارش به صف بازگشت وجه می‌رود."
+                      : "کد معیوب است یا تحویل ممکن نیست. سفارش به صف بازگشت وجه می‌رود."}
                   </p>
                   <button
                     type="button"
@@ -174,17 +190,27 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
           setConfirmedConvert(false);
         }}
         title="تغییر به بازگشت وجه"
-        description="این اقدام سفارش را به صف بازگشت وجه می‌فرستد. تایید و یادداشت شما ثبت می‌شود."
+        description="سفارش به صف بازگشت وجه فرستاده می‌شود و مبلغ ثبت می‌گردد."
       >
-        <div style={{ display: "grid", gap: 12 }}>
-          <p className="muted" style={{ margin: 0 }}>
-            با تایید این اقدام، نوع کار از «پیگیری تأمین‌کننده» به «بررسی بازگشت‌وجه» تغییر می‌کند و سفارش
-            به صف بازگشت وجه فرستاده می‌شود. یادداشت شما در کار ثبت می‌شود.
+        <div style={{ display: "grid", gap: 14 }}>
+          <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
+            مبلغ بازگشت وجه (تومان)
+            <input
+              className="bp-ltr"
+              inputMode="numeric"
+              value={refundToman}
+              onChange={(e) => setRefundToman(e.target.value)}
+              placeholder="مثلاً ۲۰۵,۰۰۰"
+              style={{ direction: "ltr", textAlign: "right" }}
+            />
+          </label>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            مبلغ واردشده از حساب واریزی کم می‌شود. در گزارش مالی یک سرفصل جداگانه نشان داده می‌شود.
           </p>
           <Checkbox
             checked={confirmedConvert}
             onChange={(event) => setConfirmedConvert(event.target.checked)}
-            label="تغییر به بازگشت وجه را تایید می‌کنم."
+            label="تغییر به بازگشت وجه را تأیید می‌کنم."
           />
         </div>
         <div style={{ marginBlockStart: 20, display: "flex", justifyContent: "flex-end", gap: 10 }}>
@@ -204,7 +230,7 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
             disabled={!confirmedConvert || busy === "convert"}
             onClick={() => void convertToRefund()}
           >
-            {busy === "convert" ? "در حال تغییر…" : "تغییر به بازگشت وجه"}
+            {busy === "convert" ? "در حال ثبت…" : "ثبت بازگشت وجه"}
           </button>
         </div>
       </Modal>

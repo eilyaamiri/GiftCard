@@ -300,22 +300,29 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   }
 
   /** Track orders and their status for convert-to-refund tests. */
-  readonly orders = new Map<string, { status: string }>();
+  readonly orders = new Map<string, { status: string; totalAmountIrr: bigint }>();
+
+  /** Track refunds created by convertToRefundIfOwned. */
+  readonly refunds = new Map<string, { orderId: string; amountIrr: bigint; reason: string; status: string }>();
+
+  private refundSequence = 0;
 
   async convertToRefundIfOwned(input: {
     workItemId: string;
     staffId: string;
     staffRole: string;
     from: readonly WorkItemStatus[];
+    allowedTypes: readonly WorkItemType[];
     note: string;
+    amountIrr: bigint;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null }> {
+  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }> {
     const row = this.rows.get(input.workItemId);
     if (
       row === undefined ||
       row.assignedToStaffId !== input.staffId ||
       !input.from.includes(row.status) ||
-      row.type !== 'SUPPLIER_FOLLOWUP'
+      !input.allowedTypes.includes(row.type)
     ) {
       return { changed: false, orderId: row?.orderId ?? null };
     }
@@ -327,6 +334,9 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     if (!order || order.status !== 'REVIEW_REQUIRED') {
       return { changed: false, orderId: row.orderId };
     }
+    if (input.amountIrr <= 0n || input.amountIrr > order.totalAmountIrr) {
+      return { changed: false, orderId: row.orderId };
+    }
 
     order.status = 'REFUND_PENDING';
     this.rows.set(input.workItemId, {
@@ -336,6 +346,16 @@ export class InMemoryWorkItemStore implements WorkItemStore {
       title: DEFAULT_TITLE_BY_WORK_ITEM_TYPE['REFUND_REVIEW'],
       description: input.note,
     });
-    return { changed: true, orderId: row.orderId };
+
+    this.refundSequence += 1;
+    const refundId = `refund-${String(this.refundSequence)}`;
+    this.refunds.set(refundId, {
+      orderId: row.orderId,
+      amountIrr: input.amountIrr,
+      reason: input.note,
+      status: 'REQUESTED',
+    });
+
+    return { changed: true, orderId: row.orderId, refundId };
   }
 }
