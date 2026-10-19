@@ -91,6 +91,18 @@ export const workItems = {
         workItemEnvelopeSchema,
       )
     ).item,
+  /**
+   * Converts a SUPPLIER_FOLLOWUP task to REFUND_REVIEW, moving the order to REFUND_PENDING.
+   * The note is required — it records what the operator tried before deciding on a refund.
+   */
+  convertToRefund: async (id: string, note: string) =>
+    (
+      await api.post(
+        `/api/operator/work-items/${encodeURIComponent(id)}/convert-to-refund`,
+        { note },
+        workItemEnvelopeSchema,
+      )
+    ).item,
 };
 
 /* ============================================================================
