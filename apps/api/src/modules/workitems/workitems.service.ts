@@ -399,21 +399,26 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
   }
 
   /**
-   * Converts a `SUPPLIER_FOLLOWUP` task to a `REFUND_REVIEW` task.
+   * Converts a `SUPPLIER_FOLLOWUP` or `MANUAL_GIFT_CARD_FULFILLMENT` task to a
+   * `REFUND_REVIEW` task.
    *
-   * Used when an operator tried to fulfil a top-up manually and could not. The
-   * order moves from `REVIEW_REQUIRED` to `REFUND_PENDING` in the same
-   * transaction, and the task keeps its id, assignment and notes so the history
-   * of what was tried is not lost.
+   * The order moves from `REVIEW_REQUIRED` to `REFUND_PENDING` and a `Refund`
+   * record is created with the operator-chosen amount. The task keeps its id,
+   * assignment and notes so the history of what was tried is not lost.
    *
-   * The caller must hold the item; the note is required because this transition
-   * is the record of why a refund was chosen over a fulfillment.
+   * Amount must be 1 IRR or more and no more than the order's total. Zero or
+   * negative is caught server-side; over-total triggers the store's guard.
    */
   async convertToRefund(
     workItemId: string,
     staffId: string,
     note: string,
-  ): Promise<WorkItemSummary> {
+    amountIrr: bigint,
+  ): Promise<{ item: WorkItemSummary; refundId: string }> {
+    if (amountIrr <= 0n) {
+      throw DomainErrors.validation([{ path: 'amountIrr', message: 'مبلغ بازگشت وجه باید بیشتر از صفر باشد.' }]);
+    }
+
     const staff = await this.store.findStaff(staffId);
     if (!staff || !staff.isActive || !CLAIMING_ROLE_SET.has(staff.role)) {
       throw DomainErrors.forbidden('Staff user may not modify work items');
@@ -424,11 +429,13 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       staffId,
       staffRole: staff.role,
       from: ACTIVE_OPERATOR_STATUSES,
+      allowedTypes: ['SUPPLIER_FOLLOWUP', 'MANUAL_GIFT_CARD_FULFILLMENT'],
       note,
+      amountIrr,
       at: new Date(),
     });
 
-    if (!result.changed) {
+    if (!result.changed || !result.refundId) {
       throw DomainErrors.conflict(
         'سفارش یا تسک در وضعیتی نیست که بتوان به بازگشت وجه تغییر داد.',
         `Cannot convert work item ${workItemId} to refund (order may have moved)`,
@@ -445,7 +452,9 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       after: {
         type: 'REFUND_REVIEW',
         note,
+        amountIrr: amountIrr.toString(),
         orderId: result.orderId,
+        refundId: result.refundId,
       },
     });
 
@@ -453,7 +462,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
     if (!item) {
       throw DomainErrors.notFound('WorkItem');
     }
-    return item;
+    return { item, refundId: result.refundId };
   }
 
   /* ---------------------------------------------------------------- reads */

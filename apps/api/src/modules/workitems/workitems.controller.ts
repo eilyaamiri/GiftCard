@@ -92,19 +92,20 @@ export class WorkItemsController {
   }
 
   /**
-   * Converts a `SUPPLIER_FOLLOWUP` task to a `REFUND_REVIEW` task.
+   * Converts a `SUPPLIER_FOLLOWUP` or `MANUAL_GIFT_CARD_FULFILLMENT` task to a
+   * `REFUND_REVIEW` task and creates a Refund record.
    *
-   * The operator tried to fulfil a failed top-up manually and could not, so the
-   * order should move to a refund path. The note is required: it documents what
-   * was tried and why a refund is necessary.
+   * The operator tried to fulfil the order manually and could not, so the order
+   * should move to a refund path. The note and amount are required: the note
+   * documents what was tried and the amount records how much is to be returned.
    */
   @Post(':id/convert-to-refund')
   async convertToRefund(
     @Param('id') id: string,
     @Body(zodPipe(convertToRefundBodySchema)) body: ConvertToRefundBody,
     @Req() request: unknown,
-  ): Promise<{ item: WorkItemSummary }> {
+  ): Promise<{ item: WorkItemSummary; refundId: string }> {
     const staff = requireStaff(request);
-    return { item: await this.workItems.convertToRefund(id, staff.id, body.note) };
+    return this.workItems.convertToRefund(id, staff.id, body.note, body.amountIrr);
   }
 }

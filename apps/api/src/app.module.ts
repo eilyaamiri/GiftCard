@@ -50,6 +50,7 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { GiftCardRequestsModule } from './modules/gift-card-requests/gift-card-requests.module';
 import { KbModule } from './modules/kb/kb.module';
+import { FinanceController } from './modules/finance/finance.controller';
 
 @Module({
   imports: [
@@ -99,6 +100,7 @@ import { KbModule } from './modules/kb/kb.module';
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
     { provide: APP_INTERCEPTOR, useClass: TimeoutInterceptor },
     { provide: APP_INTERCEPTOR, useClass: IdempotencyHeaderInterceptor },
+    FinanceController,
   ],
 })
 export class AppModule {}

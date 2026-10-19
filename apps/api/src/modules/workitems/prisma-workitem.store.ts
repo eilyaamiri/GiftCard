@@ -324,9 +324,11 @@ export class PrismaWorkItemStore implements WorkItemStore {
     staffId: string;
     staffRole: string;
     from: readonly WorkItemStatus[];
+    allowedTypes: readonly WorkItemType[];
     note: string;
+    amountIrr: bigint;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null }> {
+  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }> {
     const queue = await this.ensureQueue(DEFAULT_QUEUE_BY_WORK_ITEM_TYPE['REFUND_REVIEW']);
 
     return this.db.$transaction(async (tx) => {
@@ -339,7 +341,7 @@ export class PrismaWorkItemStore implements WorkItemStore {
         item === null ||
         item.assignedToStaffId !== input.staffId ||
         !input.from.includes(item.status as WorkItemStatus) ||
-        item.type !== 'SUPPLIER_FOLLOWUP'
+        !input.allowedTypes.includes(item.type as WorkItemType)
       ) {
         return { changed: false, orderId: item?.orderId ?? null };
       }
@@ -347,15 +349,26 @@ export class PrismaWorkItemStore implements WorkItemStore {
         return { changed: false, orderId: null };
       }
 
-      /* The order must be in REVIEW_REQUIRED to move to REFUND_PENDING. */
-      const orderResult = await tx.order.updateMany({
+      /* Read the order to verify the amount ceiling. */
+      const order = await tx.order.findUnique({
+        where: { id: item.orderId },
+        select: { status: true, totalAmountIrr: true },
+      });
+      if (order === null) {
+        return { changed: false, orderId: item.orderId };
+      }
+      if (order.status !== 'REVIEW_REQUIRED') {
+        return { changed: false, orderId: item.orderId };
+      }
+      if (input.amountIrr <= 0n || input.amountIrr > order.totalAmountIrr) {
+        throw new Error('REFUND_AMOUNT_INVALID');
+      }
+
+      /* Move the order to REFUND_PENDING. */
+      await tx.order.updateMany({
         where: { id: item.orderId, status: 'REVIEW_REQUIRED' },
         data: { status: 'REFUND_PENDING' },
       });
-      if (orderResult.count !== 1) {
-        /* The order was no longer in the expected state; roll back. */
-        throw new Error('ORDER_STATE_CHANGED');
-      }
 
       /* Retype the work item. */
       await tx.workItem.update({
@@ -369,6 +382,17 @@ export class PrismaWorkItemStore implements WorkItemStore {
         },
       });
 
+      /* Create the refund record. */
+      const refund = await tx.refund.create({
+        data: {
+          orderId: item.orderId,
+          amountIrr: input.amountIrr,
+          reason: input.note,
+          status: 'REQUESTED',
+          requestedByStaffId: input.staffId,
+        },
+      });
+
       /* Audit the order transition. */
       await tx.auditLog.create({
         data: {
@@ -379,13 +403,13 @@ export class PrismaWorkItemStore implements WorkItemStore {
           entity: 'Order',
           entityId: item.orderId,
           before: { status: 'REVIEW_REQUIRED' } as Prisma.InputJsonValue,
-          after: { status: 'REFUND_PENDING', reason: 'CONVERTED_TO_REFUND' } as Prisma.InputJsonValue,
+          after: { status: 'REFUND_PENDING', reason: 'CONVERTED_TO_REFUND', refundId: refund.id } as Prisma.InputJsonValue,
         },
       });
 
-      return { changed: true, orderId: item.orderId };
+      return { changed: true, orderId: item.orderId, refundId: refund.id };
     }).catch((err: unknown) => {
-      if (err instanceof Error && err.message === 'ORDER_STATE_CHANGED') {
+      if (err instanceof Error && err.message === 'REFUND_AMOUNT_INVALID') {
         return { changed: false, orderId: null };
       }
       throw err;
