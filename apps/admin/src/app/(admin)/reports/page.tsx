@@ -1,8 +1,9 @@
 import Link from "next/link";
 import type { OrderStatus, OrderSummaryDto } from "@barat/contracts";
-import { formatToman, toPersianDigits } from "@barat/ui";
-import { CheckCircle2, FileBarChart, ShoppingBag, Wallet, XCircle } from "lucide-react";
+import { formatJalaliDate, formatToman, toPersianDigits } from "@barat/ui";
+import { CheckCircle2, FileBarChart, RotateCcw, ShoppingBag, Wallet, XCircle } from "lucide-react";
 import { fetchAllOrders } from "../dashboard/dashboard-data";
+import { deductibleTotal, fetchRefunds, type RefundSummary } from "@/lib/refunds";
 import { SlaPerformanceReport } from "@/components/sla-performance-report";
 import { QUEUE_VIEW_ROLES, REPORT_ROLES, type StaffUser } from "@/lib/api";
 import { requireRole } from "@/lib/session";
@@ -19,6 +20,7 @@ import {
   type ReportFilters,
 } from "@/lib/report-filters";
 import { ORDER_STATUS_LABEL } from "@/lib/order-format";
+import { formatIrrStringAsToman } from "@/lib/format-bps";
 
 export const metadata = { title: "گزارش‌ها | پنل ادمین سنتو" };
 
@@ -33,15 +35,22 @@ export default async function ReportsPage({
 }) {
   const staff = await requireRole(REPORT_ROLES);
   const filters = readReportFilters(await searchParams);
-  const [allOrders, operationalItems] = await Promise.all([
+  const [allOrders, operationalItems, refunds] = await Promise.all([
     fetchAllOrders(),
     loadOperationalItems(staff),
+    loadRefunds(filters.from, filters.to),
   ]);
   const orders = filterReportOrders(allOrders, filters);
   const filteredItems = operationalItems === null
     ? null
     : filterReportWorkItems(operationalItems, filters);
   const sales = calculateSales(orders, filters);
+  /* Refunds are deducted from GMV rather than netted into it: the gross figure
+   * is what was charged and stays auditable on its own, and the deduction is
+   * shown as its own line so the two never have to be reverse-engineered from
+   * one another. Rejected requests are excluded — see `deductibleTotal`. */
+  const refundedIrr = refunds === null ? 0n : deductibleTotal(refunds.refunds);
+  const netIrr = sales.gmvIrr - refundedIrr;
 
   return (
     <div>
@@ -69,6 +78,26 @@ export default async function ReportsPage({
         <div className="kpi-grid">
           <ReportKpi icon={<ShoppingBag size={16} />} label="سفارش‌های بازه" value={count(orders.length)} detail={`${count(sales.paidOrders)} سفارش پرداخت‌شده`} />
           <ReportKpi icon={<Wallet size={16} />} label="GMV پرداخت‌شده" value={formatToman(sales.gmvIrr)} detail="مجموع دقیق سفارش‌های پرداخت‌شده" />
+          <ReportKpi
+            icon={<RotateCcw size={16} />}
+            label="بازگشت وجه"
+            value={refunds === null ? "—" : formatToman(refundedIrr)}
+            detail={
+              refunds === null
+                ? "دادهٔ بازگشت وجه در دسترس نیست"
+                : `${count(refunds.count)} مورد در این بازه`
+            }
+            accent="#d98324"
+            tint="#fdf1e3"
+          />
+          <ReportKpi
+            icon={<Wallet size={16} />}
+            label="درآمد خالص"
+            value={refunds === null ? "—" : formatToman(netIrr)}
+            detail="GMV منهای بازگشت وجه"
+            accent="#18a66a"
+            tint="#e7f7f0"
+          />
           <ReportKpi icon={<CheckCircle2 size={16} />} label="تحویل‌شده" value={count(sales.fulfilled)} detail={percent(sales.fulfilled, orders.length)} accent="#18a66a" tint="#e7f7f0" />
           <ReportKpi icon={<XCircle size={16} />} label="ناموفق" value={count(sales.failed)} detail={percent(sales.failed, orders.length)} accent="#d94a4a" tint="#fdeceb" />
         </div>
@@ -105,6 +134,55 @@ export default async function ReportsPage({
         </section>
       </div>
 
+      <section className="report-section" aria-labelledby="refund-report-title">
+        <div className="panel-heading card panel report-heading-panel">
+          <div>
+            <h2 className="panel-title" id="refund-report-title">بازگشت وجه</h2>
+            <p className="panel-caption">
+              بر اساس تاریخ ثبت درخواست بازگشت وجه. درخواست‌های ردشده در مجموع بالا حساب نمی‌شوند.
+            </p>
+          </div>
+        </div>
+        {refunds === null ? (
+          <div className="card panel">
+            <p className="empty-hint">
+              دادهٔ بازگشت وجه در دسترس نیست. این بخش به نقش مالی یا مدیریت نیاز دارد.
+            </p>
+          </div>
+        ) : refunds.refunds.length === 0 ? (
+          <div className="card panel">
+            <p className="empty-hint">در این بازه بازگشت وجهی ثبت نشده است.</p>
+          </div>
+        ) : (
+          <div className="card panel">
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>تاریخ</th>
+                    <th>مبلغ</th>
+                    <th>وضعیت</th>
+                    <th>ثبت‌کننده</th>
+                    <th>دلیل</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {refunds.refunds.map((refund) => (
+                    <tr key={refund.id}>
+                      <td className="bp-ltr">{formatJalaliDate(refund.requestedAt)}</td>
+                      <td>{formatIrrStringAsToman(refund.amountIrr, { withSuffix: true })}</td>
+                      <td>{REFUND_STATUS_LABEL[refund.status] ?? refund.status}</td>
+                      <td>{refund.requestedBy ?? "—"}</td>
+                      <td>{refund.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
+
       <section className="report-section">
         <div className="panel-heading card panel report-heading-panel">
           <div>
@@ -128,7 +206,7 @@ export default async function ReportsPage({
           <div><h2 className="panel-title">گزارش‌های در انتظار اتصال داده</h2><p className="panel-caption">تا زمان ارائهٔ منبع واقعی در API برای این موارد عددسازی نمی‌شود.</p></div>
         </div>
         <div className="report-capability-grid">
-          <Capability label="بازگشت وجه و Chargeback" reason="دفترکل پرداخت و endpoint گزارش بازگشت وجه هنوز ارائه نشده است." />
+          <Capability label="Chargeback" reason="دفترکل پرداخت و رخدادهای chargeback درگاه هنوز ارائه نشده است." />
           <Capability label="کوهورت مشتری و CLV" reason="endpoint تجمیع مشتری و تاریخچهٔ کامل خرید در این API موجود نیست." />
           <Capability label="KYC و ریسک" reason="دادهٔ KYC قابل گزارش‌گیری در API فعلی در دسترس نیست." />
           <Capability label="پشتیبانی و CSAT" reason="تیکت و شاخص CSAT قابل اندازه‌گیری در API فعلی موجود نیست." />
@@ -160,6 +238,27 @@ async function loadOperationalItems(staff: StaffUser): Promise<readonly WorkItem
   if (!QUEUE_VIEW_ROLES.includes(staff.role as (typeof QUEUE_VIEW_ROLES)[number])) return null;
   try { return await workItems.list({ take: 200 }); } catch { return null; }
 }
+
+/**
+ * The refund ledger for the range, or `null` when it cannot be read.
+ *
+ * Carried as null rather than thrown: a refund endpoint that is unreachable
+ * must not take the sales and SLA reports down with it. The page says the
+ * figure is unavailable instead of printing a zero, which would read as "no
+ * refunds happened" — the one wrong answer a finance report must never give.
+ */
+async function loadRefunds(from: string, to: string): Promise<RefundSummary | null> {
+  try { return await fetchRefunds(from, to); } catch { return null; }
+}
+
+const REFUND_STATUS_LABEL: Record<string, string> = {
+  REQUESTED: "درخواست‌شده",
+  APPROVED: "تأییدشده",
+  PROCESSING: "در حال پردازش",
+  COMPLETED: "انجام‌شده",
+  REJECTED: "ردشده",
+  FAILED: "ناموفق",
+};
 
 function calculateSales(orders: readonly OrderSummaryDto[], filters: ReportFilters) {
   const statusCounts = new Map<OrderStatus, number>();

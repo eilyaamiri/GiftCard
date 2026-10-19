@@ -14,23 +14,46 @@ const refundQuerySchema = z.object({
 });
 type RefundQuery = z.infer<typeof refundQuerySchema>;
 
-@Roles('ADMIN', 'MANAGEMENT', 'OPS_MANAGER')
+/**
+ * The operational calendar, matching `REPORT_ZONE_OFFSET` in the admin's
+ * `report-filters.ts`. Both sides must cut the day at the same instant or a
+ * refund requested between midnight and 03:30 Tehran lands in the orders of one
+ * day and the refunds of another, and the two totals stop reconciling.
+ */
+const REPORT_ZONE_OFFSET = '+03:30';
+
+/**
+ * Who may read the refund ledger.
+ *
+ * Mirrors `REPORT_ROLES` in the admin app, which is what gates the reports page
+ * itself. FINANCE is the role that exists to read this, so leaving it out makes
+ * the page load and the one number on it 403.
+ */
+@Roles('ADMIN', 'MANAGEMENT', 'FINANCE')
 @Controller('admin/finance')
 export class FinanceController {
   /**
    * Lists refund records within a date range for the finance report.
-   * Filtered by `requestedAt` so it matches the report's own date window.
+   *
+   * Filtered by `requestedAt`: the moment an operator committed to returning
+   * the money, which is the date the order it belongs to is reported under. A
+   * refund approved weeks later still belongs to the day it was decided.
    */
   @Get('refunds')
   async getRefunds(
     @Query(zodPipe(refundQuerySchema)) query: RefundQuery,
   ): Promise<{ refunds: RefundRecord[]; totalIrr: string; count: number }> {
-    const from = new Date(query.from + 'T00:00:00.000Z');
-    const to = new Date(query.to + 'T23:59:59.999Z');
+    /* Half-open [from, nextDayAfterTo) in Tehran time: an inclusive `lte` on a
+     * .999 millisecond drops a row stamped in the final microsecond of the day,
+     * which Postgres stores and JavaScript cannot represent. */
+    const from = new Date(`${query.from}T00:00:00.000${REPORT_ZONE_OFFSET}`);
+    const toExclusive = new Date(
+      new Date(`${query.to}T00:00:00.000${REPORT_ZONE_OFFSET}`).getTime() + 86_400_000,
+    );
 
     const rows = await prisma.refund.findMany({
       where: {
-        requestedAt: { gte: from, lte: to },
+        requestedAt: { gte: from, lt: toExclusive },
       },
       orderBy: { requestedAt: 'asc' },
       select: {

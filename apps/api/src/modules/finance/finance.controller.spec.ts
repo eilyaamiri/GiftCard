@@ -35,6 +35,7 @@ vi.hoisted(() => {
 });
 
 import { AppModule } from '../../app.module';
+import { ROLES_METADATA_KEY } from '../identity/rbac/roles.decorator';
 import { FinanceController } from './finance.controller';
 
 describe('FinanceController wiring', () => {
@@ -89,5 +90,43 @@ describe('FinanceController wiring', () => {
     expect(result.count).toBe(2);
     expect(result.refunds[0]?.amountIrr).toBe('1500000');
     expect(result.refunds[1]?.requestedBy).toBeNull();
+  });
+
+  /**
+   * The report's own filters cut the day at Tehran midnight. If this endpoint
+   * cut it at UTC midnight instead, a refund recorded between 00:00 and 03:30
+   * Tehran would sit in one day's orders and another day's refunds, and the
+   * GMV-minus-refunds line would stop reconciling for anyone who looked.
+   */
+  it('cuts the day at Tehran midnight, matching the report filters', async () => {
+    const { prisma } = await import('@barat/database');
+    const findMany = prisma.refund.findMany as unknown as ReturnType<typeof vi.fn>;
+    findMany.mockResolvedValueOnce([]);
+
+    const controller = new FinanceController();
+    await controller.getRefunds({ from: '2026-10-01', to: '2026-10-01' });
+
+    /* The mock is shared across this file, so read the call this test made
+     * rather than the first one recorded. */
+    const lastCall = findMany.mock.calls.at(-1);
+    const where = lastCall?.[0]?.where as { requestedAt: { gte: Date; lt: Date } };
+
+    /* 2026-10-01T00:00 Tehran is 2026-09-30T20:30Z. */
+    expect(where.requestedAt.gte.toISOString()).toBe('2026-09-30T20:30:00.000Z');
+    /* Half-open: the exclusive end is the next Tehran midnight, so a row
+     * stamped in the last microsecond of the day is still counted. */
+    expect(where.requestedAt.lt.toISOString()).toBe('2026-10-01T20:30:00.000Z');
+  });
+
+  /**
+   * FINANCE is the role that exists to read this. The reports page is gated on
+   * REPORT_ROLES (ADMIN, MANAGEMENT, FINANCE), so a narrower guard here renders
+   * the page for a finance user with a 403 where the refund total should be.
+   */
+  it('admits exactly the roles that can open the reports page', () => {
+    const roles = Reflect.getMetadata(ROLES_METADATA_KEY, FinanceController) as
+      | string[]
+      | undefined;
+    expect(roles).toEqual(expect.arrayContaining(['ADMIN', 'MANAGEMENT', 'FINANCE']));
   });
 });
