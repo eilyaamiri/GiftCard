@@ -22,6 +22,9 @@ export type IdentityDatabase = Pick<
   | 'order'
   | 'payment'
   | 'refund'
+  /* OTP issuance takes a per-identifier advisory lock inside a transaction, so
+   * the resend cooldown and the hourly cap cannot be raced by parallel requests. */
+  | '$transaction'
 >;
 
 export interface IdentityActor {

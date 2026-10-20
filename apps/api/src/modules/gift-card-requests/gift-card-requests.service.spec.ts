@@ -259,4 +259,28 @@ describe('supplier-first code request', () => {
     await expect(request(h)).rejects.toThrow();
     expect(h.attemptForOperatorRequest).not.toHaveBeenCalled();
   });
+
+  it('answers a double-submitted request with the card the first submission bought', async () => {
+    // The second submission waits behind the first on the supplier lock; by
+    // the time its own attempt is refused ("order already has an asset"), the
+    // first one has recorded a FULFILLED request. No admin request is opened.
+    let fulfilledLookups = 0;
+    const h = harness({
+      attempt: async () => {
+        throw new Error('order already has an asset');
+      },
+    });
+    h.db.giftCardCodeRequest.findFirst.mockImplementation(async (args: { where: { status?: string } }) => {
+      if (args.where.status !== 'FULFILLED') return null;
+      fulfilledLookups += 1;
+      return fulfilledLookups === 1
+        ? null
+        : requestRow({ id: 'gcr-concurrent', status: 'FULFILLED', giftCardAssetId: 'asset-1' });
+    });
+
+    const view = await request(h);
+
+    expect(view.id).toBe('gcr-concurrent');
+    expect(h.create).not.toHaveBeenCalled();
+  });
 });

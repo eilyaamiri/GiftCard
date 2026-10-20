@@ -1,7 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
-import type { FxRateSnapshot } from '@barat/contracts';
+import 'reflect-metadata';
 
-import { FxController } from './fx.controller';
+import { describe, expect, it, vi } from 'vitest';
+import { STAFF_ROLE_VALUES, type FxRateSnapshot } from '@barat/contracts';
+
+import { PUBLIC_METADATA_KEY, ROLES_METADATA_KEY } from '../identity/rbac/roles.decorator';
+import { FX_READ_ROLES, FxController } from './fx.controller';
 import type { FxAggregatorService } from './fx-aggregator.service';
 
 const SNAPSHOT = {
@@ -119,5 +122,33 @@ describe('FxController', () => {
       id: 'staff-3',
       role: 'FINANCE',
     });
+  });
+});
+
+describe('FxController read routes are staff-only', () => {
+  /*
+   * RolesGuard lets a route with no @Roles through without resolving any
+   * session. These routes used to be public: an anonymous `GET /fx/current`
+   * made live venue calls and wrote an FxRate row on every request.
+   */
+  it.each([
+    ['current', FxController.prototype.current],
+    ['health', FxController.prototype.health],
+    ['history', FxController.prototype.history],
+  ])('%s declares @Roles covering every staff role and nothing else', (_name, handler) => {
+    const roles = Reflect.getMetadata(ROLES_METADATA_KEY, handler) as readonly string[] | undefined;
+    expect(roles, 'without @Roles the route is anonymous').toBeDefined();
+    expect([...(roles ?? [])].sort()).toEqual([...STAFF_ROLE_VALUES].sort());
+    expect(FX_READ_ROLES).toEqual(STAFF_ROLE_VALUES);
+  });
+
+  it('none of the read routes is marked @Public', () => {
+    for (const handler of [
+      FxController.prototype.current,
+      FxController.prototype.health,
+      FxController.prototype.history,
+    ]) {
+      expect(Reflect.getMetadata(PUBLIC_METADATA_KEY, handler)).toBeUndefined();
+    }
   });
 });

@@ -2,7 +2,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FxPair } from '@barat/contracts';
 import type { FxRateProvider, ProviderHealth, RawFxRate } from '@barat/fx';
 
-import { FxAggregatorService, StaleFxRateError } from './fx-aggregator.service';
+import {
+  FxAggregatorService,
+  STALE_FX_ALERT_DEDUP_KEY,
+  StaleFxRateError,
+} from './fx-aggregator.service';
 import type {
   FxAggregatorConfig,
   FxClock,
@@ -100,6 +104,8 @@ class InMemoryFxRateRepository implements FxRateRepository {
 interface StubOptions {
   readonly name: string;
   readonly midRate?: string;
+  readonly buyRate?: string;
+  readonly sellRate?: string;
   readonly healthy?: boolean;
   readonly ageSeconds?: number;
   readonly throwOnGetRate?: boolean;
@@ -146,8 +152,8 @@ class StubProvider implements FxRateProvider {
     const mid = this.options.midRate ?? '1920000';
     return {
       pair: this.options.pair ?? pair,
-      buyRate: mid,
-      sellRate: mid,
+      buyRate: this.options.buyRate ?? mid,
+      sellRate: this.options.sellRate ?? mid,
       midRate: mid,
       source: 'API',
       receivedAt: new Date(NOW),
@@ -342,6 +348,111 @@ describe('FxAggregatorService selection policy', () => {
 
     expect(snapshot.provider).toBe('secondary');
     expect(snapshot.ageSeconds).toBe(STALE_THRESHOLD_SECONDS - 1);
+  });
+
+  it('discards a future-dated provider reading, which would otherwise never age out', async () => {
+    const harness = buildHarness(
+      { name: 'primary', ageSeconds: -3_600 },
+      { name: 'secondary', midRate: '1930000' },
+    );
+
+    const snapshot = await harness.service.getRateSnapshot(PAIR);
+
+    expect(snapshot.provider).toBe('secondary');
+    /* The unusable reading is never persisted as a priceable observation. */
+    expect(harness.repository.rows.map((row) => row.provider)).toEqual(['secondary']);
+  });
+
+  it('still accepts a reading a few seconds ahead, which is ordinary clock drift', async () => {
+    const harness = buildHarness({ name: 'primary', ageSeconds: -30 });
+
+    const snapshot = await harness.service.getRateSnapshot(PAIR);
+
+    expect(snapshot.provider).toBe('primary');
+    expect(snapshot.ageSeconds).toBe(0);
+  });
+
+  it('rejects a reading that is future-dated by more than the drift allowance even when nothing else exists', async () => {
+    const harness = buildHarness(
+      { name: 'primary', ageSeconds: -61 },
+      { name: 'secondary', ageSeconds: -86_400 },
+    );
+
+    await expect(harness.service.getRateSnapshot(PAIR)).rejects.toBeInstanceOf(StaleFxRateError);
+    expect(harness.repository.rows).toHaveLength(0);
+  });
+
+  it('discards a payload whose mid rate lies outside both sides', async () => {
+    const harness = buildHarness(
+      { name: 'primary', buyRate: '1900000', sellRate: '1910000', midRate: '19050000' },
+      { name: 'secondary', midRate: '1930000' },
+    );
+
+    const snapshot = await harness.service.getRateSnapshot(PAIR);
+
+    expect(snapshot.provider).toBe('secondary');
+    expect(snapshot.midRate).toBe('1930000');
+  });
+
+  it('accepts a mid between the sides whichever side the feed calls the bid', async () => {
+    const ascending = buildHarness({
+      name: 'primary',
+      buyRate: '1919000',
+      sellRate: '1921000',
+      midRate: '1920000',
+    });
+    await expect(ascending.service.getRateSnapshot(PAIR)).resolves.toMatchObject({
+      provider: 'primary',
+    });
+
+    const descending = buildHarness({
+      name: 'primary',
+      buyRate: '1921000.5',
+      sellRate: '1919000.25',
+      midRate: '1921000.5',
+    });
+    await expect(descending.service.getRateSnapshot(PAIR)).resolves.toMatchObject({
+      provider: 'primary',
+    });
+  });
+
+  it('compares the sides as exact decimals, not floats', async () => {
+    /* 0.000001 below the low side: a float comparison of 12-digit values
+     * would not reliably see the difference. */
+    const harness = buildHarness(
+      {
+        name: 'primary',
+        buyRate: '999999999999.000001',
+        sellRate: '999999999999.000002',
+        midRate: '999999999999',
+      },
+      { name: 'secondary', midRate: '1930000' },
+    );
+
+    const snapshot = await harness.service.getRateSnapshot(PAIR);
+
+    expect(snapshot.provider).toBe('secondary');
+  });
+
+  it('raises the all-providers-down alert under one stable dedup key', async () => {
+    const alertLogger = { log: vi.fn() };
+    const first = new StaleFxRateError(901, alertLogger as never);
+    const second = new StaleFxRateError(1_337, alertLogger as never);
+
+    expect(first.ageSeconds).toBe(901);
+    expect(second.ageSeconds).toBe(1_337);
+    expect(alertLogger.log).toHaveBeenCalledTimes(2);
+    const keys = alertLogger.log.mock.calls.map(
+      (call) => (call[0] as { dedupKey?: string }).dedupKey,
+    );
+    /* Before the fix the key was derived from a message that embeds the age,
+     * so every rejected quote was a "new incident" and paged Telegram. */
+    expect(keys).toEqual([STALE_FX_ALERT_DEDUP_KEY, STALE_FX_ALERT_DEDUP_KEY]);
+    expect(alertLogger.log.mock.calls[1]?.[0]).toMatchObject({
+      severity: 'ERROR',
+      source: 'FX',
+      context: { ageSeconds: 1_337 },
+    });
   });
 
   it('refuses to be constructed with a nonsensical stale threshold', () => {

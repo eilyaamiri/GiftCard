@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>پیشنهادهای امنیتی و مالی با تغییر کسب‌وکار — Barat Pay</title>
+<style>
+  :root{--bg:#f6f7f9;--card:#fff;--ink:#1d2330;--muted:#667085;--line:#e4e7ec;--accent:#2f5bea;
+        --crit:#b42318;--high:#d9480f;--med:#b08800;--low:#3f7d4c;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Vazirmatn,"Segoe UI",Tahoma,sans-serif;background:var(--bg);color:var(--ink);line-height:1.8}
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:18px 24px;position:sticky;top:0;z-index:5}
+  h1{font-size:19px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px}
+  .tabs{display:flex;gap:6px;margin-top:12px}
+  .tab{border:1px solid var(--line);background:#fff;padding:6px 14px;border-radius:8px;cursor:pointer;font:inherit;font-size:14px}
+  .tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:12px}
+  .bar input,.bar select{font:inherit;font-size:13px;padding:6px 10px;border:1px solid var(--line);border-radius:8px;background:#fff}
+  .bar input[type=search]{min-width:220px}
+  button.act{font:inherit;font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--line);background:#fff;cursor:pointer}
+  button.act.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  main{max-width:1100px;margin:0 auto;padding:20px 16px 80px}
+  .stats{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px}
+  .stat{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 14px;font-size:13px}
+  .stat b{font-size:17px;margin-left:4px}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:10px;display:grid;grid-template-columns:28px 1fr;gap:10px}
+  .item.sel{border-color:var(--accent);box-shadow:0 0 0 2px #2f5bea22}
+  .item input[type=checkbox]{width:18px;height:18px;margin-top:4px;cursor:pointer}
+  .head{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .title{font-weight:700;font-size:15px}
+  .pill{font-size:11px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .sev{color:#fff;border:none}
+  .sev.critical{background:var(--crit)} .sev.high{background:var(--high)} .sev.medium{background:var(--med)} .sev.low{background:var(--low)}
+  dl{margin:8px 0 0;display:grid;grid-template-columns:120px 1fr;gap:2px 10px;font-size:13.5px}
+  dt{color:var(--muted)} dd{margin:0}
+  .files{direction:ltr;text-align:left;font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--muted)}
+  .decide{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+  .decide select,.decide input{font:inherit;font-size:13px;padding:4px 8px;border:1px solid var(--line);border-radius:6px}
+  .decide input{flex:1;min-width:200px}
+  table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:right;vertical-align:top}
+  th{background:#f0f2f5}
+  .hidden{display:none}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
+  @media print{header .bar,header .tabs,.decide select,.decide input,input[type=checkbox]{display:none}
+    header{position:static}.item{break-inside:avoid}.item:not(.sel){display:none}}
+</style>
+</head>
+<body>
+<header>
+  <h1>پیشنهادهایی که کسب‌وکار را تغییر می‌دهند — برای تصمیم شما</h1>
+  <div class="sub">ممیزی امنیتی و مالی · <span id="gen"></span> · انتخاب‌ها و یادداشت‌ها در همین مرورگر ذخیره می‌شوند</div>
+  <div class="tabs">
+    <button class="tab on" data-tab="props">پیشنهادها</button>
+    <button class="tab" data-tab="fixes">اصلاحات انجام‌شده (بدون تغییر کسب‌وکار)</button>
+    <button class="tab" data-tab="frozen">تغییرات فایل‌های قفل‌شده (نیازمند تأیید)</button>
+  </div>
+  <div class="bar" id="propbar">
+    <input type="search" id="q" placeholder="جستجو در عنوان و شرح…">
+    <select id="fArea"><option value="">همه حوزه‌ها</option></select>
+    <select id="fSev"><option value="">همه سطوح</option>
+      <option value="critical">بحرانی</option><option value="high">بالا</option>
+      <option value="medium">متوسط</option><option value="low">پایین</option></select>
+    <select id="fEffort"><option value="">هر حجم کار</option>
+      <option value="S">کوچک</option><option value="M">متوسط</option><option value="L">بزرگ</option></select>
+    <select id="fDec"><option value="">هر تصمیم</option><option value="sel">فقط انتخاب‌شده‌ها</option>
+      <option value="approve">تأیید</option><option value="reject">رد</option><option value="later">بعداً</option><option value="none">بدون تصمیم</option></select>
+    <button class="act" id="selAll">انتخاب همه نمایش‌داده‌ها</button>
+    <button class="act" id="selNone">لغو انتخاب</button>
+    <button class="act primary" id="expJson">خروجی JSON</button>
+    <button class="act primary" id="expCsv">خروجی CSV (اکسل)</button>
+    <button class="act primary" id="expMd">خروجی Markdown</button>
+    <button class="act" id="print">چاپ / PDF انتخاب‌شده‌ها</button>
+    <button class="act" id="reset">پاک‌کردن تصمیم‌ها</button>
+  </div>
+</header>
+<main>
+  <section id="props">
+    <div class="stats" id="stats"></div>
+    <div id="list"></div>
+  </section>
+  <section id="fixes" class="hidden"><div id="fixlist"></div></section>
+  <section id="frozen" class="hidden"><div id="frozenlist"></div></section>
+  <footer>Barat Pay · خروجی‌ها فقط موارد انتخاب‌شده را شامل می‌شوند؛ اگر چیزی انتخاب نشده باشد همه موارد نمایش‌داده‌شده صادر می‌شوند.</footer>
+</main>
+<script>
+const DATA = /*__DATA__*/{"generated":"","proposals":[],"fixes":[],"frozen":[]};
+const SEV = {critical:"بحرانی",high:"بالا",medium:"متوسط",low:"پایین"};
+const SEVORD = {critical:0,high:1,medium:2,low:3};
+const EFF = {S:"کوچک",M:"متوسط",L:"بزرگ"};
+const DEC = {approve:"تأیید",reject:"رد",later:"بعداً","":"—"};
+const KEY = "barat-sec-proposals-" + DATA.generated;
+const state = JSON.parse(localStorage.getItem(KEY) || "{}");
+const save = () => localStorage.setItem(KEY, JSON.stringify(state));
+const st = id => (state[id] ||= {sel:false,dec:"",note:""});
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const $ = id => document.getElementById(id);
+
+document.getElementById("gen").textContent = DATA.generated;
+const props = DATA.proposals.slice().sort((a,b)=>(SEVORD[a.severity]??9)-(SEVORD[b.severity]??9));
+[...new Set(props.map(p=>p.area))].forEach(a=>{const o=document.createElement("option");o.value=a;o.textContent=a;$("fArea").append(o)});
+
+function visible(){
+  const q=$("q").value.trim().toLowerCase(), a=$("fArea").value, s=$("fSev").value, e=$("fEffort").value, d=$("fDec").value;
+  return props.filter(p=>{
+    const x=st(p.id);
+    if(a&&p.area!==a)return false; if(s&&p.severity!==s)return false; if(e&&p.effort!==e)return false;
+    if(d==="sel"&&!x.sel)return false; if(d==="none"&&x.dec)return false; if(d&&!["sel","none"].includes(d)&&x.dec!==d)return false;
+    if(q&&!(p.id+p.title_fa+p.problem_fa+p.proposal_fa+p.business_impact_fa).toLowerCase().includes(q))return false;
+    return true;});
+}
+function render(){
+  const v=visible();
+  $("list").innerHTML=v.map(p=>{const x=st(p.id);return `
+  <article class="item ${x.sel?"sel":""}" data-id="${esc(p.id)}">
+    <input type="checkbox" ${x.sel?"checked":""} aria-label="انتخاب">
+    <div>
+      <div class="head"><span class="pill">${esc(p.id)}</span><span class="title">${esc(p.title_fa)}</span>
+        <span class="pill sev ${esc(p.severity)}">${SEV[p.severity]||esc(p.severity)}</span>
+        <span class="pill">${esc(p.area)}</span><span class="pill">حجم کار: ${EFF[p.effort]||esc(p.effort)}</span></div>
+      <dl><dt>مشکل</dt><dd>${esc(p.problem_fa)}</dd>
+          <dt>پیشنهاد</dt><dd>${esc(p.proposal_fa)}</dd>
+          <dt>اثر بر کسب‌وکار</dt><dd>${esc(p.business_impact_fa)}</dd>
+          ${p.files?.length?`<dt>فایل‌ها</dt><dd class="files">${p.files.map(esc).join("<br>")}</dd>`:""}</dl>
+      <div class="decide">
+        <select data-k="dec"><option value="">تصمیم…</option>
+          ${["approve","reject","later"].map(k=>`<option value="${k}" ${x.dec===k?"selected":""}>${DEC[k]}</option>`).join("")}</select>
+        <input data-k="note" placeholder="یادداشت شما…" value="${esc(x.note)}">
+      </div>
+    </div>
+  </article>`}).join("") || `<p class="sub">موردی با این فیلترها پیدا نشد.</p>`;
+  const all=props.length, sel=props.filter(p=>st(p.id).sel).length, by=k=>props.filter(p=>p.severity===k).length;
+  const dc=k=>props.filter(p=>st(p.id).dec===k).length;
+  $("stats").innerHTML=`<div class="stat"><b>${all}</b>پیشنهاد</div><div class="stat"><b>${v.length}</b>نمایش‌داده</div>
+   <div class="stat"><b>${sel}</b>انتخاب‌شده</div>
+   ${Object.keys(SEV).map(k=>`<div class="stat"><b>${by(k)}</b>${SEV[k]}</div>`).join("")}
+   <div class="stat"><b>${dc("approve")}</b>تأیید</div><div class="stat"><b>${dc("reject")}</b>رد</div><div class="stat"><b>${dc("later")}</b>بعداً</div>`;
+}
+$("list").addEventListener("change",ev=>{
+  const art=ev.target.closest(".item"); if(!art)return; const x=st(art.dataset.id);
+  if(ev.target.type==="checkbox")x.sel=ev.target.checked; else x[ev.target.dataset.k]=ev.target.value;
+  if(ev.target.dataset.k==="dec"&&ev.target.value==="approve")x.sel=true;
+  save(); render();
+});
+$("list").addEventListener("input",ev=>{if(ev.target.dataset.k==="note"){const art=ev.target.closest(".item");st(art.dataset.id).note=ev.target.value;save();}});
+["q","fArea","fSev","fEffort","fDec"].forEach(id=>$(id).addEventListener("input",render));
+$("selAll").onclick=()=>{visible().forEach(p=>st(p.id).sel=true);save();render()};
+$("selNone").onclick=()=>{props.forEach(p=>st(p.id).sel=false);save();render()};
+$("reset").onclick=()=>{if(confirm("همه انتخاب‌ها، تصمیم‌ها و یادداشت‌ها پاک شود؟")){for(const k in state)delete state[k];save();render()}};
+$("print").onclick=()=>{if(!props.some(p=>st(p.id).sel)){alert("ابتدا مواردی را انتخاب کنید.");return}$("fDec").value="sel";render();window.print()};
+
+function chosen(){const s=props.filter(p=>st(p.id).sel);return (s.length?s:visible()).map(p=>({...p,decision:DEC[st(p.id).dec]||"—",decision_code:st(p.id).dec,note:st(p.id).note}))}
+function download(name,mime,text){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:mime}));a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
+const stamp=()=>new Date().toISOString().slice(0,10);
+$("expJson").onclick=()=>download(`barat-proposals-${stamp()}.json`,"application/json",JSON.stringify(chosen(),null,2));
+$("expCsv").onclick=()=>{
+  const cols=["id","title_fa","area","severity","effort","decision","note","problem_fa","proposal_fa","business_impact_fa","files"];
+  const q=v=>`"${String(Array.isArray(v)?v.join(" | "):v??"").replace(/"/g,'""')}"`;
+  const rows=chosen().map(p=>cols.map(c=>q(c==="severity"?SEV[p[c]]:c==="effort"?EFF[p[c]]:p[c])).join(","));
+  download(`barat-proposals-${stamp()}.csv`,"text/csv;charset=utf-8","﻿"+[cols.join(","),...rows].join("\r\n"));
+};
+$("expMd").onclick=()=>{
+  const md=chosen().map(p=>`## ${p.id} — ${p.title_fa}\n\n- سطح: ${SEV[p.severity]} · حوزه: ${p.area} · حجم کار: ${EFF[p.effort]||p.effort}\n- تصمیم: ${p.decision}${p.note?` · یادداشت: ${p.note}`:""}\n\n**مشکل:** ${p.problem_fa}\n\n**پیشنهاد:** ${p.proposal_fa}\n\n**اثر بر کسب‌وکار:** ${p.business_impact_fa}\n${p.files?.length?`\nفایل‌ها: ${p.files.map(f=>"`"+f+"`").join("، ")}\n`:""}`).join("\n---\n\n");
+  download(`barat-proposals-${stamp()}.md`,"text/markdown;charset=utf-8",`# پیشنهادهای منتخب (${stamp()})\n\n${md}`);
+};
+
+function table(rows,cols){return `<table><thead><tr>${cols.map(c=>`<th>${c[1]}</th>`).join("")}</tr></thead><tbody>${
+  rows.map(r=>`<tr>${cols.map(c=>`<td class="${c[2]||""}">${c[0]==="severity"?`<span class="pill sev ${esc(r.severity)}">${SEV[r.severity]||esc(r.severity)}</span>`:esc(Array.isArray(r[c[0]])?r[c[0]].join("\n"):r[c[0]])}</td>`).join("")}</tr>`).join("")}</tbody></table>`}
+$("fixlist").innerHTML=DATA.fixes.length?table(DATA.fixes.slice().sort((a,b)=>(SEVORD[a.severity]??9)-(SEVORD[b.severity]??9)),
+  [["id","شناسه"],["severity","سطح"],["category","نوع"],["title_fa","اصلاح"],["detail_fa","شرح"],["files","فایل‌ها","files"]]):`<p class="sub">—</p>`;
+$("frozenlist").innerHTML=DATA.frozen.length?table(DATA.frozen.slice().sort((a,b)=>(SEVORD[a.severity]??9)-(SEVORD[b.severity]??9)),
+  [["id","شناسه"],["severity","سطح"],["title_fa","تغییر لازم"],["detail_fa","شرح"],["kind_fa","نوع"],["files","فایل‌ها","files"]]):`<p class="sub">—</p>`;
+
+document.querySelectorAll(".tab").forEach(t=>t.onclick=()=>{
+  document.querySelectorAll(".tab").forEach(x=>x.classList.toggle("on",x===t));
+  ["props","fixes","frozen"].forEach(id=>$(id).classList.toggle("hidden",id!==t.dataset.tab));
+  $("propbar").classList.toggle("hidden",t.dataset.tab!=="props");
+});
+render();
+</script>
+</body>
+</html>

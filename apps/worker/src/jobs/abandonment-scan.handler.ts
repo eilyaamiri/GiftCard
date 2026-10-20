@@ -1,6 +1,7 @@
 import type { AbandonmentType, PrismaClient } from '@barat/database';
 
 import { QUEUE_NAMES } from '../queues';
+import { abandonmentScanPayloadSchema, parsePayload, resolveNow } from './job-payloads';
 import type { AbandonmentScanJobData, JobHandler, JobResult } from './job-types';
 
 const DEFAULT_CART_IDLE_MINUTES = 60;
@@ -11,7 +12,32 @@ const DEFAULT_BATCH_SIZE = 200;
 const UNPAID_ORDER_STATUSES = ['DRAFT', 'AWAITING_PAYMENT', 'PAYMENT_PENDING', 'FAILED'] as const;
 
 /** A payment row in any of these states proves the customer reached the gateway. */
-const PAYMENT_STARTED_STATUSES = ['CREATED', 'REDIRECTED', 'PENDING', 'FAILED', 'CANCELLED'] as const;
+const PAYMENT_STARTED_STATUSES = [
+  'CREATED',
+  'REDIRECTED',
+  'PENDING',
+  'FAILED',
+  'CANCELLED',
+] as const;
+
+/** Order statuses that mean the customer *did* pay — such a cart converted. */
+const PAID_ORDER_STATUSES = [
+  'PAID',
+  'FULFILLMENT_PENDING',
+  'FULFILLING',
+  'FULFILLED',
+  'REVIEW_REQUIRED',
+  'REFUND_PENDING',
+  'REFUNDED',
+] as const;
+
+/** Thrown inside a transaction purely to roll back a claim that lost a race. */
+class ClaimRolledBack extends Error {
+  constructor() {
+    super('abandonment claim rolled back');
+    this.name = 'ClaimRolledBack';
+  }
+}
 
 type PrismaSlice = Pick<PrismaClient, 'cart' | 'quote' | 'abandonmentRecord' | '$transaction'>;
 
@@ -43,11 +69,9 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
 
   constructor(private readonly db: PrismaSlice) {}
 
-  async handle(data: AbandonmentScanJobData = {}): Promise<JobResult> {
-    const now = data.now === undefined ? new Date() : new Date(data.now);
-    if (Number.isNaN(now.getTime())) {
-      throw new Error('abandonment-scan: invalid `now`');
-    }
+  async handle(raw: AbandonmentScanJobData = {}): Promise<JobResult> {
+    const data = parsePayload(abandonmentScanPayloadSchema, raw, this.queueName);
+    const now = resolveNow(data.now, this.queueName);
     const batchSize = data.batchSize ?? DEFAULT_BATCH_SIZE;
     const cartCutoff = minutesBefore(now, data.cartIdleMinutes ?? DEFAULT_CART_IDLE_MINUTES);
     const quoteCutoff = minutesBefore(now, data.quoteIdleMinutes ?? DEFAULT_QUOTE_IDLE_MINUTES);
@@ -67,7 +91,10 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
     };
   }
 
-  private async scanCarts(cutoff: Date, batchSize: number): Promise<{ changed: number; skipped: number }> {
+  private async scanCarts(
+    cutoff: Date,
+    batchSize: number,
+  ): Promise<{ changed: number; skipped: number }> {
     const candidates: CartCandidate[] = await this.db.cart.findMany({
       where: { status: 'OPEN', updatedAt: { lte: cutoff } },
       orderBy: { updatedAt: 'asc' },
@@ -128,38 +155,63 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
       return false;
     }
 
-    const type = classifyCartType(order !== undefined, (order?.payments.length ?? 0) > 0, quote !== undefined);
+    const type = classifyCartType(
+      order !== undefined,
+      (order?.payments.length ?? 0) > 0,
+      quote !== undefined,
+    );
     const amountIrr = order?.totalAmountIrr ?? quote?.finalAmountIrr ?? null;
     const lastEventAt = latestTimestamp([cart.updatedAt, order?.updatedAt, quote?.updatedAt]);
 
-    return this.db.$transaction(async (tx) => {
-      // The lock. Exactly one concurrent runner sees count === 1.
-      const claimed = await tx.cart.updateMany({
-        where: { id: cart.id, status: 'OPEN' },
-        data: { status: 'ABANDONED' },
+    try {
+      return await this.db.$transaction(async (tx) => {
+        // The lock. Exactly one concurrent runner sees count === 1.
+        const claimed = await tx.cart.updateMany({
+          where: { id: cart.id, status: 'OPEN' },
+          data: { status: 'ABANDONED' },
+        });
+        if (claimed.count !== 1) {
+          return false;
+        }
+
+        /* The evidence above was read before the claim. A customer who was at the
+         * gateway then may have paid since: the callback moves the order to PAID
+         * without touching the cart. Re-check under the claim and roll it back, so
+         * a paying customer is never recorded (or later contacted) as abandoned. */
+        const paidOrders = await tx.order.count({
+          where: { cartId: cart.id, status: { in: [...PAID_ORDER_STATUSES] } },
+        });
+        if (paidOrders > 0) {
+          throw new ClaimRolledBack();
+        }
+
+        await tx.abandonmentRecord.create({
+          data: {
+            type,
+            cartId: cart.id,
+            customerId: cart.customerId,
+            commerceSessionId: cart.commerceSessionId,
+            ...(quote === undefined ? {} : { quoteId: quote.id }),
+            ...(order === undefined ? {} : { orderId: order.id }),
+            lastEventAt,
+            amountIrr,
+          },
+        });
+
+        return true;
       });
-      if (claimed.count !== 1) {
+    } catch (error: unknown) {
+      if (error instanceof ClaimRolledBack) {
         return false;
       }
-
-      await tx.abandonmentRecord.create({
-        data: {
-          type,
-          cartId: cart.id,
-          customerId: cart.customerId,
-          commerceSessionId: cart.commerceSessionId,
-          ...(quote === undefined ? {} : { quoteId: quote.id }),
-          ...(order === undefined ? {} : { orderId: order.id }),
-          lastEventAt,
-          amountIrr,
-        },
-      });
-
-      return true;
-    });
+      throw error;
+    }
   }
 
-  private async scanQuotes(cutoff: Date, batchSize: number): Promise<{ changed: number; skipped: number }> {
+  private async scanQuotes(
+    cutoff: Date,
+    batchSize: number,
+  ): Promise<{ changed: number; skipped: number }> {
     // Cart-attached quotes are already covered by the cart branch above; this
     // catches direct quotes (a customer who priced a SKU without a cart).
     const candidates = await this.db.quote.findMany({
@@ -185,9 +237,24 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
     let skipped = 0;
 
     for (const quote of candidates) {
-      const type: AbandonmentType = quote.status === 'EXPIRED' ? 'EXPIRED_QUOTE' : 'QUOTE_ABANDONMENT';
+      const type: AbandonmentType =
+        quote.status === 'EXPIRED' ? 'EXPIRED_QUOTE' : 'QUOTE_ABANDONMENT';
 
       const written = await this.db.$transaction(async (tx) => {
+        /* There is no unique index on (type, quoteId), so the read-then-write
+         * below is only safe if no other runner is between the same two lines.
+         * A transaction-scoped advisory lock on the quote id serialises them
+         * across processes; it is released by the commit or rollback. */
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`abandonment:quote:${quote.id}`}))`;
+
+        // The quote may have been accepted since the batch was read.
+        const stillUnaccepted = await tx.quote.count({
+          where: { id: quote.id, acceptedAt: null, status: { in: ['ACTIVE', 'EXPIRED'] } },
+        });
+        if (stillUnaccepted === 0) {
+          return false;
+        }
+
         const existing = await tx.abandonmentRecord.findFirst({
           where: { quoteId: quote.id, type: { in: ['QUOTE_ABANDONMENT', 'EXPIRED_QUOTE'] } },
           select: { id: true },

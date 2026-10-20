@@ -72,6 +72,12 @@ export class HttpDeliveryRetryClient implements DeliveryRetryClient {
         },
         body: JSON.stringify({ assetId }),
         signal: controller.signal,
+        /* Never follow a redirect. fetch strips `authorization` and cookies on a
+         * cross-origin hop but forwards custom headers, so a redirect (a proxy
+         * upgrading to https, a misconfigured INTERNAL_API_URL) would hand the
+         * internal service token to whatever host it points at. An internal
+         * endpoint has no reason to redirect; treat it as a failure. */
+        redirect: 'error',
       });
 
       if (!response.ok) {
@@ -84,7 +90,10 @@ export class HttpDeliveryRetryClient implements DeliveryRetryClient {
 
       const payload = (await response.json()) as Partial<DeliveryRetryOutcome>;
       if (typeof payload.delivered !== 'boolean' || typeof payload.assetId !== 'string') {
-        throw new DeliveryRetryClientError(`malformed retry-delivery response for asset ${assetId}`, null);
+        throw new DeliveryRetryClientError(
+          `malformed retry-delivery response for asset ${assetId}`,
+          null,
+        );
       }
 
       return {

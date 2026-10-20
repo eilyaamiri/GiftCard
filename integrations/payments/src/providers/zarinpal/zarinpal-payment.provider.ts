@@ -156,8 +156,18 @@ export class ZarinPalPaymentProvider implements RialPaymentProvider {
     });
 
     if (!response.ok) {
+      /* ZarinPal settles inside `verify`. A transport error, a 5xx, a body we
+       * cannot read or an indeterminate code says nothing about whether that
+       * settlement happened, so it is UNKNOWN — never FAILED, which would tell
+       * the customer the money is coming back while we may be holding it. Only
+       * a definite gateway answer (-50, -51, -54, ...) is a failure. */
+      const indeterminate =
+        response.failureReason === 'PROVIDER_TIMEOUT' ||
+        response.failureReason === 'PROVIDER_NETWORK_ERROR' ||
+        response.failureReason === 'UNKNOWN_PROVIDER_RESPONSE' ||
+        isIndeterminateCode(response.providerCode);
       return {
-        outcome: response.failureReason === 'PROVIDER_TIMEOUT' ? 'UNKNOWN' : 'FAILED',
+        outcome: indeterminate ? 'UNKNOWN' : 'FAILED',
         providerCode: response.providerCode,
         failureReason: response.failureReason,
       };

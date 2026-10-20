@@ -8,6 +8,7 @@ import { DeliveryRetryHandler } from './jobs/delivery-retry.handler';
 import type { JobHandler, JobResult } from './jobs/job-types';
 import { QuoteExpiryHandler } from './jobs/quote-expiry.handler';
 import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES, REPEAT_SCHEDULES } from './queues';
+import { RedisLockStore, SweepLock } from './sweep-lock';
 
 /**
  * Wiring for the three sweeps this workstream owns.
@@ -41,6 +42,8 @@ export interface StartSweepWorkersOptions {
   readonly internalServiceToken?: string;
   /** Register the repeatable schedules. Off in tests. */
   readonly scheduleRepeats?: boolean;
+  /** Overridable for tests; defaults to a Redis lock on `connection`. */
+  readonly sweepLock?: SweepLock;
 }
 
 export interface SweepWorkers {
@@ -71,26 +74,25 @@ export async function startSweepWorkers(options: StartSweepWorkersOptions): Prom
     new DeliveryRetryHandler(options.prisma, retryClient),
   ];
 
-  const workers: Worker[] = handlers.map((handler) =>
-    new Worker(
-      handler.queueName,
-      async (job: Job): Promise<JobResult> => {
-        const result = await handler.handle(job.data ?? {});
-        // Counts only. Job payloads for these sweeps carry no customer data, and
-        // the results are ids-free by construction.
-        logger.log(
-          `[${handler.queueName}] changed=${String(result.changed)} skipped=${String(result.skipped)}`,
-        );
-        return result;
-      },
-      { connection: options.connection, concurrency },
-    ),
+  /* One lock per queue, shared by every process consuming it, so a slow run, a
+   * BullMQ retry and the next tick — or two worker processes — never sweep the
+   * same rows at the same time. */
+  const lock =
+    options.sweepLock ??
+    new SweepLock(new RedisLockStore(options.connection), {
+      onLockLost: (key) => logger.error(`[sweep-lock] lost ${key} while a sweep was still running`),
+    });
+
+  const workers: Worker[] = handlers.map(
+    (handler) =>
+      new Worker(handler.queueName, createSweepProcessor(handler, { lock, logger }), {
+        connection: options.connection,
+        concurrency,
+      }),
   );
 
   for (const worker of workers) {
-    worker.on('failed', (job, error) => {
-      logger.error(`[${worker.name}] job ${job?.id ?? 'unknown'} failed: ${error.message}`);
-    });
+    attachWorkerListeners(worker, worker.name, logger);
   }
 
   const queues: Queue[] = [];
@@ -100,6 +102,9 @@ export async function startSweepWorkers(options: StartSweepWorkersOptions): Prom
       const queue = new Queue(queueName, {
         connection: options.connection,
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
+      });
+      queue.on('error', (error: Error) => {
+        logger.error(`[${queueName}] queue error: ${error.message}`);
       });
       /* `upsertJobScheduler` is keyed by the scheduler id, so restarting the
        * process replaces the schedule instead of stacking a second copy of it —
@@ -123,6 +128,65 @@ export async function startSweepWorkers(options: StartSweepWorkersOptions): Prom
       await Promise.all(queues.map((queue) => queue.close()));
     },
   };
+}
+
+/**
+ * The BullMQ processor for one sweep: lock, run, log counts.
+ *
+ * A run that finds the lock held completes as a no-op instead of failing, so an
+ * overlap does not trigger BullMQ's retry backoff and pile up even more runs.
+ */
+export function createSweepProcessor(
+  handler: AnyJobHandler,
+  deps: { readonly lock: SweepLock; readonly logger: SweepLogger },
+): (job: Pick<Job, 'data'>) => Promise<JobResult> {
+  return async (job) => {
+    const run = await deps.lock.runExclusive(handler.queueName, () =>
+      handler.handle(job.data ?? {}),
+    );
+    if (!run.acquired) {
+      deps.logger.log(`[${handler.queueName}] previous sweep still running; skipped`);
+      return { changed: 0, skipped: 0, details: { queue: handler.queueName, overlapped: true } };
+    }
+    const result = run.value;
+    // Counts only. Job payloads for these sweeps carry no customer data, and the
+    // results are ids-free by construction; only numeric details are printed.
+    deps.logger.log(
+      `[${handler.queueName}] changed=${String(result.changed)} skipped=${String(
+        result.skipped,
+      )}${formatNumericDetails(result.details)}`,
+    );
+    return result;
+  };
+}
+
+/**
+ * `failed` for visibility, and `error` because BullMQ emits it on connection
+ * and lock-renewal problems: an EventEmitter with no `error` listener throws,
+ * which would take the whole sweep process down.
+ */
+export function attachWorkerListeners(
+  emitter: Pick<Worker, 'on'>,
+  name: string,
+  logger: SweepLogger,
+): void {
+  emitter.on('failed', (job, error) => {
+    logger.error(`[${name}] job ${job?.id ?? 'unknown'} failed: ${error.message}`);
+  });
+  emitter.on('error', (error) => {
+    // Message only: a Redis error can carry the connection URL's credentials.
+    logger.error(`[${name}] worker error: ${error.message}`);
+  });
+}
+
+function formatNumericDetails(details: JobResult['details']): string {
+  if (details === undefined) {
+    return '';
+  }
+  return Object.entries(details)
+    .filter((entry): entry is [string, number] => typeof entry[1] === 'number')
+    .map(([key, value]) => ` ${key}=${String(value)}`)
+    .join('');
 }
 
 function buildRetryClient(options: StartSweepWorkersOptions): DeliveryRetryClient {

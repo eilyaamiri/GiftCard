@@ -619,6 +619,21 @@ export class FulfillmentService {
   }
 
   /**
+   * The order a work item belongs to and how many delivery assets it already
+   * holds, re-read from the database.
+   *
+   * The supplier orchestrator asks this immediately before it spends money, so
+   * "this order already has a card" is decided on fresh state rather than on a
+   * snapshot read before a slow availability or balance call.
+   */
+  async purchaseGuardForWorkItem(
+    workItemId: string,
+  ): Promise<{ readonly orderId: string; readonly assetCount: number }> {
+    const context = await this.loadContext(workItemId);
+    return { orderId: context.orderId, assetCount: context.assetCount };
+  }
+
+  /**
    * Ingests an asset returned by an automated supplier purchase.
    *
    * This exists so a `SupplierPurchaseResult` carrying a raw code is encrypted
@@ -1026,8 +1041,19 @@ export class FulfillmentService {
       );
     }
 
-    const context = await this.store.loadContextByOrder(asset.orderId);
-    if (context === null) {
+    /*
+     * The send gate that applies is the one of the work item this asset was
+     * recorded on. Only when that link is missing does it fall back to the
+     * order's first work item, which is the same item for every order that
+     * has ever had a single asset.
+     */
+    const owner =
+      asset.fulfillmentId === null ? null : await this.store.findFulfillmentById(asset.fulfillmentId);
+    const context =
+      owner?.workItemId != null
+        ? await this.store.loadContextByWorkItem(owner.workItemId)
+        : await this.store.loadContextByOrder(asset.orderId);
+    if (context === null || context.orderId !== asset.orderId) {
       throw DomainErrors.notFound(`fulfillment context for order ${asset.orderId}`);
     }
 
@@ -1036,6 +1062,9 @@ export class FulfillmentService {
       actor: SYSTEM_DELIVERY_ACTOR,
       reason: SECRET_READ_REASONS.DELIVERY_RETRY,
       isRetry: true,
+      // Pinned: the worker retries the asset that failed, never "the order's
+      // first asset", which on an order with a replacement card is another one.
+      assetId,
     });
   }
 
@@ -1046,6 +1075,8 @@ export class FulfillmentService {
     isRetry: boolean;
     /** Omitted means `EMAIL`: callers must explicitly opt into automatic fallback. */
     channel?: RequestedDeliveryChannel;
+    /** Deliver exactly this asset. Omitted means the order's first asset. */
+    assetId?: string;
   }): Promise<DeliveryOutcome> {
     const requestedChannel = input.channel ?? 'EMAIL';
     const context = await this.loadContext(input.workItemId);
@@ -1056,7 +1087,11 @@ export class FulfillmentService {
     const state = await this.checklists.ensure(context);
 
     const assets = await this.assets.listForOrder(context.orderId);
-    const asset = assets[0];
+    const asset =
+      input.assetId === undefined ? assets[0] : assets.find((candidate) => candidate.id === input.assetId);
+    if (input.assetId !== undefined && asset === undefined) {
+      throw DomainErrors.notFound(`gift card asset ${input.assetId}`);
+    }
     let channel: DeliveryChannel;
     if (requestedChannel !== 'AUTO') {
       channel = requestedChannel;
@@ -1124,44 +1159,60 @@ export class FulfillmentService {
       );
     }
 
-    const attemptNumber = await this.store.nextAttemptNumber(asset.id);
+    /*
+     * From here the asset is SENDING, and only this call can move it on. So
+     * nothing past the claim may escape as an exception: a throw from the
+     * attempt bookkeeping or from reading the secret would otherwise leave the
+     * asset in SENDING forever — not dispatchable, not retryable, a paid card
+     * no one can deliver. Any such failure becomes an ordinary failed delivery.
+     * The caught error is dropped, never logged or echoed: it may come from
+     * the decryption of the very secret this method is handing over.
+     */
+    let attemptNumber = 0;
+    let attemptId: string | null = null;
     const recipient = this.resolveRecipient(context, asset);
     const recipientMasked = this.describeRecipient(channel, recipient);
-    const attempt = await this.store.createDeliveryAttempt({
-      assetId: asset.id,
-      orderId: context.orderId,
-      recipientMasked,
-      attemptNumber,
-    });
-
     let result: { success: boolean; providerMessageId?: string; failureCode?: string };
 
-    if (channel === 'SELF_SERVICE') {
-      // Nothing leaves the process. `SENT` is what opens the reveal endpoint, so
-      // from here the buyer can decrypt and read the whole card on their order
-      // page; "delivered" here means "readable by the buyer", which it now is.
-      result = { success: true, providerMessageId: `self-service:${asset.id}` };
-    } else if (
-      asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&
-      context.workItemType !== 'INTERNATIONAL_PAYMENT'
-    ) {
-      // Gift-card suppliers using this mode already mailed the customer, so there
-      // is no code on our side and nothing for us to send. International payments
-      // are different: our result e-mail carries the operator's receipt image.
-      result = {
-        success: true,
-        providerMessageId: `provider-direct:${asset.supplierReference ?? asset.id}`,
-      };
-    } else {
-      result = await this.sendViaTransport({
-        asset,
-        context,
-        recipient: recipient as string,
-        actorId: input.actor.id,
-        actorType: input.actor.actorType,
-        reason: input.reason,
-        paymentReceipt,
+    try {
+      attemptNumber = await this.store.nextAttemptNumber(asset.id);
+      const attempt = await this.store.createDeliveryAttempt({
+        assetId: asset.id,
+        orderId: context.orderId,
+        recipientMasked,
+        attemptNumber,
       });
+      attemptId = attempt.id;
+
+      if (channel === 'SELF_SERVICE') {
+        // Nothing leaves the process. `SENT` is what opens the reveal endpoint, so
+        // from here the buyer can decrypt and read the whole card on their order
+        // page; "delivered" here means "readable by the buyer", which it now is.
+        result = { success: true, providerMessageId: `self-service:${asset.id}` };
+      } else if (
+        asset.assetType === 'PROVIDER_DIRECT_EMAIL' &&
+        context.workItemType !== 'INTERNATIONAL_PAYMENT'
+      ) {
+        // Gift-card suppliers using this mode already mailed the customer, so there
+        // is no code on our side and nothing for us to send. International payments
+        // are different: our result e-mail carries the operator's receipt image.
+        result = {
+          success: true,
+          providerMessageId: `provider-direct:${asset.supplierReference ?? asset.id}`,
+        };
+      } else {
+        result = await this.sendViaTransport({
+          asset,
+          context,
+          recipient: recipient as string,
+          actorId: input.actor.id,
+          actorType: input.actor.actorType,
+          reason: input.reason,
+          paymentReceipt,
+        });
+      }
+    } catch {
+      result = { success: false, failureCode: 'DISPATCH_ERROR' };
     }
 
     const now = new Date();
@@ -1169,13 +1220,15 @@ export class FulfillmentService {
     if (!result.success) {
       // The asset stays exactly where it is. Only its status changes.
       await this.store.markAssetDeliveryFailed(asset.id);
-      await this.store.completeDeliveryAttempt({
-        attemptId: attempt.id,
-        status: 'DELIVERY_FAILED',
-        providerMessageId: null,
-        errorCode: result.failureCode ?? 'DELIVERY_FAILED',
-        sentAt: null,
-      });
+      if (attemptId !== null) {
+        await this.store.completeDeliveryAttempt({
+          attemptId,
+          status: 'DELIVERY_FAILED',
+          providerMessageId: null,
+          errorCode: result.failureCode ?? 'DELIVERY_FAILED',
+          sentAt: null,
+        });
+      }
       await this.audit.record({
         actor: input.actor.id,
         actorType: input.actor.actorType,
@@ -1201,13 +1254,15 @@ export class FulfillmentService {
     }
 
     await this.store.markAssetSent(asset.id, now);
-    await this.store.completeDeliveryAttempt({
-      attemptId: attempt.id,
-      status: 'SENT',
-      providerMessageId: result.providerMessageId ?? null,
-      errorCode: null,
-      sentAt: now,
-    });
+    if (attemptId !== null) {
+      await this.store.completeDeliveryAttempt({
+        attemptId,
+        status: 'SENT',
+        providerMessageId: result.providerMessageId ?? null,
+        errorCode: null,
+        sentAt: now,
+      });
+    }
 
     // The checklist locks only after a delivery has genuinely succeeded.
     await this.checklists.lock(state.record.id, now);
@@ -1262,12 +1317,19 @@ export class FulfillmentService {
     reason: SecretReadReason;
     paymentReceipt: StoredPaymentReceipt | null;
   }): Promise<{ success: boolean; providerMessageId?: string; failureCode?: string }> {
-    const revealed: RevealedAssetSecret = await this.assets.readSecret({
-      assetId: input.asset.id,
-      actorId: input.actorId,
-      actorType: input.actorType,
-      reason: input.reason,
-    });
+    let revealed: RevealedAssetSecret;
+    try {
+      revealed = await this.assets.readSecret({
+        assetId: input.asset.id,
+        actorId: input.actorId,
+        actorType: input.actorType,
+        reason: input.reason,
+      });
+    } catch {
+      // Dropped, not propagated: the caller holds the asset in SENDING and must
+      // be able to release it. Nothing from a failed decryption is echoed.
+      return { success: false, failureCode: 'ASSET_SECRET_UNREADABLE' };
+    }
 
     try {
       const result = await this.transport.send({

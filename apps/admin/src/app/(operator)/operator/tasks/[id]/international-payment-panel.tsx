@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@barat/ui";
-import { toPersianDigits } from "@barat/ui";
+import { safeHttpUrl, toPersianDigits } from "@barat/ui";
 import { InlineError, messageFor } from "../../../_components/error-notice";
 import { fulfillment, type InternationalPaymentBrief } from "../../../_lib/fulfillment";
 
@@ -76,9 +76,15 @@ export function InternationalPaymentPanel({
           <p className="detail-label">آدرس سایت</p>
           <p className="detail-value bp-ltr" style={{ overflowWrap: "anywhere" }}>
             {brief.siteUrl ? (
-              <a href={brief.siteUrl} target="_blank" rel="noreferrer noopener">
-                {brief.siteUrl}
-              </a>
+              /* Customer-typed. The API checks the scheme on the way in; a row
+               * written before that check is shown as text, never as a link. */
+              safeHttpUrl(brief.siteUrl) !== null ? (
+                <a href={safeHttpUrl(brief.siteUrl) ?? undefined} target="_blank" rel="noreferrer noopener">
+                  {brief.siteUrl}
+                </a>
+              ) : (
+                brief.siteUrl
+              )
             ) : (
               "—"
             )}

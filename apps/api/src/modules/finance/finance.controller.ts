@@ -8,10 +8,28 @@ import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 /** No Prisma dependency means this lives outside any module and avoids the
  * frozen app.module.ts. One Prisma read-only call is the right amount of coupling. */
 
-const refundQuerySchema = z.object({
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-});
+/**
+ * A real calendar day. The bare pattern accepted `2026-13-45`, which became an
+ * Invalid Date, reached Prisma, and came back as a 500 rather than a 400.
+ */
+const calendarDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00.000Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, 'Not a valid calendar date');
+
+export const refundQuerySchema = z
+  .object({
+    from: calendarDateSchema,
+    to: calendarDateSchema,
+  })
+  /* ISO dates compare correctly as strings. */
+  .refine((query) => query.from <= query.to, {
+    message: '`from` must not be after `to`',
+    path: ['from'],
+  });
 type RefundQuery = z.infer<typeof refundQuerySchema>;
 
 /**

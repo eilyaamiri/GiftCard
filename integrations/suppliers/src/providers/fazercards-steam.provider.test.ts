@@ -213,6 +213,14 @@ describe('purchase', () => {
     expect(await provider().purchase(request())).toEqual({ status: 'FAILED', failureCode: 'RATE_LIMITED' });
   });
 
+  it('maps an Idempotency-Key conflict to UNKNOWN: the order already under that key may have credited', async () => {
+    stubFetch({
+      'POST /steam-topup/check-login': CAN_REFILL,
+      'POST /steam-topup/order': { status: 409, body: { ok: false, error: 'key reused' } },
+    });
+    expect(await provider().purchase(request())).toEqual({ status: 'UNKNOWN', failureCode: 'IDEMPOTENCY_CONFLICT' });
+  });
+
   it.each([
     ['a network failure', { fail: true }],
     ['a 5xx', { status: 503, body: { ok: false, error: 'x' } }],

@@ -14,7 +14,7 @@ export default async function ServiceDetailPage({ params }: { params: Promise<{ 
 
   let service;
   try {
-    service = await api.get(`/api/admin/catalog/services/${id}`, adminServiceSchema);
+    service = await api.get(`/api/admin/catalog/services/${encodeURIComponent(id)}`, adminServiceSchema);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;

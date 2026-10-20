@@ -625,8 +625,19 @@ export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
       /* The platform's own rate limiter is documented to refuse the call before order logic runs — nothing charged. */
       return { status: 'FAILED', failureCode: 'RATE_LIMITED' };
     }
+    if (response.status === 409) {
+      /*
+       * An Idempotency-Key conflict says THIS request charged nothing — but it
+       * also says the venue already holds an order under our key, the one that
+       * key was first used for, and that order may well have been credited.
+       * Reporting FAILED would tell an operator "nothing was charged, top it up
+       * by hand", which is how one payment becomes two deliveries. The honest
+       * answer is that we do not know.
+       */
+      return { status: 'UNKNOWN', failureCode: normaliseErrorCode(response.payload, 'IDEMPOTENCY_CONFLICT') };
+    }
     if (response.status >= 400 && response.status < 500) {
-      /* A stated 4xx (including a 409 idempotency-key conflict) is terminal and did not charge us. */
+      /* Any other stated 4xx is terminal and did not charge us. */
       return { status: 'FAILED', failureCode: normaliseErrorCode(response.payload, 'PROVIDER_REJECTED') };
     }
     /* 5xx or an unreadable body: the order may well have been placed and the account already credited. */

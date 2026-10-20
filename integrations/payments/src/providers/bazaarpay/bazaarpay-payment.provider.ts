@@ -22,6 +22,8 @@ export const BAZAARPAY_MAX_AMOUNT = 1_000_000_000n;
 const SERVICE_NAME_MAX = 512;
 /** The hosted payment page must live under this domain; anything else is not followed. */
 const PAYMENT_HOST_SUFFIX = 'bazaar-pay.ir';
+/** HTTP statuses on `/trace/` that are a real verdict on the token. */
+const DEFINITE_TRACE_REJECTIONS: ReadonlySet<number> = new Set([400, 404]);
 
 export interface BazaarPayPaymentProviderConfig {
   /** The merchant `Authorization: Token ...` value. A secret: never logged, never in an error. */
@@ -295,7 +297,14 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
   private async trace(authority: string): Promise<TraceOutcome> {
     const call = await this.post('/trace/', { checkout_token: authority });
     if (call.kind === 'indeterminate') return call;
-    if (call.kind === 'rejected') return call;
+    if (call.kind === 'rejected') {
+      /* Only "this token is not valid" (400 / 404) is an answer about the
+       * payment. A 401/403 (our credentials), 408, 409 or 429 (rate limit) says
+       * nothing about whether the customer paid, and reading it as an invalid
+       * token closed paid checkouts as FAILED. */
+      if (DEFINITE_TRACE_REJECTIONS.has(call.status)) return call;
+      return { kind: 'indeterminate', failureReason: 'UNKNOWN_PROVIDER_RESPONSE' };
+    }
     const status = readString(call.payload, 'status');
     if (status === null || !TRACE_STATUSES.has(status)) {
       return { kind: 'indeterminate', failureReason: 'UNKNOWN_PROVIDER_RESPONSE' };

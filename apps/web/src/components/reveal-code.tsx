@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { Ltr } from "@barat/ui";
+import { Ltr, safeHttpUrl } from "@barat/ui";
 import { api, ApiClientError, type RevealedDelivery } from "@/lib/api";
 
 /**
@@ -101,6 +101,11 @@ export function RevealCode({
     );
   }
 
+  /* The link was typed by an operator or returned by a supplier, and the API's
+   * `z.url()` accepts any scheme. Only a web page is offered as a link; anything
+   * else is shown as text so the customer still sees what was delivered. */
+  const deliveryHref = safeHttpUrl(revealed.deliveryUrl);
+
   return (
     <div style={{ marginBlockStart: 12 }}>
       {/* `aria-live` so a screen reader announces the code when it arrives; the
@@ -126,9 +131,13 @@ export function RevealCode({
           <div className="summary-line">
             <span>{variant === "INTERNATIONAL_PAYMENT" ? "لینک تأییدیهٔ پرداخت" : "لینک دریافت"}</span>
             <strong>
-              <a href={revealed.deliveryUrl} target="_blank" rel="noreferrer noopener">
-                باز کردن لینک
-              </a>
+              {deliveryHref !== null ? (
+                <a href={deliveryHref} target="_blank" rel="noreferrer noopener">
+                  باز کردن لینک
+                </a>
+              ) : (
+                <Ltr>{revealed.deliveryUrl}</Ltr>
+              )}
             </strong>
           </div>
         ) : null}

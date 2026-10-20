@@ -121,9 +121,15 @@ async function bootstrap(): Promise<void> {
 
   /* Instantiating the queues creates their metadata keys, so an operator can see
    * every queue in a dashboard from the first boot, not only after a first job. */
-  const queues = Object.values(QUEUE_NAMES).map(
-    (name) => new Queue(name, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS }),
-  );
+  const queues = Object.values(QUEUE_NAMES).map((name) => {
+    const queue = new Queue(name, { connection, defaultJobOptions: DEFAULT_JOB_OPTIONS });
+    /* A Queue is an EventEmitter: an `error` with no listener throws and kills
+     * the process. Message only — a Redis error can carry the URL's password. */
+    queue.on('error', (error: Error) => {
+      logger.error(`Queue ${name} error: ${error.message}`);
+    });
+    return queue;
+  });
 
   logger.log(
     `CENTO worker started — environment=${env.NODE_ENV} concurrency=${String(

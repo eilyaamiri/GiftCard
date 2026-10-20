@@ -15,7 +15,7 @@ export default async function TopUpGameDetailPage({ params }: { params: Promise<
 
   let game;
   try {
-    game = await api.get(`/api/admin/catalog/top-ups/${id}`, adminTopUpGameDetailSchema);
+    game = await api.get(`/api/admin/catalog/top-ups/${encodeURIComponent(id)}`, adminTopUpGameDetailSchema);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;

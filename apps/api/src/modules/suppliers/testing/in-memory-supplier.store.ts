@@ -14,6 +14,8 @@ export interface SeedSupplierStore {
   readonly suppliers?: readonly SupplierRow[];
   readonly offers?: readonly SupplierOfferView[];
   readonly targets?: readonly AutoFulfillmentTarget[];
+  /** Order ids that still carry an open UNKNOWN / PENDING purchase task. */
+  readonly ambiguousOrderIds?: readonly string[];
 }
 
 /**
@@ -29,15 +31,21 @@ export class InMemorySupplierStore implements SupplierStore {
   readonly offers: SupplierOfferView[];
   readonly targets: AutoFulfillmentTarget[];
   readonly availabilityChecks: { offerId: string; availability: SupplierAvailability }[] = [];
+  readonly ambiguousOrderIds: Set<string>;
 
   constructor(seed: SeedSupplierStore = {}) {
     this.suppliers = [...(seed.suppliers ?? [])];
     this.offers = [...(seed.offers ?? [])];
     this.targets = [...(seed.targets ?? [])];
+    this.ambiguousOrderIds = new Set(seed.ambiguousOrderIds ?? []);
   }
 
   async findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null> {
     return this.targets.find((target) => target.workItemId === workItemId) ?? null;
+  }
+
+  async hasOpenPurchaseAmbiguity(orderId: string): Promise<boolean> {
+    return this.ambiguousOrderIds.has(orderId);
   }
 
   async listSuppliers(): Promise<readonly SupplierRow[]> {

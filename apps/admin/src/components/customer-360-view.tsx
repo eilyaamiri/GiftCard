@@ -2,6 +2,7 @@ import Link from "next/link";
 import { toPersianDigits } from "@barat/ui";
 import type { Customer360 } from "@/lib/customer-360";
 import { formatDateTime, tomanFromIrr } from "@/lib/order-format";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 const CUSTOMER_STATUS: Record<string, string> = {
   ACTIVE: "فعال", BLOCKED: "مسدود", MERGED: "ادغام‌شده", DELETED: "حذف‌شده",
@@ -70,7 +71,7 @@ export function Customer360View({
           </Section>
           <Section title="یادداشت‌های داخلی" caption={`${number(data.notes.length)} یادداشت`}>
             {saved ? <p className="customer-save-success">یادداشت ثبت شد.</p> : null}
-            {canAddNote ? <form action={addNoteAction} className="customer-note-form"><label>یادداشت<textarea name="body" minLength={1} maxLength={2000} required placeholder="اطلاعات پیگیری داخلی؛ بدون دادهٔ حساس" /></label><label className="customer-pin"><input type="checkbox" name="isPinned" value="true" /> سنجاق شود</label><p className="warning">کد یا PIN گیفت‌کارت، توکن پرداخت، اطلاعات ورود و دادهٔ احراز هویت را هرگز در یادداشت وارد نکنید.</p><button className="primary-btn" type="submit">ثبت یادداشت</button></form> : <p className="panel-caption">نقش فعلی فقط دسترسی مشاهده دارد.</p>}
+            {canAddNote ? <form action={addNoteAction} className="customer-note-form"><label>یادداشت<textarea name="body" minLength={1} maxLength={2000} required placeholder="اطلاعات پیگیری داخلی؛ بدون دادهٔ حساس" /></label><label className="customer-pin"><input type="checkbox" name="isPinned" value="true" /> سنجاق شود</label><p className="warning">کد یا PIN گیفت‌کارت، توکن پرداخت، اطلاعات ورود و دادهٔ احراز هویت را هرگز در یادداشت وارد نکنید.</p><PendingSubmitButton className="primary-btn">ثبت یادداشت</PendingSubmitButton></form> : <p className="panel-caption">نقش فعلی فقط دسترسی مشاهده دارد.</p>}
             <div className="customer-note-list">{data.notes.map((note) => <article key={note.id} className="customer-note"><strong>{note.isPinned ? "سنجاق‌شده" : "یادداشت"}</strong><p>{note.body}</p><small>{formatDateTime(note.createdAt)}</small></article>)}</div>
           </Section>
         </aside>

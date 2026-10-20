@@ -699,7 +699,7 @@ describe('FazerCardsTopUpSupplierProvider', () => {
       });
     });
 
-    it('treats a 409 idempotency-key conflict as FAILED, since nothing was charged', async () => {
+    it('treats a 409 idempotency-key conflict as UNKNOWN: an order under that key may already be credited', async () => {
       stubFetch({
         'POST /api/v2/topups/order': {
           status: 409,
@@ -708,8 +708,8 @@ describe('FazerCardsTopUpSupplierProvider', () => {
       });
 
       await expect(provider().purchase(REQUEST)).resolves.toMatchObject({
-        status: 'FAILED',
-        failureCode: 'PROVIDER_REJECTED',
+        status: 'UNKNOWN',
+        failureCode: 'IDEMPOTENCY_CONFLICT',
       });
     });
 

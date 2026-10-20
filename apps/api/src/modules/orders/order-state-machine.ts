@@ -136,6 +136,20 @@ export interface OrderTransitionOptions {
   readonly context?: Readonly<Record<string, string>>;
   /** Injected clock, so tests do not depend on wall time. */
   readonly now?: Date;
+  /**
+   * Extra conditions the row must STILL satisfy at the moment of the write.
+   *
+   * A guard a caller checked on an earlier read is only advice: between that
+   * read and this update another request can change the facts it was based on
+   * (a payment session opened, `paidAt` stamped). Folding the guard into the
+   * conditional update makes the database re-evaluate it atomically with the
+   * status change. A row that no longer satisfies it is reported exactly like a
+   * concurrent status change — refused, never silently applied.
+   *
+   * It can only NARROW the update: `id` and `status` are always applied after
+   * it, so a guard can never widen which row is written.
+   */
+  readonly guard?: Prisma.OrderWhereInput;
 }
 
 /** Timestamp columns a status implies. Set once, never cleared. */
@@ -196,7 +210,7 @@ export class OrderStateMachine {
     const now = options.now ?? new Date();
     const apply = async (db: OrdersDatabaseCore): Promise<boolean> => {
       const applied = await db.order.updateMany({
-        where: { id: order.id, status: order.status },
+        where: { ...(options.guard ?? {}), id: order.id, status: order.status },
         data: {
           status: next,
           ...timestampsFor(next, now),

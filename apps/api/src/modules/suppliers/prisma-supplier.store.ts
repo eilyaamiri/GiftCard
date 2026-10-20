@@ -162,6 +162,17 @@ export class PrismaSupplierStore implements SupplierStore {
     };
   }
 
+  async hasOpenPurchaseAmbiguity(orderId: string): Promise<boolean> {
+    const open = await this.db.workItem.count({
+      where: {
+        orderId,
+        status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+        OR: [{ type: 'UNKNOWN_OUTCOME' }, { code: { startsWith: 'SUPPLIER_PENDING:' } }],
+      },
+    });
+    return open > 0;
+  }
+
   async recordAvailabilityCheck(input: {
     offerId: string;
     availability: SupplierAvailability;

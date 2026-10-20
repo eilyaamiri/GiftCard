@@ -39,7 +39,7 @@ export class MonitoringController {
    */
   @Post('probe')
   async triggerProbe(): Promise<{ probedAt: string; supplierCount: number }> {
-    await this.monitoring.probeSuppliers();
+    await this.monitoring.probeSuppliers({ manual: true });
     return {
       probedAt: new Date().toISOString(),
       supplierCount: (await this.monitoring.getSnapshot()).suppliers.length,

@@ -41,6 +41,20 @@ export const SECRET_READ_REASONS = {
  */
 const SYSTEM_ASSET_ACTOR = 'system:fulfillment';
 
+/**
+ * A redemption link must be a web link. It is e-mailed to the customer and
+ * rendered as an anchor on their order page, where a `javascript:` or `data:`
+ * URL would run instead of redeeming anything.
+ */
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
+  } catch {
+    return false;
+  }
+}
+
 export type SecretReadReason = (typeof SECRET_READ_REASONS)[keyof typeof SECRET_READ_REASONS];
 
 /**
@@ -260,6 +274,13 @@ export class GiftCardAssetService {
         const url = asset.deliveryUrl.trim();
         if (url.length === 0) {
           throw DomainErrors.validation([{ path: 'asset.deliveryUrl', message: 'لینک تحویل الزامی است.' }]);
+        }
+        // Enforced here as well as in the request schema, because an automated
+        // supplier result reaches this method without passing any schema.
+        if (!isHttpUrl(url)) {
+          throw DomainErrors.validation([
+            { path: 'asset.deliveryUrl', message: 'لینک تحویل باید با http یا https شروع شود.' },
+          ]);
         }
         return {
           encryptedCode: null,

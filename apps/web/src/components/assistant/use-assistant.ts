@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { sameOriginPath } from "@barat/ui";
 import { createWebServices } from "@/assistant/adapters/web-services";
 import { createEngine, type Engine } from "@/assistant/engine/engine";
 import { createBrowserStore } from "@/assistant/persistence/store";
@@ -49,8 +50,9 @@ function safeUrl(raw: string): string | null {
   }
 }
 
+/* `/\host` passes a naive "starts with one slash" test and still leaves the site. */
 function safePath(path: string): string | null {
-  return path.startsWith("/") && !path.startsWith("//") ? path : null;
+  return sameOriginPath(path);
 }
 
 export interface AssistantView {

@@ -8,6 +8,8 @@ import type {
   WorkItemType,
 } from '@barat/contracts';
 
+import { DomainErrors } from '../../../common/errors/domain.exception';
+import { DELIVERABLE_ORDER_STATUSES } from '../checklist-evaluation';
 import { maskEmail } from '../mask-recipient';
 import type {
   AssetSecretRecord,
@@ -460,6 +462,13 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     enteredByUserId: string | null;
     enteredAt: Date;
   }): Promise<GiftCardAssetView> {
+    // Same contract as the Prisma store's locked count: one asset per order.
+    if ([...this.assets.values()].some((existing) => existing.orderId === input.orderId)) {
+      throw DomainErrors.conflict(
+        'برای این سفارش قبلاً دارایی تحویل ثبت شده است.',
+        `order ${input.orderId} already has an asset; refusing to create another`,
+      );
+    }
     const row: AssetRow = {
       id: this.nextId('asset'),
       orderId: input.orderId,
@@ -505,7 +514,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
 
   async markAssetSent(assetId: string, at: Date): Promise<void> {
     const row = this.assets.get(assetId);
-    if (row !== undefined) {
+    if (row !== undefined && row.status === 'SENDING') {
       row.status = 'SENT';
       row.sentAt = at;
     }
@@ -513,7 +522,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
 
   async markAssetDeliveryFailed(assetId: string): Promise<void> {
     const row = this.assets.get(assetId);
-    if (row !== undefined) {
+    if (row !== undefined && row.status === 'SENDING') {
       row.status = 'DELIVERY_FAILED';
     }
   }
@@ -567,7 +576,8 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
   /* ---- order ------------------------------------------------------------- */
 
   async markOrderFulfilled(orderId: string, at: Date): Promise<void> {
-    if (orderId === this.orderId) {
+    // Conditional, like the Prisma store: a refund in flight is never overwritten.
+    if (orderId === this.orderId && DELIVERABLE_ORDER_STATUSES.includes(this.orderStatus)) {
       this.orderStatus = 'FULFILLED';
       this.orderFulfilledAt = at;
     }

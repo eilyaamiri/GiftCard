@@ -15,7 +15,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
 
   let product;
   try {
-    product = await api.get(`/api/admin/catalog/products/${id}`, adminProductDetailSchema);
+    product = await api.get(`/api/admin/catalog/products/${encodeURIComponent(id)}`, adminProductDetailSchema);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;

@@ -1,4 +1,5 @@
 import { HttpStatus, Inject, Injectable, Optional } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import {
   fxRateStringSchema,
   type DecimalString,
@@ -33,6 +34,17 @@ import {
 } from './fx.types';
 
 const MAX_OVERRIDE_TTL_SECONDS = 86_400;
+/** One incident, however many quotes it rejects. */
+export const STALE_FX_ALERT_DEDUP_KEY = 'FX:no-usable-rate';
+/**
+ * How far into the future a provider's `effectiveAt` may be before the reading
+ * is refused. Age is `now - effectiveAt`, clamped at zero, so a future-dated
+ * observation would never reach the stale threshold. Without this cap, a
+ * provider with a clock running ahead (or a cached body with a bad timestamp)
+ * could keep one rate "fresh" for as long as its timestamp stayed ahead. The
+ * allowance only absorbs small clock drift between hosts.
+ */
+const MAX_FUTURE_EFFECTIVE_SKEW_MS = 60_000;
 const systemClock: FxClock = { now: () => new Date() };
 
 /**
@@ -54,12 +66,17 @@ export class StaleFxRateError extends BaratDomainException {
     this.name = 'StaleFxRateError';
     this.ageSeconds = age;
 
-    // Alert: all FX providers are down / stale
+    // Alert: all FX providers are down / stale. The dedup key is fixed on
+    // purpose. The message includes the age, which changes every second, so
+    // the default key (source + message) was new on every call. The Telegram
+    // channel's per-incident rate limit then never matched, and during an
+    // outage every rejected quote and every refresher cycle sent a page.
     alertLogger?.log({
       severity: 'ERROR',
       source: 'FX',
       message: `All FX providers down — no usable rate (stale by ${age}s)`,
       context: { ageSeconds: age },
+      dedupKey: STALE_FX_ALERT_DEDUP_KEY,
     });
   }
 }
@@ -302,7 +319,7 @@ export class FxAggregatorService {
       return NO_ATTEMPT;
     }
 
-    if (!isUsableRate(raw, pair)) {
+    if (!isUsableRate(raw, pair, now)) {
       return NO_ATTEMPT;
     }
 
@@ -398,7 +415,7 @@ function errorType(err: unknown): string {
 }
 
 /** A provider payload we cannot trust is discarded, not repaired. */
-function isUsableRate(raw: RawFxRate, pair: FxPair): boolean {
+function isUsableRate(raw: RawFxRate, pair: FxPair, now: Date): boolean {
   if (raw.pair !== pair) {
     return false;
   }
@@ -414,7 +431,30 @@ function isUsableRate(raw: RawFxRate, pair: FxPair): boolean {
   if (raw.expiresAt !== null && !isValidDate(raw.expiresAt)) {
     return false;
   }
+  /* A future-dated reading would never age out (see MAX_FUTURE_EFFECTIVE_SKEW_MS). */
+  if (raw.effectiveAt.getTime() > now.getTime() + MAX_FUTURE_EFFECTIVE_SKEW_MS) {
+    return false;
+  }
+  /*
+   * The mid rate is the only field pricing uses, so it must sit between the
+   * two sides. Feeds disagree on which side is the bid (see the Nobitex
+   * adapter), so the check does not care about the order. A mid outside both
+   * sides is a corrupted payload, not a market.
+   */
+  if (!isMidBetweenSides(raw.buyRate, raw.sellRate, raw.midRate)) {
+    return false;
+  }
   return true;
+}
+
+/** Exact decimal comparison: a float here could misjudge a 12-digit rate. */
+function isMidBetweenSides(buyRate: string, sellRate: string, midRate: string): boolean {
+  const buy = new Decimal(buyRate);
+  const sell = new Decimal(sellRate);
+  const mid = new Decimal(midRate);
+  const low = Decimal.min(buy, sell);
+  const high = Decimal.max(buy, sell);
+  return mid.gte(low) && mid.lte(high);
 }
 
 function validateOverrideInput(input: FxOverrideInput): void {

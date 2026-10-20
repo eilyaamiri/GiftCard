@@ -32,6 +32,7 @@ export * from "./components/Ltr";
 export * from "./lib/format";
 export * from "./lib/digits";
 export * from "./lib/cn";
+export * from "./lib/safe-url";
 
 // Note: font setup (next/font/local + plain @font-face CSS) is intentionally
 // NOT re-exported here — import it from "@barat/ui/fonts" instead, so that

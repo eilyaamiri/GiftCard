@@ -156,6 +156,21 @@ const CANCEL_GUARD_SELECT = {
 
 type CancelGuardRow = Prisma.OrderGetPayload<{ select: typeof CANCEL_GUARD_SELECT }>;
 
+/**
+ * The cancel guard, restated as a condition on the write itself.
+ *
+ * `assertCancellable` decides on a row read a moment earlier. Between that read
+ * and the status update a payment session can open (the payments module does
+ * not look at the order status before reserving one), and a cancel applied on
+ * the stale read would close an order the gateway is about to report as PAID.
+ * Repeating the two money conditions inside the conditional update makes the
+ * database re-check them atomically with the transition.
+ */
+const CANCEL_WRITE_GUARD = {
+  paidAt: null,
+  payments: { none: { status: { in: [...LIVE_PAYMENT_STATUSES] } } },
+} satisfies Prisma.OrderWhereInput;
+
 @Injectable()
 export class OrdersService implements OrderPaymentBridge {
   constructor(
@@ -208,10 +223,15 @@ export class OrdersService implements OrderPaymentBridge {
       throw DomainErrors.notFound('quote');
     }
 
-    if (
-      quote.status === 'EXPIRED' ||
-      (quote.status === 'ACTIVE' && quote.expiresAt <= new Date())
-    ) {
+    /*
+     * Expiry ends an ACCEPTED quote too, not only an ACTIVE one. Acceptance
+     * freezes the price for the quote's lifetime, not forever: a quote accepted
+     * at today's rate and turned into an order next week would hold a price the
+     * market has long left behind. The payments module already refuses to open
+     * a session on an expired quote, so an order written here would be one the
+     * customer can never pay — refusing now gives them the re-quote at once.
+     */
+    if (quote.status === 'EXPIRED' || quote.expiresAt <= new Date()) {
       throw DomainErrors.quoteExpired();
     }
     if (quote.status !== 'ACCEPTED') {
@@ -441,6 +461,7 @@ export class OrdersService implements OrderPaymentBridge {
         'CANCELLED',
         this.auditActor(actor),
         CANCELLED_BY_CUSTOMER,
+        { guard: CANCEL_WRITE_GUARD },
       );
     }
 
@@ -494,7 +515,7 @@ export class OrdersService implements OrderPaymentBridge {
           'CANCELLED',
           { id: 'system:order-payment-window', type: 'SYSTEM' },
           CANCELLED_BY_TIMEOUT,
-          { now },
+          { now, guard: CANCEL_WRITE_GUARD },
         );
         if (result.changed) {
           cancelled += 1;
@@ -661,13 +682,21 @@ export class OrdersService implements OrderPaymentBridge {
              * between the checks above and this write. */
             const fresh = await tx.quote.findUnique({
               where: { id: quote.id },
-              select: { status: true, finalAmountIrr: true, displayAmountToman: true },
+              select: {
+                status: true,
+                expiresAt: true,
+                finalAmountIrr: true,
+                displayAmountToman: true,
+              },
             });
             if (!fresh || fresh.status !== 'ACCEPTED') {
               throw DomainErrors.conflict(
                 'وضعیت این پیش‌فاکتور تغییر کرده است. لطفاً قیمت جدید بگیرید.',
                 `Quote ${quote.id} left ACCEPTED before the order was written`,
               );
+            }
+            if (fresh.expiresAt <= new Date()) {
+              throw DomainErrors.quoteExpired();
             }
 
             const duplicate = await tx.order.findFirst({

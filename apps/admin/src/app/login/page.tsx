@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { sameOriginPath } from "@barat/ui";
 import { LoginForm } from "./login-form";
 
 export const metadata: Metadata = {
@@ -8,12 +9,15 @@ export const metadata: Metadata = {
 
 export const dynamic = "force-dynamic";
 
-/** Anything that is not a same-origin path is discarded, not sanitised. */
+/**
+ * Anything that is not a same-origin path is discarded, not sanitised. That
+ * includes `/\evil.example` and `/<TAB>/evil.example`, which a naive "one
+ * leading slash" test lets through and the browser then resolves off-site —
+ * right after a staff member has typed their password.
+ */
 function safeNextPath(value: string | string[] | undefined): string | null {
   const candidate = Array.isArray(value) ? value[0] : value;
-  if (!candidate) return null;
-  if (!candidate.startsWith("/") || candidate.startsWith("//")) return null;
-  return candidate;
+  return sameOriginPath(candidate);
 }
 
 export default async function LoginPage({

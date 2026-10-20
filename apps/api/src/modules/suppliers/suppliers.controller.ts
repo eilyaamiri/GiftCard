@@ -61,19 +61,25 @@ export class SuppliersController {
     return { offer: await this.suppliers.selectOffer(query.skuId) };
   }
 
+  /**
+   * A purchase an operator triggers by hand. Bound to the caller's own claim,
+   * the order's own SKU and quantity, and an order with no card yet — see
+   * `SuppliersService.purchaseForStaff`. `customerId` in the body is ignored in
+   * favour of the order's.
+   */
   @Post('purchase')
   async purchase(
     @Body(zodPipe(purchaseBodySchema)) body: PurchaseBody,
     @Req() request: unknown,
   ): Promise<{ outcome: SupplierPurchaseOutcome }> {
-    requireStaff(request);
-    const outcome = await this.suppliers.purchase({
+    const staff = requireStaff(request);
+    const outcome = await this.suppliers.purchaseForStaff({
+      staff,
       orderId: body.orderId,
       workItemId: body.workItemId,
       offerId: body.offerId,
       quantity: body.quantity,
       idempotencyKey: body.idempotencyKey,
-      ...(body.customerId === undefined ? {} : { customerId: body.customerId }),
       ...(body.recipientEmail === undefined ? {} : { recipientEmail: body.recipientEmail }),
     });
     return { outcome };

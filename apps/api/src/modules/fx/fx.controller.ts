@@ -10,7 +10,13 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { FxProviderHealth, FxRateSnapshot, GetFxRateResponse } from '@barat/contracts';
+import {
+  STAFF_ROLE_VALUES,
+  type FxProviderHealth,
+  type FxRateSnapshot,
+  type GetFxRateResponse,
+  type StaffRole,
+} from '@barat/contracts';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { FxAggregatorService } from './fx-aggregator.service';
@@ -28,6 +34,9 @@ import {
 import { Roles } from '../identity/rbac/roles.decorator';
 import { FX_OVERRIDE_ROLES, FxOverrideGuard, requireStaffActor } from './fx-staff.guard';
 
+/** Every staff role may read the rate. Customers and anonymous callers may not. */
+export const FX_READ_ROLES: readonly StaffRole[] = STAFF_ROLE_VALUES;
+
 @ApiTags('fx')
 @Controller('fx')
 export class FxController {
@@ -38,7 +47,16 @@ export class FxController {
    */
   constructor(@Inject(FxAggregatorService) private readonly aggregator: FxAggregatorService) {}
 
+  /*
+   * The three read routes are staff-only. Only the admin panel calls them, and
+   * it forwards the staff session. Left public, `current` let any anonymous
+   * caller trigger live venue calls plus an FxRate insert per request (and a
+   * Telegram alert during an outage). Enough of that traffic uses up the
+   * venue's rate limit, after which every customer quote fails as stale.
+   * `history` also exposed override reasons. Every staff role may still read.
+   */
   @Get('current')
+  @Roles(...FX_READ_ROLES)
   @ApiOperation({ summary: 'Current selected FX rate with provider health' })
   @ApiOkResponse({ description: 'Snapshot plus safe provider health summaries' })
   async current(
@@ -53,6 +71,7 @@ export class FxController {
    * the admin dashboard can show which provider is down during an outage.
    */
   @Get('health')
+  @Roles(...FX_READ_ROLES)
   @ApiOperation({ summary: 'FX provider health, available even when no rate is usable' })
   @ApiOkResponse({ description: 'Normalised provider health summaries' })
   async health(): Promise<{ providers: FxProviderHealth[] }> {
@@ -61,6 +80,7 @@ export class FxController {
   }
 
   @Get('history')
+  @Roles(...FX_READ_ROLES)
   @ApiOperation({ summary: 'Paginated FX rate history, manual rows included' })
   @ApiOkResponse({ description: 'Persisted rate observations, newest first' })
   async history(

@@ -32,6 +32,8 @@ jobs:
       DATABASE_URL: postgresql://postgres@localhost:5432/migration_replay?schema=public
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 11.24.0

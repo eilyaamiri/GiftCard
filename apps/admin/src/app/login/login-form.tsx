@@ -67,7 +67,10 @@ export function LoginForm({ nextPath }: { nextPath: string | null }) {
   }
 
   return (
-    <form onSubmit={onSubmit} noValidate>
+    /* `method="post"`: a submit that lands before hydration is a native one, and
+     * the default GET would put the email and password in the URL, the history
+     * and the access log. Hydrated, `onSubmit` prevents it either way. */
+    <form method="post" onSubmit={onSubmit} noValidate>
       <div style={{ marginBlockEnd: "16px" }}>
         <label htmlFor="staff-email" style={labelStyle}>
           ایمیل سازمانی

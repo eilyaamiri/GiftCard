@@ -31,7 +31,7 @@ import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-r
 import { toEnginePricingRule, type PricingRuleService } from '../pricing/pricing-rule.service';
 import { PricingService } from '../pricing/pricing.service';
 import type { QuotesDatabase } from './quote.ports';
-import { QuotesService, type QuoteActor } from './quotes.service';
+import { FROM_PRICE_CACHE_MAX_ENTRIES, QuotesService, type QuoteActor } from './quotes.service';
 
 /* ============================================================================
  * Fixtures
@@ -664,6 +664,32 @@ describe('QuotesService.createQuote', () => {
       service: { fields: [{ labelFa: 'ایمیل حساب' }] },
     });
   });
+
+  it.each(['0', '0.00', '0.000000'])(
+    'refuses a zero service amount (%s) that the wire schema lets through',
+    async (requestedAmountForeign) => {
+      /* No minimum configured: before the fix nothing stood between "0" and a
+       * quote that charges the fee and margin floor for a $0 payment. */
+      context.getServiceForQuote.mockResolvedValue({ ...serviceForQuote(), minAmount: null });
+
+      const error = await context.service
+        .createQuote(
+          createRequest({
+            skuId: undefined,
+            serviceId: 'service-1',
+            requestedAmountForeign: requestedAmountForeign as DecimalString,
+            serviceFields: { siteUrl: 'https://openai.com/pricing' },
+          }),
+          ACTOR,
+        )
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ status: 400 });
+      expect(JSON.stringify(error)).toContain('requestedAmountForeign');
+      expect(context.computeQuote).not.toHaveBeenCalled();
+      expect(context.db.rows.size).toBe(0);
+    },
+  );
 
   it('requires the site address on an international service quote', async () => {
     context.getServiceForQuote.mockResolvedValue(serviceForQuote());
@@ -1364,6 +1390,35 @@ describe('QuotesService.createQuote — direct top-up', () => {
       status: 409,
     });
   });
+
+  it.each([2, 3, 100])(
+    'refuses quantity %i: fulfillment buys exactly one top-up per order',
+    async (quantity) => {
+      /* The engine multiplies by quantity, the venue purchase does not — a quote
+       * for several would charge for several and credit the account once. */
+      const context = harness();
+      context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+      const error = await context.service
+        .createQuote(topUpRequest({ quantity }), ACTOR)
+        .catch((caught: unknown) => caught);
+
+      expect(error).toMatchObject({ status: 400 });
+      expect(JSON.stringify(error)).toContain('quantity');
+      expect(context.getLivePrice).not.toHaveBeenCalled();
+      expect(context.computeQuote).not.toHaveBeenCalled();
+      expect(context.db.rows.size).toBe(0);
+    },
+  );
+
+  it('still quotes a single top-up exactly as before', async () => {
+    const context = harness();
+    context.rules.value = [GLOBAL_RULE, TOP_UP_RULE];
+
+    await context.service.createQuote(topUpRequest({ quantity: 1 }), ACTOR);
+
+    expect(context.db.only()['quantity']).toBe(1);
+  });
 });
 
 describe('QuotesService.createQuote — variable-amount Steam top-up', () => {
@@ -1777,5 +1832,38 @@ describe('QuotesService.fromPrices', () => {
     expect(serialized).not.toContain('46.512345');
     /* Only the final rial figure crosses the boundary. */
     expect(Object.values(prices)).toEqual([expectedFinal('46.512345', '50')]);
+  });
+
+  it('keeps the cache bounded when a caller walks random product ids', async () => {
+    /* The endpoint is public and every unknown id used to be cached as `null`
+     * forever. Push well past the ceiling, 60 ids per call like the schema. */
+    const context = harness({ fromPriceCandidates: [] });
+    const cache = (context.service as unknown as { fromPriceCache: Map<string, unknown> })
+      .fromPriceCache;
+    const batches = Math.ceil((FROM_PRICE_CACHE_MAX_ENTRIES * 2) / 60);
+
+    for (let batch = 0; batch < batches; batch += 1) {
+      const ids = Array.from({ length: 60 }, (_, index) => `junk-${batch}-${index}`);
+      await context.service.fromPrices(ids);
+      expect(cache.size).toBeLessThanOrEqual(FROM_PRICE_CACHE_MAX_ENTRIES);
+    }
+    expect(cache.size).toBeGreaterThan(0);
+  });
+
+  it('still serves a real product from the cache after junk has been evicted', async () => {
+    const context = harness({ fromPriceCandidates: [candidate()] });
+    const junk = Array.from({ length: FROM_PRICE_CACHE_MAX_ENTRIES }, (_, index) => `junk-${index}`);
+    for (let start = 0; start < junk.length; start += 60) {
+      await context.service.fromPrices(junk.slice(start, start + 60));
+    }
+    const callsBefore = context.getFromPriceCandidates.mock.calls.length;
+
+    const first = await context.service.fromPrices(['product-1']);
+    const second = await context.service.fromPrices(['product-1']);
+
+    expect(first).toEqual({ 'product-1': expectedFinal('10', '10') });
+    expect(second).toEqual(first);
+    /* Computed once, then cached — eviction made room rather than disabling it. */
+    expect(context.getFromPriceCandidates.mock.calls.length).toBe(callsBefore + 1);
   });
 });

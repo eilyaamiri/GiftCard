@@ -8,7 +8,12 @@ import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
 import { TOP_UP_STORE } from './suppliers.types';
-import type { SupplierFundingState, TopUpStore, TopUpTarget } from './suppliers.types';
+import type {
+  SupplierFundingState,
+  TopUpFulfillmentStatus,
+  TopUpStore,
+  TopUpTarget,
+} from './suppliers.types';
 
 /**
  * The part of a target an escalation needs: enough to say which order, which
@@ -329,6 +334,12 @@ export class TopUpFulfillmentService {
        * would be a real loss, so the second one stands down. */
       return ineligible('PURCHASE_IN_FLIGHT');
     }
+    if (target.status === 'AWAITING_PROVIDER') {
+      /* The venue already has this order and the poller owns it from here. A
+       * replayed payment callback must not walk it back through the funding
+       * check — whose exhaustion branch would mark a live venue order UNKNOWN. */
+      return ineligible('AWAITING_PROVIDER');
+    }
     if (!['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'].includes(target.orderStatus)) {
       return ineligible('ORDER_NOT_DELIVERABLE');
     }
@@ -593,7 +604,7 @@ export class TopUpFulfillmentService {
          * charge. That is what separates this branch from `UNKNOWN` below,
          * where a manual top-up could deliver twice for one payment.
          */
-        await this.store.transition({
+        const movedToFailed = await this.store.transition({
           fulfillmentId: target.fulfillmentId,
           from: ['PURCHASING', 'AWAITING_PROVIDER', 'QUEUED', 'WAITING_FUNDS'],
           to: 'FAILED',
@@ -606,6 +617,10 @@ export class TopUpFulfillmentService {
             providerStatus: common.providerStatus,
           },
         });
+        const failedStanding = await this.standsAt(target, movedToFailed, 'FAILED');
+        if (failedStanding !== null) {
+          return failedStanding;
+        }
         await this.store.transitionOrder({
           orderId: target.orderId,
           from: ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'],
@@ -635,7 +650,7 @@ export class TopUpFulfillmentService {
          * wrong, an operator receives a task and answers the customer" case the
          * product owner described.
          */
-        await this.store.transition({
+        const movedToUnknown = await this.store.transition({
           fulfillmentId: target.fulfillmentId,
           from: ['PURCHASING', 'AWAITING_PROVIDER', 'QUEUED', 'WAITING_FUNDS'],
           to: 'UNKNOWN',
@@ -648,6 +663,10 @@ export class TopUpFulfillmentService {
             providerStatus: common.providerStatus,
           },
         });
+        const unknownStanding = await this.standsAt(target, movedToUnknown, 'UNKNOWN');
+        if (unknownStanding !== null) {
+          return unknownStanding;
+        }
         await this.store.transitionOrder({
           orderId: target.orderId,
           from: ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'],
@@ -703,7 +722,44 @@ export class TopUpFulfillmentService {
         failureReason: input.reason,
       });
     }
+    const standing = await this.standsAt(target, moved, 'UNKNOWN');
+    if (standing !== null) {
+      return standing;
+    }
     return this.escalate(target, { decision: 'UNKNOWN', ...input });
+  }
+
+  /**
+   * Whether a transition that the caller is about to escalate actually landed.
+   *
+   * `null` means go ahead: this call moved the row, or a replay finds it already
+   * sitting in `expected` (the escalation code is deterministic, so a replay
+   * returns the existing task rather than a new one). Anything else means a
+   * concurrent path settled the top-up differently first — most importantly a
+   * poll that saw it SUCCEED. Escalating then would hand an operator a "do this
+   * by hand" or "find out if we were charged" task for a top-up that was
+   * already delivered, which is a second delivery for one payment, and would
+   * break the rule that a top-up only ever creates a task on genuine failure.
+   */
+  private async standsAt(
+    target: TopUpTarget,
+    moved: boolean,
+    expected: TopUpFulfillmentStatus,
+  ): Promise<TopUpOutcome | null> {
+    if (moved) {
+      return null;
+    }
+    const fresh = await this.store.findTargetByOrderId(target.orderId);
+    if (fresh !== null && fresh.status === expected) {
+      return null;
+    }
+    return {
+      decision: 'NOT_ELIGIBLE',
+      orderId: target.orderId,
+      fulfillmentId: target.fulfillmentId,
+      reason: `SETTLED_${fresh?.status ?? 'MISSING'}`,
+      workItemId: null,
+    };
   }
 
   /**

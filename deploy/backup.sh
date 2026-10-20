@@ -3,6 +3,9 @@ set -Eeuo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+# The dump is the whole database (customers, encrypted codes, payments). Create
+# it 0600 from the first byte instead of chmod-ing it after it is written.
+umask 077
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/baratpay}"
 RETENTION_DAYS="${RETENTION_DAYS:-7}"
 COMPOSE=(docker compose --env-file .env.production -f docker-compose.prod.yml)

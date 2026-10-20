@@ -13,6 +13,23 @@ import { AppConfigService } from './common/config';
 /** Global route prefix. Health probes keep it too: `/api/health`. */
 const GLOBAL_PREFIX = 'api';
 
+/**
+ * Which peers may tell us the client's address through X-Forwarded-For.
+ *
+ * Only a proxy on this host (nginx in front of the systemd units) or on a
+ * private network (nginx in the compose stack, reaching the API over the Docker
+ * bridge) is believed. The previous value, `1`, trusted whichever peer happened
+ * to connect: the API listens on 0.0.0.0, so anyone who reached port 4000
+ * without going through nginx could send `X-Forwarded-For: <anything>`, get a
+ * fresh `req.ip` per request, and with it a fresh throttler bucket — the OTP
+ * and login limits keyed on that IP stopped meaning anything.
+ *
+ * Behind the real proxy nothing changes: nginx connects from loopback (or a
+ * private address), so the address it appended is still the one used. A
+ * direct public connection now resolves to its own socket address.
+ */
+const TRUST_PROXY = 'loopback, uniquelocal';
+
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     /* pino takes over as soon as it is resolved; buffer the boot logs until then. */
@@ -51,8 +68,9 @@ async function bootstrap(): Promise<void> {
   });
 
   /* Behind a reverse proxy the client IP must come from X-Forwarded-For, or
-   * every rate limit would apply to the proxy instead of the caller. */
-  app.set('trust proxy', 1);
+   * every rate limit would apply to the proxy instead of the caller — but only
+   * when that header was written by a proxy we run. See TRUST_PROXY. */
+  app.set('trust proxy', TRUST_PROXY);
 
   /* ------------------------------------------------------------ HTTP surface */
   /* No URI versioning in the POC: every route is `/api/<module>/...`. Adding a

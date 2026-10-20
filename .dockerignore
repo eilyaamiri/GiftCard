@@ -16,10 +16,23 @@ generated
 *.tsbuildinfo
 
 # Local and secret configuration
+#
+# The Dockerfiles `COPY . .` into their build stage, so anything not listed here
+# is in the build context and in the builder's layer cache. Patterns without a
+# `**/` prefix only match at the context root, hence both forms.
 .env
 .env.*
+**/.env
+**/.env.*
 !.env.example
+!**/.env.example
 *.local
+# Local provider credentials (e.g. secrets/fazercards/*.env), never part of a build.
+secrets
+**/*.pem
+**/*.key
+# Agent worktrees: full copies of the repository, gigabytes of build context.
+.claude
 
 # VCS, editor and OS files
 .git

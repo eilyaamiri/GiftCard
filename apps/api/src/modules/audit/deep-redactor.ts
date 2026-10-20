@@ -15,14 +15,37 @@ const SENSITIVE_KEY_PARTS = [
   'accountnumber',
   'ibanencrypted',
   'cardencrypted',
+  /* Credentials whose canonical names contain none of the parts above:
+   * `apiKey`, `privateKey`, `encryptionKey`, `Authorization`, `Cookie`,
+   * `cvv2`, `passphrase`, and any `encrypted*` envelope. */
+  'apikey',
+  'privatekey',
+  'encryptionkey',
+  'authorization',
+  'cookie',
+  'cvv',
+  'passphrase',
+  'encrypted',
 ] as const;
 
 /**
  * Exact matches, for names that are sensitive alone but are contained in names
  * that must stay readable: a bare `iban` may never reach an audit row, while
  * `ibanMasked` and `ibanBankName` are precisely what such a row should show.
+ *
+ * The gateway `authority` is the payment token (rule 10). It is exact rather
+ * than a substring so a deliberately hashed `authorityHash` stays readable.
  */
-const SENSITIVE_KEY_EXACT: ReadonlySet<string> = new Set(['iban', 'shaba', 'sheba', 'pan']);
+const SENSITIVE_KEY_EXACT: ReadonlySet<string> = new Set([
+  'iban',
+  'shaba',
+  'sheba',
+  'pan',
+  'authority',
+  'providerauthority',
+  'jwt',
+  'bearer',
+]);
 
 const MAX_DEPTH = 64;
 

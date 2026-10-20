@@ -92,7 +92,7 @@ export function EmailForm({ profile }: { profile: AccountProfile }) {
   }
 
   return (
-    <form className="profile-inline-form" onSubmit={submit} noValidate>
+    <form className="profile-inline-form" method="post" onSubmit={submit} noValidate>
       <div className="field">
         <Label htmlFor="accountEmail" required>
           ایمیل جدید

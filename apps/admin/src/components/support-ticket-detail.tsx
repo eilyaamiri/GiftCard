@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { SupportTicket } from "@/lib/support-tickets";
 import { formatDateTime } from "@/lib/order-format";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 
 const OWNER_REASON: Record<string, string> = {
   FIRST_STAFF_REPLY: "مالکیت با اولین پاسخ کارشناس ایجاد شد",
@@ -36,7 +37,7 @@ export function SupportTicketDetail({
           <div className="section-label"><h2>گفت‌وگو</h2><span>{ticket.messages.length} پیام</span></div>
           <div className="support-conversation">{ticket.messages.map((message) => <article key={message.id} className={`support-message support-message-${message.authorType.toLowerCase()}`}><header><strong>{message.authorName}</strong><span>{message.authorType === "CUSTOMER" ? "مشتری" : "کارشناس"} · {formatDateTime(message.createdAt)}</span></header><p>{message.body}</p></article>)}</div>
         </section>
-        {!closed ? <section className="card panel"><div className="section-label"><h2>پاسخ به مشتری</h2><span>با ثبت پاسخ، شما مالک تیکت می‌شوید</span></div><form action={replyAction} className="customer-note-form"><label>متن پاسخ<textarea name="message" minLength={3} maxLength={2000} required placeholder="پاسخ روشن و قابل اقدام برای مشتری" /></label><button className="primary-btn" type="submit">ثبت پاسخ و پذیرش مالکیت</button></form></section> : null}
+        {!closed ? <section className="card panel"><div className="section-label"><h2>پاسخ به مشتری</h2><span>با ثبت پاسخ، شما مالک تیکت می‌شوید</span></div><form action={replyAction} className="customer-note-form"><label>متن پاسخ<textarea name="message" minLength={3} maxLength={2000} required placeholder="پاسخ روشن و قابل اقدام برای مشتری" /></label><PendingSubmitButton className="primary-btn">ثبت پاسخ و پذیرش مالکیت</PendingSubmitButton></form></section> : null}
       </main>
 
       <aside className="workspace-control">
@@ -49,7 +50,7 @@ export function SupportTicketDetail({
           <div className="kv-row"><span>مهلت پاسخ جاری</span><span>{formatDateTime(ticket.nextResponseDueAt)}</span></div>
         </div></section>
         <section className="card panel"><div className="section-label"><h2>تاریخچه مالکیت</h2><span>{ticket.ownershipHistory.length} تغییر</span></div>{ticket.ownershipHistory.length === 0 ? <p className="empty-hint">هنوز کارشناسی پاسخ نداده است.</p> : <div className="timeline">{ticket.ownershipHistory.map((event) => <div className="timeline-row" key={event.id}><span className="timeline-dot" /><div className="timeline-copy"><strong>{event.previousOwnerName ? `${event.previousOwnerName} ← ${event.newOwnerName}` : event.newOwnerName}</strong><span>{OWNER_REASON[event.reason] ?? event.reason}</span><span>{formatDateTime(event.createdAt)}</span></div></div>)}</div>}</section>
-        {!closed ? <section className="card panel"><div className="section-label"><h2>بستن تیکت</h2><span>پایان پیگیری</span></div><form action={closeAction} className="customer-note-form"><label>جمع‌بندی<textarea name="resolutionNote" minLength={3} maxLength={2000} required /></label><button className="secondary-btn" type="submit">بستن تیکت</button></form></section> : ticket.resolutionNote ? <section className="card panel"><div className="section-label"><h2>جمع‌بندی</h2><span>بسته‌شده</span></div><p>{ticket.resolutionNote}</p></section> : null}
+        {!closed ? <section className="card panel"><div className="section-label"><h2>بستن تیکت</h2><span>پایان پیگیری</span></div><form action={closeAction} className="customer-note-form"><label>جمع‌بندی<textarea name="resolutionNote" minLength={3} maxLength={2000} required /></label><PendingSubmitButton className="secondary-btn">بستن تیکت</PendingSubmitButton></form></section> : ticket.resolutionNote ? <section className="card panel"><div className="section-label"><h2>جمع‌بندی</h2><span>بسته‌شده</span></div><p>{ticket.resolutionNote}</p></section> : null}
       </aside>
     </div>
   </div>;

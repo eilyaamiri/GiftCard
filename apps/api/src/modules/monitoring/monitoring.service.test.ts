@@ -117,6 +117,51 @@ describe('MonitoringService supplier probe', () => {
     expect(alerts.map((a) => a.severity)).toEqual(['WARNING', 'WARNING', 'ERROR', 'INFO']);
   });
 
+  it('a burst of manual probes cannot page a false ">5 min" outage', async () => {
+    const { provider, state } = fakeSupplier('tillo');
+    state.failing = true;
+    const { service, alerts } = build([provider]);
+
+    // Someone clicks "probe" three times in a few seconds during a blip.
+    await service.probeSuppliers({ manual: true });
+    await service.probeSuppliers({ manual: true });
+    await service.probeSuppliers({ manual: true });
+
+    expect(alerts).toEqual([]);
+    // The dashboard still shows what the manual probe saw.
+    expect((await supplierRow(service, 'tillo'))?.status).toBe('OFFLINE');
+    expect(state.calls).toBe(3);
+
+    // The timed probes still page on their own schedule: warn, then page.
+    await service.probeSuppliers();
+    expect(alerts.map((a) => a.severity)).toEqual(['WARNING']);
+    await service.probeSuppliers();
+    expect(alerts.map((a) => a.severity)).toEqual(['WARNING', 'ERROR']);
+  });
+
+  it('a manual probe between timed failures does not advance the streak', async () => {
+    const { provider, state } = fakeSupplier('runa');
+    state.failing = true;
+    const { service, alerts } = build([provider]);
+
+    await service.probeSuppliers();
+    await service.probeSuppliers({ manual: true });
+    expect(alerts.map((a) => a.severity)).toEqual(['WARNING']);
+  });
+
+  it('a successful manual probe still records the recovery', async () => {
+    const { provider, state } = fakeSupplier('giftbit');
+    state.failing = true;
+    const { service, alerts } = build([provider]);
+
+    await service.probeSuppliers();
+    await service.probeSuppliers();
+    state.failing = false;
+    await service.probeSuppliers({ manual: true });
+
+    expect(alerts.map((a) => a.severity)).toEqual(['WARNING', 'ERROR', 'INFO']);
+  });
+
   it('does not stack a second probe on one still running', async () => {
     let release: () => void = () => undefined;
     let calls = 0;
