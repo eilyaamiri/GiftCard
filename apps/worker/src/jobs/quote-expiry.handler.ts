@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@barat/database';
 
 import { QUEUE_NAMES } from '../queues';
+import { parsePayload, quoteExpiryPayloadSchema, resolveNow } from './job-payloads';
 import type { JobHandler, JobResult, QuoteExpiryJobData } from './job-types';
 
 const DEFAULT_BATCH_SIZE = 500;
@@ -22,11 +23,11 @@ export class QuoteExpiryHandler implements JobHandler<QuoteExpiryJobData> {
 
   constructor(private readonly db: Pick<PrismaClient, 'quote'>) {}
 
-  async handle(data: QuoteExpiryJobData = {}): Promise<JobResult> {
-    const now = data.now === undefined ? new Date() : new Date(data.now);
-    if (Number.isNaN(now.getTime())) {
-      throw new Error('quote-expiry: invalid `now`');
-    }
+  async handle(raw: QuoteExpiryJobData = {}): Promise<JobResult> {
+    const data = parsePayload(quoteExpiryPayloadSchema, raw, this.queueName);
+    // A pinned `now` ahead of real time would expire quotes that are still
+    // valid for the customer, so it is refused rather than honoured.
+    const now = resolveNow(data.now, this.queueName);
     const batchSize = data.batchSize ?? DEFAULT_BATCH_SIZE;
 
     const candidates = await this.db.quote.findMany({
