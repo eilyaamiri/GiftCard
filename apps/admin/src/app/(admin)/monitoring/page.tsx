@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Activity, AlertTriangle, CheckCircle2, Clock, Database, Server, XCircle, Zap } from "lucide-react";
 import { formatJalaliDate, toPersianDigits } from "@barat/ui";
+import { REPORT_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import Link from "next/link";
 
@@ -75,7 +76,7 @@ async function fetchMonitoring(): Promise<MonitoringSnapshot | null> {
 }
 
 export default async function MonitoringPage() {
-  await requireRole(["ADMIN", "MANAGEMENT", "FINANCE"]);
+  await requireRole(REPORT_ROLES);
   const snapshot = await fetchMonitoring();
 
   return (

@@ -80,6 +80,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/knowledge-base", label: "پایگاه دانش", icon: "book-open", roles: ["ADMIN"] },
       { href: "/sla", label: "SLA و کیفیت", icon: "line-chart", roles: QUEUE_VIEW_ROLES },
       { href: "/reports", label: "گزارش‌ها", icon: "line-chart", roles: REPORT_ROLES },
+      { href: "/monitoring", label: "مانیتورینگ سرویس‌ها", icon: "activity", roles: REPORT_ROLES },
       { href: "/audit", label: "گزارش رخدادها", icon: "shield-check", roles: AUDIT_ROLES },
       { href: "/settings", label: "تنظیمات", icon: "settings", roles: ["ADMIN"] },
     ],
