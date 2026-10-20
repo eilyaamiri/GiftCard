@@ -91,13 +91,16 @@ is unreachable.
   outside the database and outside git. Move them with the data when the host
   changes, or every product image answers 404.
 
-## Demo sign-in
+## Sign-in codes and demo data
 
-`OTP_DEV_FIXED_CODE=123456` is set in `/opt/baratpay/secrets/.env.api`, so every
-storefront login code is that value. This exists because no SMS gateway is
-connected. It must be removed the moment one is — see the comment on the
-variable in `apps/api/src/common/config/env.schema.ts` for what it costs. The
-schema refuses to boot if it is still set once ZarinPal is enabled.
+`OTP_DEV_FIXED_CODE` must not be set in production. It makes one fixed value
+the login code for every number, so anyone who knows it can open any
+customer's account and read their gift-card codes. The variable is for local
+development only; see its comment in `apps/api/src/common/config/env.schema.ts`.
+Checked absent from `/opt/baratpay/secrets/.env.api` on 2026-10-20. To re-check
+without printing the value:
+
+    sudo grep -c '^OTP_DEV_FIXED_CODE=.' /opt/baratpay/secrets/.env.api   # must print 0
 
 The operator queue only has claimable work because the seed leaves the
 unfulfilled tail `UNASSIGNED`. Claiming consumes it, so to get the queue back:
