@@ -41,6 +41,9 @@ const WORK_ITEM_SELECT = {
 
 type SelectedWorkItem = Prisma.WorkItemGetPayload<{ select: typeof WORK_ITEM_SELECT }>;
 
+/** Sentinel that rolls back a refund conversion which lost the order claim. */
+const REFUND_CLAIM_LOST = 'REFUND_CLAIM_LOST';
+
 function toSummary(row: SelectedWorkItem): WorkItemSummary {
   return {
     id: row.id,
@@ -332,7 +335,7 @@ export class PrismaWorkItemStore implements WorkItemStore {
     const queue = await this.ensureQueue(DEFAULT_QUEUE_BY_WORK_ITEM_TYPE['REFUND_REVIEW']);
 
     return this.db.$transaction(async (tx) => {
-      /* Read the work item while holding the row lock. */
+      /* A plain read: it takes no lock. The order UPDATE below is the claim. */
       const item = await tx.workItem.findUnique({
         where: { id: input.workItemId },
         select: { orderId: true, assignedToStaffId: true, status: true, type: true },
@@ -364,11 +367,24 @@ export class PrismaWorkItemStore implements WorkItemStore {
         throw new Error('REFUND_AMOUNT_INVALID');
       }
 
-      /* Move the order to REFUND_PENDING. */
-      await tx.order.updateMany({
+      /*
+       * Move the order to REFUND_PENDING — and make that the claim.
+       *
+       * The reads above do not lock anything (READ COMMITTED), so two
+       * concurrent conversions of the same task both get this far. This
+       * conditional UPDATE is where they are serialised: the second blocks on
+       * the first's row lock, re-evaluates the predicate after it commits, and
+       * matches nothing. Ignoring that count is what let the loser go on to
+       * create a second Refund row for the same order — two refunds for one
+       * payment. Rolling the transaction back here is the whole fix.
+       */
+      const moved = await tx.order.updateMany({
         where: { id: item.orderId, status: 'REVIEW_REQUIRED' },
         data: { status: 'REFUND_PENDING' },
       });
+      if (moved.count !== 1) {
+        throw new Error(REFUND_CLAIM_LOST);
+      }
 
       /* Retype the work item. */
       await tx.workItem.update({
@@ -410,6 +426,9 @@ export class PrismaWorkItemStore implements WorkItemStore {
       return { changed: true, orderId: item.orderId, refundId: refund.id };
     }).catch((err: unknown) => {
       if (err instanceof Error && err.message === 'REFUND_AMOUNT_INVALID') {
+        return { changed: false, orderId: null };
+      }
+      if (err instanceof Error && err.message === REFUND_CLAIM_LOST) {
         return { changed: false, orderId: null };
       }
       throw err;

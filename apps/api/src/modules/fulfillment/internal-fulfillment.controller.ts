@@ -1,5 +1,5 @@
 import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
@@ -20,16 +20,12 @@ interface RequestWithHeaders {
  * Constant-time comparison that does not leak the token length either.
  *
  * `timingSafeEqual` throws on a length mismatch, which is itself an oracle, so
- * both sides are hashed to a fixed width first — cheap, and removes the branch.
+ * both sides are hashed to a fixed 32-byte width first and the digests are
+ * compared — one code path, whatever the presented value's length.
  */
-function tokenMatches(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented, 'utf8');
-  const b = Buffer.from(expected, 'utf8');
-  if (a.length !== b.length) {
-    // Still burn a comparison of equal length so the failure path costs the same.
-    timingSafeEqual(a, a);
-    return false;
-  }
+export function tokenMatches(presented: string, expected: string): boolean {
+  const a = createHash('sha256').update(presented, 'utf8').digest();
+  const b = createHash('sha256').update(expected, 'utf8').digest();
   return timingSafeEqual(a, b);
 }
 

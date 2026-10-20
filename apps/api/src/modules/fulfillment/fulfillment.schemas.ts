@@ -38,7 +38,10 @@ export const assetSchema = z.discriminatedUnion('assetType', [
   }),
   z.object({
     assetType: z.literal('URL'),
-    deliveryUrl: z.url().max(2_048),
+    // http(s) only. The link is e-mailed to the customer and rendered as an
+    // anchor on their order page; a `javascript:` or `data:` URL there is a
+    // script, not a redemption link.
+    deliveryUrl: z.url({ protocol: /^https?$/u }).max(2_048),
     expiryDate: isoDate.optional(),
   }),
   z.object({

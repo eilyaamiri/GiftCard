@@ -227,6 +227,13 @@ export interface SupplierStore {
   findOfferById(offerId: string): Promise<SupplierOfferView | null>;
   /** What a work item would have to buy, or `null` when it cannot be resolved. */
   findAutoFulfillmentTarget(workItemId: string): Promise<AutoFulfillmentTarget | null>;
+  /**
+   * True while the order still has an open "did the supplier charge us?" task —
+   * an `UNKNOWN_OUTCOME` item, or a `SUPPLIER_PENDING:` follow-up — that no one
+   * has closed. A staff-initiated purchase is refused while one is open: buying
+   * again before that question is answered is how one payment becomes two cards.
+   */
+  hasOpenPurchaseAmbiguity(orderId: string): Promise<boolean>;
   recordAvailabilityCheck(input: {
     offerId: string;
     availability: SupplierAvailability;

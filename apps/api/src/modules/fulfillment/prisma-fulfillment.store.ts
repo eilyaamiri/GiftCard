@@ -11,8 +11,10 @@ import type {
   WorkItemType,
 } from '@barat/contracts';
 
+import { DomainErrors } from '../../common/errors/domain.exception';
 import { readServiceAccountSnapshot } from '../quotes/service-account-fields';
 import { isUniqueConstraintViolation } from '../workitems/prisma-errors';
+import { DELIVERABLE_ORDER_STATUSES } from './checklist-evaluation';
 import { maskEmail } from './mask-recipient';
 import type {
   AssetSecretRecord,
@@ -663,6 +665,17 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     };
   }
 
+  /**
+   * Stores the order's delivery asset — and refuses a second one, atomically.
+   *
+   * Both callers (`recordSupplierResult`, `ingestAutomatedSupplierResult`)
+   * already refuse when the order has an asset, but they decide that on a
+   * snapshot read earlier in the request. Two submissions racing past that read
+   * would each write a card, i.e. record two purchases for one payment. The
+   * `FOR UPDATE` on the order row serialises every writer for the same order, so
+   * the count below is taken on settled state and the loser gets a conflict
+   * instead of a duplicate row.
+   */
   async createAsset(input: {
     orderId: string;
     fulfillmentId: string;
@@ -681,29 +694,40 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     enteredByUserId: string | null;
     enteredAt: Date;
   }): Promise<GiftCardAssetView> {
-    const row = await this.db.giftCardAsset.create({
-      data: {
-        orderId: input.orderId,
-        fulfillmentId: input.fulfillmentId,
-        skuId: input.skuId,
-        assetType: input.assetType,
-        encryptedCode: input.encryptedCode,
-        encryptedPin: input.encryptedPin,
-        maskedCode: input.maskedCode,
-        serialNumber: input.serialNumber,
-        deliveryUrl: input.deliveryUrl,
-        recipientEmail: input.recipientEmail,
-        expiryDate: input.expiryDate,
-        supplierReference: input.supplierReference,
-        actualSupplierCost:
-          input.actualSupplierCost === null ? null : new Prisma.Decimal(input.actualSupplierCost),
-        actualSupplierCurrency: input.actualSupplierCurrency,
-        status: 'READY',
-        enteredByUserId: input.enteredByUserId,
-        enteredAt: input.enteredAt,
-        encryptionKeyVersion: 1,
-      },
-      select: ASSET_VIEW_SELECT,
+    const row = await this.db.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${input.orderId} FOR UPDATE`;
+      const existing = await tx.giftCardAsset.count({ where: { orderId: input.orderId } });
+      if (existing > 0) {
+        throw DomainErrors.conflict(
+          'برای این سفارش قبلاً دارایی تحویل ثبت شده است.',
+          `order ${input.orderId} already has ${String(existing)} asset(s); refusing to create another`,
+        );
+      }
+
+      return tx.giftCardAsset.create({
+        data: {
+          orderId: input.orderId,
+          fulfillmentId: input.fulfillmentId,
+          skuId: input.skuId,
+          assetType: input.assetType,
+          encryptedCode: input.encryptedCode,
+          encryptedPin: input.encryptedPin,
+          maskedCode: input.maskedCode,
+          serialNumber: input.serialNumber,
+          deliveryUrl: input.deliveryUrl,
+          recipientEmail: input.recipientEmail,
+          expiryDate: input.expiryDate,
+          supplierReference: input.supplierReference,
+          actualSupplierCost:
+            input.actualSupplierCost === null ? null : new Prisma.Decimal(input.actualSupplierCost),
+          actualSupplierCurrency: input.actualSupplierCurrency,
+          status: 'READY',
+          enteredByUserId: input.enteredByUserId,
+          enteredAt: input.enteredAt,
+          encryptionKeyVersion: 1,
+        },
+        select: ASSET_VIEW_SELECT,
+      });
     });
     return toAssetView(row);
   }
@@ -730,9 +754,13 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     return result.count === 1;
   }
 
+  /**
+   * SENDING → SENT, and only from SENDING: the dispatch that won `beginSending`
+   * is the only caller allowed to settle the asset.
+   */
   async markAssetSent(assetId: string, at: Date): Promise<void> {
-    await this.db.giftCardAsset.update({
-      where: { id: assetId },
+    await this.db.giftCardAsset.updateMany({
+      where: { id: assetId, status: 'SENDING' },
       data: { status: 'SENT', sentAt: at },
     });
   }
@@ -740,10 +768,11 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
   /**
    * A failed delivery only moves the status. The row — and with it the encrypted
    * code we already paid the supplier for — is never deleted or replaced.
+   * Conditional on SENDING, so a late failure can never demote a SENT asset.
    */
   async markAssetDeliveryFailed(assetId: string): Promise<void> {
-    await this.db.giftCardAsset.update({
-      where: { id: assetId },
+    await this.db.giftCardAsset.updateMany({
+      where: { id: assetId, status: 'SENDING' },
       data: { status: 'DELIVERY_FAILED' },
     });
   }
@@ -798,9 +827,20 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
 
   /* ---- order ------------------------------------------------------------- */
 
+  /**
+   * Conditional on the order still being deliverable.
+   *
+   * The send gate checked that at the start of the dispatch, but the transport
+   * call in between can take seconds. An order a manager moved to refund in that
+   * window must stay in refund: overwriting it with FULFILLED would hide the
+   * refund in flight and let the customer keep both the card and the money.
+   */
   async markOrderFulfilled(orderId: string, at: Date): Promise<void> {
-    await this.db.order.update({
-      where: { id: orderId },
+    await this.db.order.updateMany({
+      where: {
+        id: orderId,
+        status: { in: [...DELIVERABLE_ORDER_STATUSES] as Prisma.EnumOrderStatusFilter['in'] },
+      },
       data: { status: 'FULFILLED', fulfilledAt: at },
     });
   }

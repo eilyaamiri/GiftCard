@@ -5,6 +5,9 @@ import { SUPPLIER_PROVIDERS } from '@barat/suppliers';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
+import { DELIVERABLE_ORDER_STATUSES } from '../fulfillment/checklist-evaluation';
+import { MANAGER_APPROVAL_ROLE_SET } from '../fulfillment/fulfillment.types';
+import type { StaffContext } from '../workitems/staff-context';
 import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
 import { SUPPLIER_STORE } from './suppliers.types';
@@ -46,6 +49,7 @@ export const SUPPLIER_AUDIT_ACTIONS = {
   PURCHASE_PENDING: 'SUPPLIER_PURCHASE_PENDING',
   PURCHASE_FAILED: 'SUPPLIER_PURCHASE_FAILED',
   PURCHASE_UNKNOWN: 'SUPPLIER_PURCHASE_UNKNOWN',
+  STAFF_PURCHASE_REQUESTED: 'SUPPLIER_PURCHASE_REQUESTED_BY_STAFF',
 } as const;
 
 const UNKNOWN_OUTCOME_PREFIX = 'UNKNOWN_OUTCOME';
@@ -53,6 +57,26 @@ const PENDING_FOLLOWUP_PREFIX = 'SUPPLIER_PENDING';
 
 function providerMap(providers: readonly SupplierProvider[]): ReadonlyMap<string, SupplierProvider> {
   return new Map(providers.map((provider) => [provider.key, provider]));
+}
+
+/** What one supplier purchase is for. */
+export interface SupplierPurchaseInput {
+  readonly orderId: string;
+  readonly customerId?: string | null;
+  readonly workItemId: string;
+  readonly offerId: string;
+  readonly quantity: number;
+  readonly idempotencyKey: string;
+  readonly recipientEmail?: string;
+  /**
+   * The game account to credit, for a direct top-up. A public identifier such
+   * as `player_id` or `telegram_username` — never a credential, because games
+   * that require a login are refused at quote time.
+   *
+   * Only the top-up path supplies this. It is forwarded verbatim: the adapter
+   * is the only layer that knows what the supplier calls these fields.
+   */
+  readonly accountFields?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -66,6 +90,8 @@ function providerMap(providers: readonly SupplierProvider[]): ReadonlyMap<string
 @Injectable()
 export class SuppliersService {
   private readonly providersByKey: ReadonlyMap<string, SupplierProvider>;
+  /** Tail of the in-flight purchase chain per order id. See `purchase`. */
+  private readonly purchaseLocks = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(SUPPLIER_STORE) private readonly store: SupplierStore,
@@ -244,28 +270,182 @@ export class SuppliersService {
    * provider charged us, so retrying could buy a second card. It opens an
    * UNKNOWN_OUTCOME work item and returns; only a human can reconcile it.
    */
-  async purchase(input: {
+  async purchase(input: SupplierPurchaseInput): Promise<SupplierPurchaseOutcome> {
+    return this.guardedPurchase(input, { refuseWhileAmbiguous: false });
+  }
+
+  private async guardedPurchase(
+    input: SupplierPurchaseInput,
+    options: { readonly refuseWhileAmbiguous: boolean },
+  ): Promise<SupplierPurchaseOutcome> {
+    if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 10) {
+      throw DomainErrors.validation([{ path: 'quantity', message: 'quantity must be an integer between 1 and 10' }]);
+    }
+
+    /*
+     * One purchase per order at a time, in this process.
+     *
+     * The callers that can reach this concurrently for the same order are all
+     * real: a payment callback replayed while the first attempt is still at the
+     * supplier, an operator's code request racing the paid-order attempt, a
+     * double-clicked request. Each of them re-read "no asset yet" before the
+     * supplier round-trip and would happily buy a second card. The API runs as a
+     * single process, so serialising here — and re-checking the order's assets
+     * once the lock is held — closes that window; the database-level guard in
+     * the fulfillment store is the backstop for anything that slips past.
+     */
+    return this.withOrderPurchaseLock(input.orderId, async () => {
+      const guard = await this.fulfillment.purchaseGuardForWorkItem(input.workItemId);
+      if (guard.orderId !== input.orderId) {
+        throw DomainErrors.conflict(
+          'تسک و سفارش با هم مطابقت ندارند.',
+          `work item ${input.workItemId} does not belong to order ${input.orderId}`,
+        );
+      }
+      if (guard.assetCount > 0) {
+        throw DomainErrors.conflict(
+          'برای این سفارش قبلاً دارایی تحویل ثبت شده است.',
+          `order ${input.orderId} already has an asset; refusing a second supplier purchase`,
+        );
+      }
+      // Read under the lock: an attempt that just finished UNKNOWN has opened its
+      // escalation before releasing it, so a queued caller sees that here.
+      if (options.refuseWhileAmbiguous && (await this.store.hasOpenPurchaseAmbiguity(input.orderId))) {
+        throw DomainErrors.conflict(
+          'نتیجهٔ خرید قبلی این سفارش هنوز نامشخص است؛ پیش از خرید مجدد آن را بررسی و ببندید.',
+          `order ${input.orderId} has an open UNKNOWN/PENDING supplier purchase`,
+        );
+      }
+      return this.purchaseUnderLock(input);
+    });
+  }
+
+  /**
+   * A purchase an operator asked for by hand (`POST /operator/suppliers/purchase`).
+   *
+   * Everything the request body names is checked against the database before a
+   * cent is spent, because without that the endpoint let any operator buy any
+   * offer, in any quantity, against any order — including a costly card stored on
+   * a cheap order they hold, where they can then reveal it. The rules mirror what
+   * the automated path already guarantees by construction:
+   *
+   *   - the work item exists and belongs to the order named;
+   *   - the caller holds the claim on it (or is a manager);
+   *   - the offer is for the very SKU the order bought, in the quantity it bought;
+   *   - the order is paid and deliverable, and has no card yet;
+   *   - no earlier purchase for the order is still an open "did we get charged?"
+   *     question.
+   *
+   * The customer id comes from the order, never from the body.
+   */
+  async purchaseForStaff(input: {
+    staff: StaffContext;
     orderId: string;
-    customerId?: string | null;
     workItemId: string;
     offerId: string;
     quantity: number;
     idempotencyKey: string;
     recipientEmail?: string;
-    /**
-     * The game account to credit, for a direct top-up. A public identifier such
-     * as `player_id` or `telegram_username` — never a credential, because games
-     * that require a login are refused at quote time.
-     *
-     * Only the top-up path supplies this. It is forwarded verbatim: the adapter
-     * is the only layer that knows what the supplier calls these fields.
-     */
-    accountFields?: Readonly<Record<string, string>>;
   }): Promise<SupplierPurchaseOutcome> {
-    if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 10) {
-      throw DomainErrors.validation([{ path: 'quantity', message: 'quantity must be an integer between 1 and 10' }]);
+    const target = await this.store.findAutoFulfillmentTarget(input.workItemId);
+    if (target === null || target.orderId !== input.orderId) {
+      throw DomainErrors.notFound(`work item ${input.workItemId} for order ${input.orderId}`);
     }
 
+    if (!MANAGER_APPROVAL_ROLE_SET.has(input.staff.role) && target.assignedToStaffId !== input.staff.id) {
+      throw DomainErrors.forbidden(
+        `staff ${input.staff.id} does not hold the claim on work item ${input.workItemId}`,
+      );
+    }
+
+    if (target.skuId === null) {
+      throw DomainErrors.conflict(
+        'این سفارش خرید گیفت‌کارت نیست.',
+        `order ${input.orderId} is not a SKU purchase`,
+      );
+    }
+
+    const offer = await this.store.findOfferById(input.offerId);
+    if (offer === null || !offer.isActive) {
+      throw DomainErrors.notFound(`supplier offer ${input.offerId}`);
+    }
+    if (offer.skuId !== target.skuId) {
+      throw DomainErrors.validation([
+        { path: 'offerId', message: 'این پیشنهاد تأمین‌کننده برای محصول همین سفارش نیست.' },
+      ]);
+    }
+    if (input.quantity !== target.quantity) {
+      throw DomainErrors.validation([
+        { path: 'quantity', message: 'تعداد باید با تعداد سفارش برابر باشد.' },
+      ]);
+    }
+
+    if (!DELIVERABLE_ORDER_STATUSES.some((status) => status === target.orderStatus)) {
+      throw DomainErrors.conflict(
+        'این سفارش در وضعیت قابل تحویل نیست.',
+        `order ${input.orderId} has status ${target.orderStatus}`,
+      );
+    }
+    if (target.assetCount > 0) {
+      throw DomainErrors.conflict(
+        'برای این سفارش قبلاً دارایی تحویل ثبت شده است.',
+        `order ${input.orderId} already has an asset`,
+      );
+    }
+
+    await this.audit.record({
+      actor: input.staff.id,
+      actorType: 'STAFF',
+      actorRole: input.staff.role,
+      action: SUPPLIER_AUDIT_ACTIONS.STAFF_PURCHASE_REQUESTED,
+      entity: 'SupplierOffer',
+      entityId: offer.id,
+      after: {
+        orderId: target.orderId,
+        workItemId: target.workItemId,
+        supplierCode: offer.supplierCode,
+        quantity: input.quantity,
+      },
+    });
+
+    return this.guardedPurchase(
+      {
+        orderId: target.orderId,
+        customerId: target.customerId,
+        workItemId: target.workItemId,
+        offerId: offer.id,
+        quantity: input.quantity,
+        idempotencyKey: input.idempotencyKey,
+        ...(input.recipientEmail === undefined ? {} : { recipientEmail: input.recipientEmail }),
+      },
+      // An open "did we get charged?" task for this order means a person still
+      // has to answer that before anyone buys again.
+      { refuseWhileAmbiguous: true },
+    );
+  }
+
+  /** Runs `work` once every earlier purchase for the same order has settled. */
+  private async withOrderPurchaseLock<T>(orderId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.purchaseLocks.get(orderId) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => held);
+    this.purchaseLocks.set(orderId, tail);
+
+    await previous;
+    try {
+      return await work();
+    } finally {
+      release();
+      if (this.purchaseLocks.get(orderId) === tail) {
+        this.purchaseLocks.delete(orderId);
+      }
+    }
+  }
+
+  private async purchaseUnderLock(input: SupplierPurchaseInput): Promise<SupplierPurchaseOutcome> {
     const offer = await this.store.findOfferById(input.offerId);
     if (offer === null || !offer.isActive) {
       throw DomainErrors.notFound(`supplier offer ${input.offerId}`);

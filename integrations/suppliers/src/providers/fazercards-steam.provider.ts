@@ -259,6 +259,11 @@ export class FazerCardsSteamSupplierProvider implements SupplierProvider {
     }
     if (response.status === 429) return { status: 'FAILED', failureCode: 'RATE_LIMITED' };
     if (!isObject(response.payload)) return { status: 'UNKNOWN', failureCode: 'INVALID_RESPONSE' };
+    if (response.status === 409) {
+      // An Idempotency-Key conflict: the venue already holds an order under our
+      // key, which may have credited the wallet. Not a "nothing charged" answer.
+      return { status: 'UNKNOWN', failureCode: normaliseErrorCode(response.payload, 'IDEMPOTENCY_CONFLICT') };
+    }
     if (response.status >= 400 && response.status < 500) {
       return { status: 'FAILED', failureCode: normaliseErrorCode(response.payload, 'PROVIDER_REJECTED') };
     }

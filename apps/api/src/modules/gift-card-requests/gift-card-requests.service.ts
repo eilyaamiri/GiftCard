@@ -176,9 +176,20 @@ export class GiftCardRequestsService {
     } catch {
       // The provider error may carry a payload; it is dropped, and the request
       // takes the admin path it would have taken anyway.
-      return null;
+      assetId = null;
     }
-    if (assetId === null) return null;
+    if (assetId === null) {
+      // A concurrent call for the same task (a double-submitted request) may
+      // have bought the card while this one waited behind it on the supplier
+      // lock. Answer with that result rather than opening an admin request for
+      // a card that is already on file.
+      const settled = await this.db.giftCardCodeRequest.findFirst({
+        where: { workItemId: input.item.id, status: 'FULFILLED', giftCardAssetId: { not: null } },
+        orderBy: { requestedAt: 'desc' },
+        include: GIFT_CARD_REQUEST_INCLUDE,
+      });
+      return settled === null ? null : this.toView(settled);
+    }
 
     const asset = await this.db.giftCardAsset.findUnique({
       where: { id: assetId },
