@@ -62,8 +62,12 @@ export function ToastProvider({ children }: { readonly children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
+      {/* The viewport is always mounted and its padding makes it a full-width
+        * strip even when empty, so it must not take taps itself: on a phone it
+        * sits on top of the fixed bottom nav and swallowed every tap on the
+        * labels. Only the toasts inside it are interactive. */}
       <div
-        className="fixed inset-x-0 bottom-0 z-[100] flex flex-col items-center gap-2 p-4 sm:inset-x-auto sm:end-4 sm:top-4 sm:bottom-auto sm:items-end"
+        className="pointer-events-none fixed inset-x-0 bottom-0 z-[100] flex flex-col items-center gap-2 p-4 sm:inset-x-auto sm:end-4 sm:top-4 sm:bottom-auto sm:items-end"
         aria-live="polite"
         aria-atomic="true"
       >
@@ -74,7 +78,7 @@ export function ToastProvider({ children }: { readonly children: ReactNode }) {
               key={toast.id}
               role="status"
               className={cn(
-                "bp-card flex w-full max-w-sm items-start gap-2.5 border-s-4 p-3.5 sm:w-96",
+                "bp-card pointer-events-auto flex w-full max-w-sm items-start gap-2.5 border-s-4 p-3.5 sm:w-96",
                 TONE_CLASS[toast.tone ?? "info"],
               )}
             >
