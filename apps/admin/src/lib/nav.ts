@@ -111,6 +111,7 @@ export const OPERATOR_NAV: NavSection[] = [
       { href: "/operator", label: "میز من", icon: "layout-dashboard", roles: OPERATOR_ROLES },
       { href: "/operator/tasks", label: "تسک‌ها", icon: "list-checks", roles: OPERATOR_ROLES },
       { href: "/operator/support", label: "پشتیبانی و تیکت‌ها", icon: "life-buoy", roles: OPERATOR_ROLES },
+      { href: "/operator/reviews", label: "بررسی دیدگاه‌ها", icon: "message-square-text", roles: REVIEW_MODERATION_ROLES },
       { href: "/operator/gift-card-requests", label: "درخواست‌های کد من", icon: "gift", roles: OPERATOR_ROLES },
       { href: "/operator/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog", roles: OPERATOR_ROLES },
       { href: "/operator/performance", label: "عملکرد و SLA", icon: "line-chart", roles: OPERATOR_ROLES },

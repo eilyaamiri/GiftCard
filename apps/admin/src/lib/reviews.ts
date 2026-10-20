@@ -3,7 +3,7 @@ import { z } from "zod";
 import { api } from "@/lib/api";
 
 /** Mirrors `@Roles` on `/api/admin/reviews`. */
-export const REVIEW_MODERATION_ROLES = ["ADMIN", "OPS_MANAGER", "SUPPORT"] as const;
+export const REVIEW_MODERATION_ROLES = ["ADMIN", "OPS_MANAGER", "OPERATOR", "SUPPORT"] as const;
 
 export const REVIEW_STATUSES = ["PENDING", "APPROVED", "REJECTED"] as const;
 export type ReviewStatus = (typeof REVIEW_STATUSES)[number];

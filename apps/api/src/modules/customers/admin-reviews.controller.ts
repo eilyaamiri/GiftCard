@@ -27,7 +27,7 @@ import type { ReviewStatus } from './reviews.service';
  */
 @ApiTags('admin-reviews')
 @Controller('admin/reviews')
-@Roles('ADMIN', 'OPS_MANAGER', 'SUPPORT')
+@Roles('ADMIN', 'OPS_MANAGER', 'OPERATOR', 'SUPPORT')
 export class AdminReviewsController {
   constructor(private readonly moderation: ReviewModerationService) {}
 
