@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { PrismaClient } from '@barat/database';
+import { prisma } from '@barat/database';
 
 import { FxModule } from '../fx/fx.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
@@ -23,10 +23,7 @@ import { MONITORING_DATABASE } from './monitoring.tokens';
   controllers: [MonitoringController],
   providers: [
     MonitoringService,
-    {
-      provide: MONITORING_DATABASE,
-      useFactory: () => new PrismaClient(),
-    },
+    { provide: MONITORING_DATABASE, useValue: prisma },
   ],
   exports: [MonitoringService],
 })
