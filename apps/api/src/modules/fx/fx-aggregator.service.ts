@@ -15,6 +15,7 @@ import {
   type RawFxRate,
 } from '@barat/fx';
 
+import type { AlertLogger } from '../../common/alert';
 import { BaratDomainException, DomainErrors } from '../../common/errors/domain.exception';
 import {
   FX_AGGREGATOR_CONFIG,
@@ -42,7 +43,7 @@ const systemClock: FxClock = { now: () => new Date() };
 export class StaleFxRateError extends BaratDomainException {
   readonly ageSeconds: number;
 
-  constructor(ageSeconds: number) {
+  constructor(ageSeconds: number, alertLogger?: AlertLogger) {
     const age = Math.max(0, Math.floor(ageSeconds));
     super({
       code: 'FX_RATE_STALE',
@@ -52,6 +53,14 @@ export class StaleFxRateError extends BaratDomainException {
     });
     this.name = 'StaleFxRateError';
     this.ageSeconds = age;
+
+    // Alert: all FX providers are down / stale
+    alertLogger?.log({
+      severity: 'ERROR',
+      source: 'FX',
+      message: `All FX providers down — no usable rate (stale by ${age}s)`,
+      context: { ageSeconds: age },
+    });
   }
 }
 
@@ -86,6 +95,7 @@ export class FxAggregatorService {
     @Inject(FX_AGGREGATOR_CONFIG) config: FxAggregatorConfig,
     @Optional() @Inject(FX_AUDIT_RECORDER) private readonly audit?: FxAuditRecorder,
     @Optional() @Inject(FX_CLOCK) clock?: FxClock,
+    @Optional() private readonly alertLogger?: AlertLogger,
   ) {
     if (
       !Number.isSafeInteger(config.staleThresholdSeconds) ||
@@ -132,7 +142,7 @@ export class FxAggregatorService {
       bestCandidateAge = Math.max(bestCandidateAge, snapshot.ageSeconds);
     }
 
-    throw new StaleFxRateError(bestCandidateAge);
+    throw new StaleFxRateError(bestCandidateAge, this.alertLogger);
   }
 
   /** `GET /api/fx/current`: the selected rate plus safe health summaries. */
@@ -253,17 +263,40 @@ export class FxAggregatorService {
     let health: ProviderHealth;
     try {
       health = await provider.getHealth();
-    } catch {
+    } catch (err) {
+      this.alertLogger?.log({
+        severity: 'ERROR',
+        source: 'FX',
+        message: `FX provider ${provider.name} health check failed`,
+        context: { provider: provider.name, pair, error: String(err) },
+      });
       return NO_ATTEMPT;
     }
     if (!health.isHealthy) {
+      this.alertLogger?.log({
+        severity: 'WARNING',
+        source: 'FX',
+        message: `FX provider ${provider.name} is unhealthy`,
+        context: {
+          provider: provider.name,
+          pair,
+          consecutiveFailures: health.consecutiveFailures,
+          lastError: health.lastErrorCode,
+        },
+      });
       return NO_ATTEMPT;
     }
 
     let raw: RawFxRate;
     try {
       raw = await provider.getRate(pair);
-    } catch {
+    } catch (err) {
+      this.alertLogger?.log({
+        severity: 'ERROR',
+        source: 'FX',
+        message: `FX provider ${provider.name} rate fetch failed`,
+        context: { provider: provider.name, pair, error: String(err) },
+      });
       return NO_ATTEMPT;
     }
 

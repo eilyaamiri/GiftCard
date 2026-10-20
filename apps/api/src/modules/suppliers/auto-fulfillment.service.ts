@@ -1,5 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
+import type { AlertLogger } from '../../common/alert';
 import { AuditService } from '../audit/audit.service';
 import { DELIVERABLE_ORDER_STATUSES } from '../fulfillment/checklist-evaluation';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
@@ -145,6 +146,7 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
      * unlike a provider adapter, there is only ever one of it.
      */
     private readonly topUps: TopUpFulfillmentService,
+    @Optional() private readonly alertLogger?: AlertLogger,
   ) {}
 
   /**
@@ -324,6 +326,17 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
     if (outcome.status !== 'SUCCEEDED') {
       // PENDING and UNKNOWN have already opened their own escalations inside
       // `purchase`, and neither is ever retried from here.
+      this.alertLogger?.log({
+        severity: 'ERROR',
+        source: 'SUPPLIER',
+        message: `Gift card purchase failed for order ${target.orderId}`,
+        context: {
+          orderId: target.orderId,
+          workItemId: target.workItemId,
+          supplierCode,
+          purchaseStatus: outcome.status,
+        },
+      });
       return {
         decision: 'PURCHASE_NOT_COMPLETED',
         workItemId: target.workItemId,

@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 
 import { AppConfigModule, AppConfigService } from './common/config';
+import { AlertModule } from './common/alert';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { IdempotencyHeaderInterceptor } from './common/interceptors/idempotency-header.interceptor';
 import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
@@ -56,6 +57,9 @@ import { FinanceController } from './modules/finance/finance.controller';
   imports: [
     /* Config first: it validates the environment before anything else boots. */
     AppConfigModule,
+
+    /* Global alert logger — available everywhere without importing. */
+    AlertModule,
 
     LoggerModule.forRootAsync({
       inject: [AppConfigService],
