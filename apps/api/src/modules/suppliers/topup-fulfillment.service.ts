@@ -1,8 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { SupplierProvider } from '@barat/suppliers';
 import { SUPPLIER_PROVIDERS } from '@barat/suppliers';
 import Decimal from 'decimal.js';
 
+import { AlertLogger } from '../../common/alert';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
@@ -135,6 +136,7 @@ export class TopUpFulfillmentService {
     @Inject(SUPPLIER_PROVIDERS) providers: readonly SupplierProvider[],
     @Inject(WORK_ITEM_ESCALATOR) private readonly escalator: WorkItemEscalator,
     @Inject(AuditService) private readonly audit: AuditService,
+    @Optional() @Inject(AlertLogger) private readonly alerts?: AlertLogger,
   ) {
     this.providersByKey = new Map(providers.map((provider) => [provider.key, provider]));
   }
@@ -752,6 +754,23 @@ export class TopUpFulfillmentService {
         reason: input.reason,
         fulfillmentId: target.fulfillmentId,
         source: 'TOP_UP_FULFILLMENT',
+      },
+    });
+
+    /* A paid top-up that automation could not deliver is the "code/top-up not
+     * delivered by the supplier" page agreed for Telegram. Raised after the task
+     * exists, so the message is always true when it arrives. Codes only — never
+     * a supplier payload or an account field. */
+    this.alerts?.log({
+      severity: 'ERROR',
+      source: 'SUPPLIER',
+      message: `Top-up for order ${target.orderId} not delivered (${input.decision}: ${input.reason})`,
+      context: {
+        orderId: target.orderId,
+        fulfillmentId: target.fulfillmentId,
+        decision: input.decision,
+        reason: input.reason,
+        taskType: input.type,
       },
     });
 

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 // concrete adapter path.
 import { MockSupplierProvider } from '@barat/suppliers';
 
+import type { AlertInput, AlertLogger } from '../../common/alert';
 import { AuditService, type AuditWriter } from '../audit/audit.service';
 import { WorkItemsService } from '../workitems/workitems.service';
 import { InMemoryWorkItemStore } from '../workitems/testing/in-memory-workitem.store';
@@ -72,6 +73,8 @@ interface Harness {
   readonly provider: MockSupplierProvider;
   readonly workItems: InMemoryWorkItemStore;
   readonly topUpStore: InMemoryTopUpStore;
+  /** Every operational alert the service raised, in order. */
+  readonly alerts: AlertInput[];
 }
 
 function harness(options: { readonly withAdapter?: boolean; readonly target?: TopUpTarget } = {}): Harness {
@@ -91,11 +94,15 @@ function harness(options: { readonly withAdapter?: boolean; readonly target?: To
     orderStatuses: { [ORDER_ID]: 'PAID' },
   });
 
+  const alerts: AlertInput[] = [];
+  const alertLogger = { log: (input: AlertInput) => alerts.push(input) } as unknown as AlertLogger;
+
   return {
-    service: new TopUpFulfillmentService(topUpStore, providers, escalator, audit),
+    service: new TopUpFulfillmentService(topUpStore, providers, escalator, audit, alertLogger),
     provider,
     workItems,
     topUpStore,
+    alerts,
   };
 }
 
@@ -455,5 +462,74 @@ describe('a top-up creates no work item for an operator', () => {
       await expect(h.service.onTopUpOrderPaid('order-that-does-not-exist')).rejects.toThrow();
       expect(workItemCount(h)).toBe(0);
     });
+  });
+});
+
+describe('operational alerts for a top-up', () => {
+  it('pages nobody when the top-up succeeds', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({
+      status: 'SUCCEEDED',
+      providerReference: 'TG-1',
+      cost: { amount: '4.50', currency: 'USD' },
+    });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.alerts).toEqual([]);
+  });
+
+  it('pages nobody while the float is merely empty', async () => {
+    const h = harness();
+    h.provider.setBalance({ amount: '1.00', currency: 'USD' });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.alerts).toEqual([]);
+  });
+
+  it('raises one ERROR when the supplier says FAILED', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({
+      status: 'FAILED',
+      failureCode: 'TELEGRAM_REJECTED',
+      cost: { amount: '0', currency: 'USD' },
+    });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.alerts).toHaveLength(1);
+    expect(h.alerts[0]).toMatchObject({
+      severity: 'ERROR',
+      source: 'SUPPLIER',
+      context: { orderId: ORDER_ID, decision: 'FAILED' },
+    });
+  });
+
+  it('raises one ERROR on an UNKNOWN outcome', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({
+      status: 'UNKNOWN',
+      failureCode: 'AMBIGUOUS',
+      providerReference: 'TG-7',
+    });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.alerts).toHaveLength(1);
+    expect(h.alerts[0]).toMatchObject({ severity: 'ERROR', context: { decision: 'UNKNOWN' } });
+  });
+
+  it('never puts the player account into the alert', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({
+      status: 'FAILED',
+      failureCode: 'TELEGRAM_REJECTED',
+      cost: { amount: '0', currency: 'USD' },
+    });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(JSON.stringify(h.alerts)).not.toContain(ACCOUNT_FIELDS.telegram_username);
   });
 });
