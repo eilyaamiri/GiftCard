@@ -314,9 +314,50 @@ describe('ZarinPalPaymentProvider.verifyPayment', () => {
     ]);
     const result = await provider(http).verifyPayment(verifyInput);
 
-    expect(result.outcome).toBe('FAILED');
+    /* A 200 whose body we cannot read may well be a settlement: UNKNOWN. */
+    expect(result.outcome).toBe('UNKNOWN');
     if (result.outcome === 'VERIFIED' || result.outcome === 'ALREADY_VERIFIED') return;
     expect(result.failureReason).toBe('UNKNOWN_PROVIDER_RESPONSE');
+  });
+
+  it('reports a 5xx from verify as UNKNOWN — the settlement may have happened', async () => {
+    const http = new ScriptedHttpClient([jsonResponse({}, { ok: false, status: 502 })]);
+    const result = await provider(http).verifyPayment(verifyInput);
+
+    expect(result).toEqual({
+      outcome: 'UNKNOWN',
+      providerCode: null,
+      failureReason: 'PROVIDER_NETWORK_ERROR',
+    });
+  });
+
+  it('reports a dropped connection on verify as UNKNOWN, not FAILED', async () => {
+    const http: PaymentHttpClient = {
+      postJson: async () => {
+        throw new Error('socket hang up');
+      },
+    };
+    const result = await provider(http).verifyPayment(verifyInput);
+
+    expect(result.outcome).toBe('UNKNOWN');
+  });
+
+  it('reports an indeterminate code on a non-2xx verify as UNKNOWN', async () => {
+    const http = new ScriptedHttpClient([
+      jsonResponse({ data: [], errors: { code: -52 } }, { ok: false, status: 400 }),
+    ]);
+    const result = await provider(http).verifyPayment(verifyInput);
+
+    expect(result.outcome).toBe('UNKNOWN');
+  });
+
+  it('still reports a definite rejection on a non-2xx verify as FAILED', async () => {
+    const http = new ScriptedHttpClient([
+      jsonResponse({ data: [], errors: { code: -51 } }, { ok: false, status: 400 }),
+    ]);
+    const result = await provider(http).verifyPayment(verifyInput);
+
+    expect(result).toEqual({ outcome: 'FAILED', providerCode: -51, failureReason: 'VERIFY_FAILED' });
   });
 });
 

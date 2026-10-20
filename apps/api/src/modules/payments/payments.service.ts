@@ -115,6 +115,32 @@ const PAYMENT_TRANSITIONS: Readonly<Record<PaymentStatusName, readonly PaymentSt
 
 export const PAYMENT_STATUS_TRANSITIONS = PAYMENT_TRANSITIONS;
 
+/** Order statuses that may still open a payment session (orders' state machine). */
+const PAYABLE_ORDER_STATUSES: ReadonlySet<string> = new Set(['AWAITING_PAYMENT', 'PAYMENT_PENDING']);
+
+/** Local payment statuses a verified gateway result may commit to PAID. */
+const COMMITTABLE_PAYMENT_STATUSES: readonly PaymentStatusName[] = ['CREATED', 'REDIRECTED', 'PENDING'];
+
+/**
+ * Order statuses the PAID write may move forward from. Everything after PAID is
+ * a money-moved status that a late or duplicate verification must never rewind.
+ * CANCELLED / FAILED keep their historical behaviour (the verified payment wins)
+ * but are flagged for reconciliation.
+ */
+const ORDER_STATUSES_ALREADY_PAST_PAYMENT: ReadonlySet<string> = new Set([
+  'PAID',
+  'FULFILLMENT_PENDING',
+  'FULFILLING',
+  'FULFILLED',
+  'REVIEW_REQUIRED',
+  'REFUND_PENDING',
+  'REFUNDED',
+]);
+
+/** Bounded so a long-running process does not grow this cache without limit. */
+const REDIRECT_URL_CACHE_LIMIT = 2_000;
+const ATTEMPT_WRITE_RETRIES = 5;
+
 /**
  * Check a state transition in one place. `UNKNOWN -> PAID` is intentionally not
  * in the map: only a separately controlled reconciliation operation may perform
@@ -137,6 +163,7 @@ export class PaymentsService {
   private readonly db: PaymentDatabase;
   private readonly fulfillmentTrigger: FulfillmentTrigger;
   private readonly redirectUrls = new Map<string, string>();
+  private readonly paymentLocks = new Map<string, Promise<void>>();
 
   constructor(
     @Inject(RIAL_PAYMENT_PROVIDER) private readonly provider: RialPaymentProvider,
@@ -167,19 +194,42 @@ export class PaymentsService {
     const existing = await paymentDelegate.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
     });
-    if (existing !== null) {
-      const payment = this.asPayment(existing);
-      if (payment.orderId !== input.orderId || payment.customerId !== customerId) {
-        throw DomainErrors.idempotencyConflict('Payment idempotency key belongs to another order');
-      }
-      return {
-        payment: toPaymentDto(payment),
-        redirectUrl: this.redirectUrlFor(payment),
-        created: false,
-      };
-    }
+    if (existing !== null) return this.replayCreate(existing, input, customerId);
 
-    const reservation = await this.db.$transaction(async (transaction) => {
+    let reservation: PaymentRecord;
+    try {
+      reservation = await this.reservePayment(input, customerId);
+    } catch (error) {
+      /* Two requests carrying the same key can both miss the read above; the
+       * unique index then refuses the second insert. That is a replay, not a
+       * server error: answer it with the payment the first request reserved. */
+      const raced = await paymentDelegate.findUnique({
+        where: { idempotencyKey: input.idempotencyKey },
+      });
+      if (raced !== null) return this.replayCreate(raced, input, customerId);
+      throw error;
+    }
+    return this.openGatewaySession(reservation, input, callbackUrl);
+  }
+
+  private replayCreate(
+    existing: unknown,
+    input: CreatePaymentRequest,
+    customerId: string,
+  ): { payment: PaymentDto; redirectUrl: string; created: boolean } {
+    const payment = this.asPayment(existing);
+    if (payment.orderId !== input.orderId || payment.customerId !== customerId) {
+      throw DomainErrors.idempotencyConflict('Payment idempotency key belongs to another order');
+    }
+    return {
+      payment: toPaymentDto(payment),
+      redirectUrl: this.redirectUrlFor(payment),
+      created: false,
+    };
+  }
+
+  private async reservePayment(input: CreatePaymentRequest, customerId: string): Promise<PaymentRecord> {
+    return this.db.$transaction(async (transaction) => {
       const orderDelegate = this.delegate(transaction.order);
       const quoteDelegate = this.delegate(transaction.quote);
       const paymentTx = this.delegate(transaction.payment);
@@ -192,6 +242,17 @@ export class PaymentsService {
       const quote = orderRecord.quote;
 
       this.assertQuoteOwnershipAndAmount(quote, orderRecord, customerId);
+
+      /* Only an order that is still waiting for its money may open a gateway
+       * session. Paying into a CANCELLED/FAILED order would bring it back as
+       * PAID (the commit below writes the order by id), and paying into a
+       * fulfilled or refunded one takes money for nothing. */
+      if (!PAYABLE_ORDER_STATUSES.has(orderRecord.status)) {
+        throw DomainErrors.conflict(
+          'این سفارش دیگر قابل پرداخت نیست.',
+          `Order status ${orderRecord.status} does not accept a payment`,
+        );
+      }
 
       const successfulPayment = await paymentTx.findFirst({
         where: { orderId: input.orderId, status: 'PAID' },
@@ -223,7 +284,13 @@ export class PaymentsService {
       });
       return this.asPayment(created);
     });
+  }
 
+  private async openGatewaySession(
+    reservation: PaymentRecord,
+    input: CreatePaymentRequest,
+    callbackUrl: string,
+  ): Promise<{ payment: PaymentDto; redirectUrl: string; created: boolean }> {
     let providerResult;
     try {
       providerResult = await this.provider.createPayment({
@@ -249,7 +316,7 @@ export class PaymentsService {
     }
 
     const payment = await this.recordRedirect(reservation, providerResult);
-    this.redirectUrls.set(payment.id, providerResult.redirectUrl);
+    this.rememberRedirectUrl(payment.id, providerResult.redirectUrl);
     return { payment: toPaymentDto(payment), redirectUrl: providerResult.redirectUrl, created: true };
   }
 
@@ -298,21 +365,24 @@ export class PaymentsService {
       return safeCallbackFailure('FAILED');
     }
 
-    const payment = this.asPayment(paymentRaw);
-    await this.recordAttempt(payment.id, 'CALLBACK', callbackStatus === 'OK' ? 'OK' : 'FAILED', null, context);
+    const located = this.asPayment(paymentRaw);
+    await this.recordAttempt(located.id, 'CALLBACK', callbackStatus === 'OK' ? 'OK' : 'FAILED', null, context);
 
-    if (payment.status === 'PAID') {
-      return this.responseForPayment(payment, 'PAID', false);
-    }
+    return this.withPaymentLock(located.id, async () => {
+      const payment = await this.reload(located);
+      if (payment.status === 'PAID') {
+        return this.responseForPayment(payment, 'PAID', false);
+      }
 
-    if (callbackStatus !== 'OK') {
-      const reason = normalizeCallbackFailure(callbackStatus);
-      const updated = await this.transitionFailure(payment, reason, reason === 'CUSTOMER_CANCELLED' ? 'CANCELLED' : 'FAILED');
-      return this.responseForPayment(updated, reason === 'CUSTOMER_CANCELLED' ? 'CANCELLED' : 'FAILED', true);
-    }
+      if (callbackStatus !== 'OK') {
+        const reason = normalizeCallbackFailure(callbackStatus);
+        const updated = await this.transitionFailure(payment, reason, reason === 'CUSTOMER_CANCELLED' ? 'CANCELLED' : 'FAILED');
+        return this.responseForPayment(updated, reason === 'CUSTOMER_CANCELLED' ? 'CANCELLED' : 'FAILED', true);
+      }
 
-    const result = await this.verifyStoredPayment(payment);
-    return this.applyVerificationResult(payment, result, context);
+      const result = await this.verifyStoredPayment(payment);
+      return this.applyVerificationResult(payment, result, context);
+    });
   }
 
   /** Explicit server-side verification endpoint; request amount is never accepted. */
@@ -337,14 +407,56 @@ export class PaymentsService {
     }
     if (raw === null) throw DomainErrors.notFound('Payment');
 
-    const payment = this.asPayment(raw);
-    if (customerId !== undefined && payment.customerId !== customerId) {
+    const located = this.asPayment(raw);
+    if (customerId !== undefined && located.customerId !== customerId) {
       throw DomainErrors.notFound('Payment');
     }
-    if (payment.status === 'PAID') return this.responseForPayment(payment, 'PAID', false);
+    return this.withPaymentLock(located.id, async () => {
+      const payment = await this.reload(located);
+      if (payment.status === 'PAID') return this.responseForPayment(payment, 'PAID', false);
 
-    const result = await this.verifyStoredPayment(payment);
-    return this.applyVerificationResult(payment, result, context);
+      const result = await this.verifyStoredPayment(payment);
+      return this.applyVerificationResult(payment, result, context);
+    });
+  }
+
+  /**
+   * Run one verification of one payment at a time in this process.
+   *
+   * ZarinPal settles inside `verify` and answers every later verify of the same
+   * authority with 101. Two overlapping verifications of one payment (the
+   * gateway callback and the result page's POST /verify, a double click, a
+   * retried request) used to race: the loser got 101 before the winner had
+   * written PAID, judged that a local-state mismatch and parked the payment in
+   * UNKNOWN, so the winner's PAID write then matched nothing — the customer was
+   * charged and fulfillment never started. Queueing them means the second one
+   * re-reads a committed PAID and never asks the gateway at all.
+   *
+   * The database guards (status compare-and-set) remain the cross-process
+   * protection; this only removes the in-process overlap that made them fire.
+   */
+  private async withPaymentLock<T>(paymentId: string, work: () => Promise<T>): Promise<T> {
+    const previous = this.paymentLocks.get(paymentId) ?? Promise.resolve();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tail = previous.then(() => held);
+    this.paymentLocks.set(paymentId, tail);
+    try {
+      await previous;
+      return await work();
+    } finally {
+      release();
+      if (this.paymentLocks.get(paymentId) === tail) this.paymentLocks.delete(paymentId);
+    }
+  }
+
+  /** The current row, read inside the payment lock rather than trusting a snapshot. */
+  private async reload(payment: PaymentRecord): Promise<PaymentRecord> {
+    const current = await this.delegate(this.db.payment).findUnique({ where: { id: payment.id } });
+    if (current === null) throw DomainErrors.notFound('Payment');
+    return this.asPayment(current);
   }
 
   private async verifyStoredPayment(payment: PaymentRecord): Promise<VerifyResult> {
@@ -378,7 +490,7 @@ export class PaymentsService {
       const matchingLocalPayment =
         current.status === 'PAID' &&
         current.providerAuthority === result.authority &&
-        providerAmountToIrr(result.providerAmount, result.providerAmountUnit) === current.amountIrr;
+        safeProviderAmountToIrr(result.providerAmount, result.providerAmountUnit) === current.amountIrr;
       if (matchingLocalPayment) return this.responseForPayment(current, 'ALREADY_VERIFIED', false);
 
       const updated = await this.markAlreadyVerifiedMismatch(current, result, context);
@@ -418,8 +530,27 @@ export class PaymentsService {
       });
       return this.responseForPayment(payment, 'UNKNOWN', true);
     }
+    if (payment.status === 'PAID') return this.responseForPayment(payment, 'PAID', false);
+
+    /* The gateway says this authority is paid, but our row already closed as
+     * FAILED / CANCELLED (an earlier non-OK callback, a failed verify) or is in
+     * a refund state. The state machine has no edge to PAID from there, and this
+     * used to surface as an uncaught "Illegal payment transition" 500 — after a
+     * single-phase gateway had already settled the money, with no trace left.
+     * The status is not rewritten; a person decides, with the evidence recorded. */
+    if (!COMMITTABLE_PAYMENT_STATUSES.includes(payment.status)) {
+      await this.flagVerifiedButNotCommittable(payment, 'verified_provider_while_local_payment_closed', context);
+      return this.responseForPayment(payment, 'UNKNOWN', true);
+    }
 
     const committed = await this.commitSuccessfulPayment(payment, result);
+    if (!committed.transitioned && committed.payment.status !== 'PAID') {
+      /* The compare-and-set lost to a writer that moved the row somewhere other
+       * than PAID while the gateway was answering. Reporting PAID here would tell
+       * the customer they paid for an order nobody will fulfil. */
+      await this.flagVerifiedButNotCommittable(committed.payment, 'verified_provider_but_local_state_changed', context);
+      return this.responseForPayment(committed.payment, 'UNKNOWN', true);
+    }
     if (committed.transitioned) {
       /* A two-phase gateway only finalises the charge when we say so, and it
        * hands the money back on its own if we never do. That call is made here —
@@ -436,16 +567,43 @@ export class PaymentsService {
        * an order that was never paid. `onOrderPaid` is idempotent per order, so
        * a replayed callback still produces exactly one work item.
        *
+       * A second PAID payment for an order that is already paid is a duplicate
+       * charge awaiting a refund decision, not a second purchase: the order was
+       * handed to fulfillment by the first payment, so it is not handed again.
+       *
        * `payload` carries operator context only — never a code, PIN or token. */
-      await this.fulfillmentTrigger.onOrderPaid({
-        orderId: payment.orderId,
-        customerId: payment.customerId,
-        payload: { paymentId: payment.id },
-      });
+      if (!committed.duplicate) {
+        await this.fulfillmentTrigger.onOrderPaid({
+          orderId: payment.orderId,
+          customerId: payment.customerId,
+          payload: { paymentId: payment.id },
+        });
+      }
     }
     // `verified` means "this call performed the verification". A replay that
     // found the payment already committed reports false.
     return this.responseForPayment(committed.payment, 'PAID', committed.transitioned);
+  }
+
+  private async flagVerifiedButNotCommittable(
+    payment: PaymentRecord,
+    reason: string,
+    context: { readonly ip?: string | null; readonly userAgent?: string | null },
+  ): Promise<void> {
+    await this.createReconciliationIssue(payment, 'VERIFIED_AT_GATEWAY_LOCAL_NOT_PAYABLE', {
+      reason,
+      localStatus: payment.status,
+      providerCode: 100,
+    });
+    await this.recordAudit({
+      actor: 'system:payments',
+      actorType: 'SYSTEM',
+      action: 'PAYMENT_VERIFIED_LOCAL_STATE_NOT_PAYABLE',
+      entity: 'Payment',
+      entityId: payment.id,
+      after: { localStatus: payment.status, reason },
+      ...context,
+    });
   }
 
   /**
@@ -531,18 +689,20 @@ export class PaymentsService {
 
     const payment = this.asPayment(raw);
     await this.recordAttempt(payment.id, 'CALLBACK', 'RETURNED', null, context);
-    if (payment.status !== 'PAID') {
+    await this.withPaymentLock(payment.id, async () => {
+      const current = await this.reload(payment);
+      if (current.status === 'PAID') return;
       /* The browser reaching us proves nothing; ask the gateway. */
-      const result = await this.verifyStoredPayment(payment);
-      await this.applyVerificationResult(payment, result, context);
-    }
+      const result = await this.verifyStoredPayment(current);
+      await this.applyVerificationResult(current, result, context);
+    });
     return { paymentId: payment.id, orderNumber: await this.orderNumber(payment.orderId) };
   }
 
   private async commitSuccessfulPayment(
     payment: PaymentRecord,
     result: Extract<VerifyResult, { outcome: 'VERIFIED' }>,
-  ): Promise<{ payment: PaymentRecord; transitioned: boolean }> {
+  ): Promise<{ payment: PaymentRecord; transitioned: boolean; duplicate: boolean }> {
     assertPaymentTransition(payment.status, 'PAID');
     const now = new Date();
     const committed = await this.db.$transaction(async (transaction) => {
@@ -551,7 +711,7 @@ export class PaymentsService {
       const changed = await paymentTx.updateMany({
         where: {
           id: payment.id,
-          status: { in: ['CREATED', 'REDIRECTED', 'PENDING'] },
+          status: { in: [...COMMITTABLE_PAYMENT_STATUSES] },
           providerAuthority: result.authority,
           amountIrr: payment.amountIrr,
         },
@@ -572,15 +732,41 @@ export class PaymentsService {
       if (changed.count === 0) {
         const current = await paymentTx.findUnique({ where: { id: payment.id } });
         if (current === null) throw DomainErrors.notFound('Payment');
-        return { payment: this.asPayment(current), transitioned: false };
+        return { payment: this.asPayment(current), transitioned: false, duplicate: false };
+      }
+
+      /* Two sessions opened for one order (two tabs, two devices) can both be
+       * paid. The second charge is real money and stays recorded as PAID, but it
+       * is a duplicate a person must refund — never a reason to rewind the order
+       * or to queue the order for fulfillment a second time. */
+      const otherPaid = await paymentTx.findFirst({
+        where: { orderId: payment.orderId, status: 'PAID', id: { not: payment.id } },
+      });
+      const duplicate = otherPaid !== null;
+      if (duplicate) {
+        await this.createReconciliationIssueInTransaction(
+          transaction,
+          payment,
+          { reason: 'DUPLICATE_PAYMENT_FOR_ORDER', firstPaymentId: this.asPayment(otherPaid).id },
+          'duplicate_payment',
+        );
       }
 
       const order = await orderTx.findUnique({ where: { id: payment.orderId } });
       if (order === null) throw DomainErrors.notFound('Order');
       const orderRecord = this.asOrderWithoutQuote(order);
       // The PAID transition is deliberately recorded once. Fulfillment consumes
-      // the post-commit event and advances the order to FULFILLMENT_PENDING.
-      if (orderRecord.status !== 'PAID' && orderRecord.status !== 'FULFILLMENT_PENDING') {
+      // the post-commit event and advances the order to FULFILLMENT_PENDING; a
+      // late verification must never pull an order back from there.
+      if (!ORDER_STATUSES_ALREADY_PAST_PAYMENT.has(orderRecord.status)) {
+        if (orderRecord.status === 'CANCELLED' || orderRecord.status === 'FAILED') {
+          /* Historical behaviour is kept — a verified payment wins — but an order
+           * coming back from a closed status is never silent. */
+          await this.createReconciliationIssueInTransaction(transaction, payment, {
+            reason: 'PAYMENT_VERIFIED_FOR_CLOSED_ORDER',
+            orderStatus: orderRecord.status,
+          });
+        }
         await orderTx.update({
           where: { id: payment.orderId },
           data: { status: 'PAID', paidAt: now },
@@ -588,7 +774,7 @@ export class PaymentsService {
       }
       const updated = await paymentTx.findUnique({ where: { id: payment.id } });
       if (updated === null) throw DomainErrors.notFound('Payment');
-      return { payment: this.asPayment(updated), transitioned: true };
+      return { payment: this.asPayment(updated), transitioned: true, duplicate };
     });
     return committed;
   }
@@ -649,7 +835,10 @@ export class PaymentsService {
     target: 'FAILED' | 'CANCELLED' | 'UNKNOWN',
   ): Promise<PaymentRecord> {
     if (payment.status === target) return payment;
-    assertPaymentTransition(payment.status, target);
+    /* A failure signal arriving for a payment that has already closed some other
+     * way (UNKNOWN, CANCELLED after FAILED, a refund state) changes nothing. It
+     * used to throw, turning a late or replayed callback into a 500. */
+    if (!PAYMENT_TRANSITIONS[payment.status]?.includes(target)) return payment;
     const changed = await this.delegate(this.db.payment).updateMany({
       where: { id: payment.id, status: payment.status },
       data: { status: target, failureReason: reason },
@@ -720,18 +909,30 @@ export class PaymentsService {
     context: { readonly ip?: string | null; readonly userAgent?: string | null } = {},
   ): Promise<void> {
     const delegate = this.delegate(this.db.paymentAttempt);
-    const count = await delegate.count({ where: { paymentId } });
-    await delegate.create({
-      data: {
-        paymentId,
-        attemptNumber: count + 1,
-        action,
-        status,
-        providerCode,
-        ip: context.ip ?? null,
-        userAgent: context.userAgent ?? null,
-      },
-    });
+    /* `attemptNumber` is derived from a count, so two requests touching the same
+     * payment at once compute the same number and the unique index refuses one
+     * of them. Losing that race must not abort a money flow — in particular the
+     * CONFIRM attempt, which is written after the gateway committed and before
+     * fulfillment starts. Recount and retry. */
+    for (let attempt = 1; ; attempt += 1) {
+      const count = await delegate.count({ where: { paymentId } });
+      try {
+        await delegate.create({
+          data: {
+            paymentId,
+            attemptNumber: count + 1,
+            action,
+            status,
+            providerCode,
+            ip: context.ip ?? null,
+            userAgent: context.userAgent ?? null,
+          },
+        });
+        return;
+      } catch (error) {
+        if (attempt >= ATTEMPT_WRITE_RETRIES || !isUniqueViolation(error)) throw error;
+      }
+    }
   }
 
   private async createReconciliationIssue(
@@ -749,13 +950,14 @@ export class PaymentsService {
     transaction: PaymentDatabase,
     payment: PaymentRecord,
     details: Record<string, string | number>,
+    type: 'unknown_payment' | 'duplicate_payment' = 'unknown_payment',
   ): Promise<void> {
     // The frozen Prisma enum does not yet contain the requested dedicated 101
     // issue value. `unknown_payment` is the safe valid bucket; details retains
     // the exact machine-readable subtype until Foundation adds that enum value.
     await this.delegate(transaction.reconciliationIssue).create({
       data: {
-        type: 'unknown_payment',
+        type,
         severity: 'HIGH',
         paymentId: payment.id,
         orderId: payment.orderId,
@@ -775,14 +977,16 @@ export class PaymentsService {
     }
     if (quote.expiresAt.getTime() <= Date.now()) throw DomainErrors.quoteExpired();
     if (quote.finalAmountIrr !== order.totalAmountIrr) {
-      void this.recordAudit({
+      /* Fire-and-forget, so it must not reject unobserved: an unhandled
+       * rejection terminates the Node process. */
+      this.recordAudit({
         actor: 'system:payments',
         actorType: 'SYSTEM',
         action: 'AMOUNT_MISMATCH',
         entity: 'Order',
         entityId: order.id,
         before: { quoteAmountIrr: quote.finalAmountIrr.toString(), orderAmountIrr: order.totalAmountIrr.toString() },
-      });
+      }).catch(() => undefined);
       throw DomainErrors.amountMismatch('Quote amount does not equal order total');
     }
   }
@@ -791,6 +995,15 @@ export class PaymentsService {
     const order = await this.delegate(this.db.order).findUnique({ where: { id: orderId } });
     if (order === null) return orderId;
     return this.asOrderWithoutQuote(order).orderNumber;
+  }
+
+  private rememberRedirectUrl(paymentId: string, url: string): void {
+    this.redirectUrls.set(paymentId, url);
+    while (this.redirectUrls.size > REDIRECT_URL_CACHE_LIMIT) {
+      const oldest = this.redirectUrls.keys().next();
+      if (oldest.done === true) break;
+      this.redirectUrls.delete(oldest.value);
+    }
   }
 
   private redirectUrlFor(payment: PaymentRecord): string {
@@ -883,6 +1096,23 @@ function providerAmountToIrr(amount: bigint, unit: PaymentAmountUnit): bigint {
   if (amount <= 0n) throw new RangeError('Provider amount must be positive');
   if (unit === 'IRR') return amount;
   return amount * 10n;
+}
+
+/** -1 never equals a stored (positive) amount, so a bad value reads as a mismatch. */
+function safeProviderAmountToIrr(amount: bigint, unit: PaymentAmountUnit): bigint {
+  try {
+    return providerAmountToIrr(amount, unit);
+  } catch {
+    return -1n;
+  }
+}
+
+/** A unique-index violation (Prisma P2002), the only insert error worth retrying. */
+function isUniqueViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  if ((error as { code?: unknown }).code === 'P2002') return true;
+  const message = (error as { message?: unknown }).message;
+  return typeof message === 'string' && message.includes('Unique constraint failed');
 }
 
 function decimalToBigInt(value: unknown): bigint | null {

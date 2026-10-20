@@ -987,3 +987,222 @@ export class FakePaymentDatabase implements PaymentDatabase {
     return row;
   }
 }
+
+/* ============================================================================
+ * Security audit regressions (2026-10-20)
+ * ==========================================================================*/
+
+describe('security audit: payment verification races and closed states', () => {
+  /** A single-phase gateway: the first verify settles (100), every later one says 101. */
+  function settlingGateway(): { provider: RialPaymentProvider; calls: () => number } {
+    const base = new MockRialPaymentProvider();
+    let calls = 0;
+    const provider = new Proxy(base, {
+      get(target, property, receiver) {
+        if (property === 'verifyPayment') {
+          return async (input: { authority: string; amountIrr: bigint }): Promise<VerifyResult> => {
+            calls += 1;
+            if (calls === 1) {
+              // The settling call is slow, so a second request overlaps it.
+              await new Promise((resolve) => setTimeout(resolve, 5));
+              return base.verifyPayment(input);
+            }
+            return {
+              outcome: 'ALREADY_VERIFIED',
+              providerCode: 101,
+              authority: input.authority,
+              providerAmount: input.amountIrr,
+              providerAmountUnit: 'IRR',
+            };
+          };
+        }
+        return Reflect.get(target, property, receiver) as unknown;
+      },
+    }) as RialPaymentProvider;
+    return { provider, calls: () => calls };
+  }
+
+  it('a callback and a /verify overlapping on one payment end PAID with one fulfillment, not UNKNOWN', async () => {
+    const gateway = settlingGateway();
+    const harness = makeHarness({ provider: gateway.provider });
+    const { paymentId, authority } = await startPayment(harness);
+
+    const [callback, verify] = await Promise.all([
+      harness.service.callback({ Authority: authority, Status: 'OK' }),
+      harness.service.verifyPayment({ paymentId, idempotencyKey: 'verify-key-000001' }, CUSTOMER_ID),
+    ]);
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(callback.outcome).toBe('PAID');
+    expect(verify.outcome).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(0);
+    // The second request re-read a committed PAID and never asked the gateway.
+    expect(gateway.calls()).toBe(1);
+  });
+
+  it('a gateway-verified payment whose row is CANCELLED raises a reconciliation issue instead of a 500', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    await harness.service.callback({ Authority: authority, Status: 'NOK' });
+    expect(harness.db.paymentById(paymentId)['status']).toBe('CANCELLED');
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('UNKNOWN');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('CANCELLED');
+    expect(harness.trigger).not.toHaveBeenCalled();
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue[0]?.['details']).toMatchObject({
+      reason: 'verified_provider_while_local_payment_closed',
+      localStatus: 'CANCELLED',
+    });
+    expect(auditActions(harness.audit)).toContain('PAYMENT_VERIFIED_LOCAL_STATE_NOT_PAYABLE');
+  });
+
+  it('never reports PAID when the PAID compare-and-set lost to another writer', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    const original = harness.provider.verifyPayment.bind(harness.provider);
+    vi.spyOn(harness.provider, 'verifyPayment').mockImplementation(async (input) => {
+      const result = await original(input);
+      // Another process closes the row while the gateway was answering.
+      harness.db.paymentById(paymentId)['status'] = 'FAILED';
+      return result;
+    });
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('UNKNOWN');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('FAILED');
+    expect(harness.trigger).not.toHaveBeenCalled();
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+  });
+
+  it('a late failure signal for an UNKNOWN payment changes nothing instead of throwing', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'NOK' });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
+    expect(response.payment?.status).toBe('UNKNOWN');
+  });
+});
+
+describe('security audit: orders that may not be paid', () => {
+  it.each([['CANCELLED'], ['FAILED'], ['FULFILLED'], ['REFUNDED'], ['PAID'], ['DRAFT']])(
+    'refuses to open a gateway session for an order in %s',
+    async (status) => {
+      const harness = makeHarness({ order: { status } });
+      const createSpy = vi.spyOn(harness.provider, 'createPayment');
+
+      await expect(
+        harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'idem-1' }, CUSTOMER_ID, CALLBACK_URL),
+      ).rejects.toMatchObject({ code: 'CONFLICT' });
+      expect(harness.db.tables.payment).toHaveLength(0);
+      expect(createSpy).not.toHaveBeenCalled();
+      // Rule 11 is not tripped by a refused payment either.
+      expect(harness.db.tables.quote[0]?.['status']).toBe('ACTIVE');
+    },
+  );
+
+  it('still lets a customer retry on an order whose earlier payment failed', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    provider.forceNextCreate('failure');
+    await startPayment(harness, 'idem-1');
+
+    const retry = await harness.service.createPayment(
+      { orderId: ORDER_ID, idempotencyKey: 'idem-2' },
+      CUSTOMER_ID,
+      CALLBACK_URL,
+    );
+    expect(retry.created).toBe(true);
+    expect(harness.db.paymentById(retry.payment.id)['status']).toBe('REDIRECTED');
+  });
+
+  it('a second paid session for one order is flagged as a duplicate and never re-fulfils or rewinds the order', async () => {
+    const harness = makeHarness();
+    const first = await startPayment(harness, 'idem-1');
+    const second = await startPayment(harness, 'idem-2');
+
+    await harness.service.callback({ Authority: first.authority, Status: 'OK' });
+    harness.db.tables.order[0]!['status'] = 'FULFILLED';
+    const response = await harness.service.callback({ Authority: second.authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('PAID');
+    expect(harness.db.paymentById(second.paymentId)['status']).toBe('PAID');
+    expect(harness.db.tables.order[0]?.['status']).toBe('FULFILLED');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    const duplicates = harness.db.tables.reconciliationIssue.filter((row) => row['type'] === 'duplicate_payment');
+    expect(duplicates).toHaveLength(1);
+    expect(duplicates[0]?.['paymentId']).toBe(second.paymentId);
+  });
+
+  it('a payment verified for an order cancelled underneath it is flagged for reconciliation', async () => {
+    const harness = makeHarness();
+    const { authority } = await startPayment(harness);
+    harness.db.tables.order[0]!['status'] = 'CANCELLED';
+
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue[0]?.['details']).toMatchObject({
+      reason: 'PAYMENT_VERIFIED_FOR_CLOSED_ORDER',
+      orderStatus: 'CANCELLED',
+    });
+  });
+});
+
+describe('security audit: idempotency and robustness', () => {
+  it('answers a same-key request that lost the insert race with the existing payment, not a 500', async () => {
+    const harness = makeHarness();
+    const first = await startPayment(harness, 'idem-1');
+    // The racing request's first read ran before the winner's insert was visible.
+    vi.spyOn(harness.db.payment as { findUnique: (args: Row) => Promise<unknown> }, 'findUnique')
+      .mockResolvedValueOnce(null);
+
+    const replay = await harness.service.createPayment(
+      { orderId: ORDER_ID, idempotencyKey: 'idem-1' },
+      CUSTOMER_ID,
+      CALLBACK_URL,
+    );
+
+    expect(replay.created).toBe(false);
+    expect(replay.payment.id).toBe(first.paymentId);
+    expect(harness.db.tables.payment).toHaveLength(1);
+  });
+
+  it('retries a payment-attempt number collision instead of aborting the callback', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    const attempts = harness.db.paymentAttempt as { create: (args: Row) => Promise<unknown> };
+    const realCreate = attempts.create.bind(attempts);
+    vi.spyOn(attempts, 'create')
+      .mockImplementationOnce(async () => {
+        throw Object.assign(new Error('Unique constraint failed on the fields: (`paymentId`,`attemptNumber`)'), {
+          code: 'P2002',
+        });
+      })
+      .mockImplementation(realCreate);
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('a failing audit write on an amount mismatch does not become an unhandled rejection', async () => {
+    const harness = makeHarness({ quote: { finalAmountIrr: 4_999_999n } });
+    harness.audit.mockRejectedValue(new Error('audit store down'));
+
+    await expect(
+      harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'idem-1' }, CUSTOMER_ID, CALLBACK_URL),
+    ).rejects.toMatchObject({ code: 'AMOUNT_MISMATCH' });
+    // Give a stray rejection the chance to surface; vitest fails the run if it does.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  });
+});

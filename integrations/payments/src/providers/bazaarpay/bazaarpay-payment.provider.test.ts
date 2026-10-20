@@ -332,6 +332,14 @@ describe('verifyPayment', () => {
     expect(result).toMatchObject({ outcome: 'FAILED', failureReason: 'INVALID_AUTHORITY' });
   });
 
+  it.each([[401], [403], [408], [409], [429]])(
+    'keeps a %s trace UNKNOWN: it is about us or the gateway, not about whether the customer paid',
+    async (status) => {
+      const result = await provider(new ScriptedHttpClient([json({ detail: 'x' }, status)])).verifyPayment(INPUT);
+      expect(result.outcome).toBe('UNKNOWN');
+    },
+  );
+
   it('getPaymentStatus agrees with verifyPayment', async () => {
     expect(
       await provider(new ScriptedHttpClient([json({ status: 'paid_not_committed' })])).getPaymentStatus(INPUT),
