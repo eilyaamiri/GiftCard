@@ -1110,6 +1110,9 @@ a { color:inherit; text-decoration:none; }
 .account-content > .page > .eyebrow,.account-content > .page > h1 { display:none; }
 .account-mobile-nav { display:none; }
 .footer-support { display:inline-flex; align-items:center; gap:7px; }
+.footer-app-download { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:10px 16px; background:var(--brand-green); color:#fff; border-radius:10px; font-size:14px; font-weight:600; text-decoration:none; transition:background .16s ease,transform .12s ease; }
+.footer-app-download:hover,.footer-app-download:focus-visible { background:var(--brand-green-hover,#00483f); transform:translateY(-1px); }
+.footer-app-download:focus-visible { outline:2px solid var(--accent-on-deep); outline-offset:3px; }
 /* The number is the point of this block, so it is the only thing in the footer
  * set in white at more than body weight. `dir=ltr` keeps the digits in dialling
  * order inside an RTL line. */

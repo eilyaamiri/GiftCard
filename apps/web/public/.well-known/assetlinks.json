@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.centohub.twa",
+      "sha256_cert_fingerprints": [
+        "C9:BF:0B:EB:75:C1:3B:71:9E:FA:20:D4:4A:66:E8:36:1A:A6:CA:E7:9B:EA:DD:89:BA:A9:3A:DD:A9:A5:E0:D3"
+      ]
+    }
+  }
+]

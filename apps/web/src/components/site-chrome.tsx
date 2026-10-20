@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { CircleUserRound, Headphones, Phone, Search, ShoppingBag } from "lucide-react";
+import { CircleUserRound, Headphones, Phone, Search, ShoppingBag, Smartphone } from "lucide-react";
 import type { CustomerDto } from "@barat/contracts";
 import { AssistantWidget } from "@/components/assistant/assistant-widget";
 import { BrandLogo } from "@/components/brand-logo";
@@ -273,6 +273,10 @@ export function SiteChrome({
               </a>
             ) : null}
             <div className="footer-support"><Headphones size={16} /> پشتیبانی همه‌روزه · پاسخ‌گویی سریع</div>
+            <a href="/cento.apk" download className="footer-app-download">
+              <Smartphone size={16} aria-hidden="true" />
+              دانلود اپلیکیشن اندروید
+            </a>
           </div>
         </div>
         <div className="container footer-legal">
