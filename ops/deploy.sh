@@ -24,7 +24,13 @@ else
 fi
 
 echo "==> install"
-pnpm install --no-frozen-lockfile --prefer-offline
+# Frozen: production installs exactly the lockfile CI verified (ci.yml runs
+# `pnpm install --frozen-lockfile` on this same commit). With
+# --no-frozen-lockfile a lockfile that no longer satisfied package.json was
+# silently re-resolved on the server — under `resolution-mode=highest` — into a
+# dependency tree no test had seen, with these secrets in the environment of
+# every install script. A drifted lockfile now stops the deploy instead.
+pnpm install --frozen-lockfile --prefer-offline
 
 echo "==> prisma client"
 pnpm --filter @barat/database db:generate

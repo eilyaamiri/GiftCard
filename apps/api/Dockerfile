@@ -61,6 +61,12 @@ RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
 # and prisma/ all make it across for @barat/database.
 # Migrations run from the API image during deploy. Prisma CLI is kept as one
 # production dependency (the generated client alone has no migrate executable).
+#
+# The `pnpm deploy` step itself was missing: /out/api never received dist/ or
+# the production node_modules, so the runtime stage copied a directory holding
+# nothing but the Prisma CLI and `node dist/main.js` could not start. Same
+# invocation as apps/worker/Dockerfile.
+RUN pnpm --filter=@barat/api --prod deploy --legacy /out/api
 RUN pnpm --dir /out/api add --prod --offline --ignore-workspace prisma@7.10.0
 
 # ---------------------------------------------------------------------------
