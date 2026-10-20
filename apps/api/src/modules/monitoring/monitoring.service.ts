@@ -17,6 +17,12 @@ import { AppConfigService } from '../../common/config/app-config.service';
 import { FxAggregatorService } from '../fx/fx-aggregator.service';
 import type { MonitoringDatabase } from './monitoring.tokens';
 import { MONITORING_DATABASE } from './monitoring.tokens';
+import {
+  derivePaymentGatewayStatus,
+  GATEWAY_ACTIONS,
+  PAYMENT_WINDOW_MINUTES,
+  type PaymentGatewaySnapshot,
+} from './payment-gateway-status';
 
 /** Server uptime status. */
 export type ServerStatus = 'OPERATIONAL' | 'DEGRADED' | 'DOWN';
@@ -65,13 +71,27 @@ export interface StuckOrder {
   hasWorkItem: boolean;
 }
 
+export interface RecentAlert {
+  severity: string;
+  source: string;
+  message: string;
+  /** Already redacted by AlertLogger. */
+  context: Record<string, unknown> | null;
+  at: string;
+}
+
 export interface MonitoringSnapshot {
   server: ServerUptimeSnapshot;
   fxProviders: FxProviderSnapshot[];
   suppliers: SupplierSnapshot[];
+  paymentGateways: PaymentGatewaySnapshot[];
   stuckOrders: StuckOrder[];
+  recentAlerts: RecentAlert[];
   generatedAt: string;
 }
+
+/** How many alerts the dashboard shows. */
+const RECENT_ALERTS_SHOWN = 20;
 
 /** Thresholds from the plan. */
 const STUCK_FULFILLMENT_PENDING_MINUTES = 15;
@@ -151,9 +171,10 @@ export class MonitoringService implements OnApplicationBootstrap, OnApplicationS
   }
 
   async getSnapshot(): Promise<MonitoringSnapshot> {
-    const [server, fxProviders, stuckOrders] = await Promise.all([
+    const [server, fxProviders, paymentGateways, stuckOrders] = await Promise.all([
       this.getServerUptime(),
       this.getFxProviderStatus(),
+      this.getPaymentGatewayStatus(),
       this.getStuckOrders(),
     ]);
 
@@ -161,9 +182,36 @@ export class MonitoringService implements OnApplicationBootstrap, OnApplicationS
       server,
       fxProviders,
       suppliers: [...this.supplierSnapshots.values()],
+      paymentGateways,
       stuckOrders,
+      recentAlerts: this.getRecentAlerts(),
       generatedAt: new Date().toISOString(),
     };
+  }
+
+  getRecentAlerts(): RecentAlert[] {
+    return (this.alerts?.recent(RECENT_ALERTS_SHOWN) ?? []).map((alert) => ({
+      severity: alert.severity,
+      source: alert.source,
+      message: alert.message,
+      context: alert.context,
+      at: alert.at.toISOString(),
+    }));
+  }
+
+  /**
+   * Gateway status from the attempts our server made in the last hour.
+   * Selects status, time and provider only — never a payload or a message.
+   */
+  async getPaymentGatewayStatus(): Promise<PaymentGatewaySnapshot[]> {
+    const since = new Date(Date.now() - PAYMENT_WINDOW_MINUTES * 60_000);
+    const rows = await this.database.paymentAttempt.findMany({
+      where: { createdAt: { gte: since }, action: { in: [...GATEWAY_ACTIONS] } },
+      select: { status: true, createdAt: true, payment: { select: { provider: true } } },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+    return derivePaymentGatewayStatus(rows);
   }
 
   getServerUptime(): ServerUptimeSnapshot {
@@ -243,6 +291,62 @@ export class MonitoringService implements OnApplicationBootstrap, OnApplicationS
       this.logger.error(
         `Supplier probe cycle failed: ${error instanceof Error ? error.message : 'unknown error'}`,
       );
+    }
+    /* Separate try: a supplier failure must not skip the gateway check, and the
+     * other way round. */
+    try {
+      await this.checkPaymentGateways();
+    } catch (error) {
+      this.logger.error(
+        `Payment gateway check failed: ${error instanceof Error ? error.name : 'unknown error'}`,
+      );
+    }
+  }
+
+  /** Last judged status per gateway, so only transitions raise alerts. */
+  private readonly gatewayStatus = new Map<string, ProviderStatus>();
+
+  /**
+   * Runs on the same five-minute cycle as the supplier probe — reading our own
+   * rows, never calling the gateway — so an outage pages even when nobody has
+   * the dashboard open. ERROR (→ Telegram) on entering OFFLINE, INFO on leaving it.
+   */
+  async checkPaymentGateways(): Promise<void> {
+    const gateways = await this.getPaymentGatewayStatus();
+    for (const gateway of gateways) {
+      const previous = this.gatewayStatus.get(gateway.provider) ?? 'HEALTHY';
+      this.gatewayStatus.set(gateway.provider, gateway.status);
+      if (gateway.status === previous) continue;
+
+      if (gateway.status === 'OFFLINE') {
+        this.alerts?.log({
+          severity: 'ERROR',
+          source: 'PAYMENT',
+          message: `Payment gateway ${gateway.provider} connection lost`,
+          context: {
+            gateway: gateway.provider,
+            connectionFailures: gateway.connectionFailures,
+            calls: gateway.calls,
+          },
+        });
+      } else if (previous === 'OFFLINE') {
+        /* Checked before DEGRADED: right after an outage the hour still holds
+         * the failures, so a gateway that is answering again usually reads as
+         * DEGRADED first. Leaving OFFLINE is the news, whatever follows. */
+        this.alerts?.log({
+          severity: 'INFO',
+          source: 'PAYMENT',
+          message: `Payment gateway ${gateway.provider} is answering again`,
+          context: { gateway: gateway.provider },
+        });
+      } else if (gateway.status === 'DEGRADED') {
+        this.alerts?.log({
+          severity: 'WARNING',
+          source: 'PAYMENT',
+          message: `Payment gateway ${gateway.provider} is failing intermittently`,
+          context: { gateway: gateway.provider, connectionFailures: gateway.connectionFailures },
+        });
+      }
     }
   }
 

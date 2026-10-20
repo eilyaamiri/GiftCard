@@ -6,6 +6,7 @@ import type { AppConfigService } from '../../common/config/app-config.service';
 import type { FxAggregatorService } from '../fx/fx-aggregator.service';
 import { MonitoringService, SUPPLIER_PROBE_INTERVAL_MS } from './monitoring.service';
 import type { MonitoringDatabase } from './monitoring.tokens';
+import type { PaymentAttemptRow } from './payment-gateway-status';
 
 /** A supplier whose balance read succeeds or throws on command. */
 function fakeSupplier(key: string) {
@@ -23,15 +24,23 @@ function fakeSupplier(key: string) {
 
 function build(suppliers: SupplierProvider[], isTest = true) {
   const alerts: AlertInput[] = [];
-  const alertLogger = { log: (input: AlertInput) => alerts.push(input) } as unknown as AlertLogger;
+  const alertLogger = {
+    log: (input: AlertInput) => alerts.push(input),
+    recent: () => [],
+  } as unknown as AlertLogger;
+  /* Mutable so a test can change what the "last hour" of gateway calls holds. */
+  const attempts: PaymentAttemptRow[] = [];
   const service = new MonitoringService(
     { getProviderHealth: async () => [] } as unknown as FxAggregatorService,
     suppliers,
-    { order: { findMany: async () => [] } } as unknown as MonitoringDatabase,
+    {
+      order: { findMany: async () => [] },
+      paymentAttempt: { findMany: async () => attempts },
+    } as unknown as MonitoringDatabase,
     { isTest } as AppConfigService,
     alertLogger,
   );
-  return { service, alerts };
+  return { service, alerts, attempts };
 }
 
 async function supplierRow(service: MonitoringService, key: string) {
@@ -159,5 +168,73 @@ describe('MonitoringService supplier probe', () => {
     await vi.advanceTimersByTimeAsync(SUPPLIER_PROBE_INTERVAL_MS * 2);
 
     expect(state.calls).toBe(0);
+  });
+});
+
+function attempt(provider: string, status: string, minutesAgo: number): PaymentAttemptRow {
+  return { status, createdAt: new Date(Date.now() - minutesAgo * 60_000), payment: { provider } };
+}
+
+describe('MonitoringService payment gateway alerts', () => {
+  it('pages once when a gateway stops answering, and announces recovery', async () => {
+    const { service, alerts, attempts } = build([]);
+
+    attempts.push(attempt('zarinpal', 'OK', 10));
+    await service.checkPaymentGateways();
+    expect(alerts).toEqual([]);
+
+    attempts.unshift(
+      attempt('zarinpal', 'TIMEOUT', 3),
+      attempt('zarinpal', 'NETWORK_ERROR', 2),
+      attempt('zarinpal', 'TIMEOUT', 1),
+    );
+    await service.checkPaymentGateways();
+    await service.checkPaymentGateways(); // still down: no second page
+    expect(alerts.map((a) => [a.severity, a.source])).toEqual([['ERROR', 'PAYMENT']]);
+
+    attempts.unshift(attempt('zarinpal', 'OK', 0));
+    await service.checkPaymentGateways();
+    expect(alerts.map((a) => a.severity)).toEqual(['ERROR', 'INFO']);
+  });
+
+  it('treats declined payments as a working gateway', async () => {
+    const { service, alerts, attempts } = build([]);
+    attempts.push(
+      attempt('bazaarpay', 'FAILED', 3),
+      attempt('bazaarpay', 'FAILED', 2),
+      attempt('bazaarpay', 'FAILED', 1),
+    );
+
+    await service.checkPaymentGateways();
+
+    expect(alerts).toEqual([]);
+    expect((await service.getSnapshot()).paymentGateways[0]?.status).toBe('HEALTHY');
+  });
+});
+
+describe('MonitoringService recent alerts', () => {
+  it('returns the alert history, newest first, from the AlertLogger', async () => {
+    const at = new Date('2026-10-20T10:00:00Z');
+    const recent = [
+      { severity: 'ERROR', source: 'FX', message: 'b', context: null, at, formatted: '', dedupKey: 'b' },
+      { severity: 'WARNING', source: 'SUPPLIER', message: 'a', context: { supplier: 'x' }, at, formatted: '', dedupKey: 'a' },
+    ];
+    const service = new MonitoringService(
+      { getProviderHealth: async () => [] } as unknown as FxAggregatorService,
+      [],
+      {
+        order: { findMany: async () => [] },
+        paymentAttempt: { findMany: async () => [] },
+      } as unknown as MonitoringDatabase,
+      { isTest: true } as AppConfigService,
+      { recent: () => recent } as unknown as AlertLogger,
+    );
+
+    const snapshot = await service.getSnapshot();
+
+    expect(snapshot.recentAlerts).toEqual([
+      { severity: 'ERROR', source: 'FX', message: 'b', context: null, at: at.toISOString() },
+      { severity: 'WARNING', source: 'SUPPLIER', message: 'a', context: { supplier: 'x' }, at: at.toISOString() },
+    ]);
   });
 });
