@@ -23,6 +23,7 @@ import {
   LifeBuoy,
   BookOpen,
   MessageSquareText,
+  Activity,
   type LucideIcon,
 } from "lucide-react";
 
@@ -51,6 +52,7 @@ export const ICONS: Record<string, LucideIcon> = {
   "life-buoy": LifeBuoy,
   "book-open": BookOpen,
   "message-square-text": MessageSquareText,
+  activity: Activity,
 };
 
 export function Icon({ name, size = 18 }: { name: string; size?: number }) {

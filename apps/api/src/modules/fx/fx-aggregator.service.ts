@@ -15,7 +15,7 @@ import {
   type RawFxRate,
 } from '@barat/fx';
 
-import type { AlertLogger } from '../../common/alert';
+import { AlertLogger } from '../../common/alert';
 import { BaratDomainException, DomainErrors } from '../../common/errors/domain.exception';
 import {
   FX_AGGREGATOR_CONFIG,
@@ -95,7 +95,9 @@ export class FxAggregatorService {
     @Inject(FX_AGGREGATOR_CONFIG) config: FxAggregatorConfig,
     @Optional() @Inject(FX_AUDIT_RECORDER) private readonly audit?: FxAuditRecorder,
     @Optional() @Inject(FX_CLOCK) clock?: FxClock,
-    @Optional() private readonly alertLogger?: AlertLogger,
+    /* Explicit token: a type-only import would erase the class from the DI
+     * metadata, and with @Optional Nest would silently inject undefined. */
+    @Optional() @Inject(AlertLogger) private readonly alertLogger?: AlertLogger,
   ) {
     if (
       !Number.isSafeInteger(config.staleThresholdSeconds) ||
@@ -268,7 +270,7 @@ export class FxAggregatorService {
         severity: 'ERROR',
         source: 'FX',
         message: `FX provider ${provider.name} health check failed`,
-        context: { provider: provider.name, pair, error: String(err) },
+        context: { provider: provider.name, pair, errorType: errorType(err) },
       });
       return NO_ATTEMPT;
     }
@@ -295,7 +297,7 @@ export class FxAggregatorService {
         severity: 'ERROR',
         source: 'FX',
         message: `FX provider ${provider.name} rate fetch failed`,
-        context: { provider: provider.name, pair, error: String(err) },
+        context: { provider: provider.name, pair, errorType: errorType(err) },
       });
       return NO_ATTEMPT;
     }
@@ -385,6 +387,14 @@ export class FxAggregatorService {
       isStale,
     };
   }
+}
+
+/**
+ * The error's class name only. A provider error's message can carry a raw
+ * response body or a credential-bearing URL, and alerts go to Telegram.
+ */
+function errorType(err: unknown): string {
+  return err instanceof Error ? err.name : 'unknown';
 }
 
 /** A provider payload we cannot trust is discarded, not repaired. */

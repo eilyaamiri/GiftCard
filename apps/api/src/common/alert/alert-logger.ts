@@ -1,5 +1,7 @@
 import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 
+import { redactAlertContext } from './alert-redact';
+
 /** Severity levels for operational alerts. */
 export const ALERT_SEVERITY_LEVELS = {
   INFO: 0,
@@ -26,6 +28,12 @@ export interface AlertInput {
   message: string;
   context?: Record<string, unknown>;
   at?: Date;
+  /**
+   * What "the same incident" means for de-duplication. Defaults to source plus
+   * message, which already names the supplier or order, so two different
+   * suppliers failing together are two incidents, not one.
+   */
+  dedupKey?: string;
 }
 
 /** A formatted alert ready to send to channels. */
@@ -33,10 +41,15 @@ export interface FormattedAlert {
   severity: AlertSeverity;
   source: AlertSource;
   message: string;
+  /** Always redacted before it reaches a channel, the console or the history. */
   context: Record<string, unknown> | null;
   at: Date;
   formatted: string;
+  dedupKey: string;
 }
+
+/** How many alerts the in-memory history keeps for the dashboard. */
+export const ALERT_HISTORY_SIZE = 100;
 
 /**
  * Operational alert logger.
@@ -45,11 +58,16 @@ export interface FormattedAlert {
  * the alert is logged to console and the main flow continues.
  *
  * Severity filtering: channels opt in to only receive ERROR and above by default.
+ *
+ * History is in memory, newest first, and lost on restart. That is deliberate:
+ * it answers "what has gone wrong lately" on the dashboard without a table in
+ * the frozen schema. The durable record is the log stream.
  */
 @Injectable()
 export class AlertLogger implements OnModuleInit {
   private readonly logger = new Logger(AlertLogger.name);
   private readonly channels: AlertChannel[] = [];
+  private readonly history: FormattedAlert[] = [];
 
   /**
    * Register a channel. Call from module setup.
@@ -58,12 +76,20 @@ export class AlertLogger implements OnModuleInit {
     this.channels.push(channel);
   }
 
+  /** The most recent alerts, newest first. */
+  recent(limit = ALERT_HISTORY_SIZE): readonly FormattedAlert[] {
+    return this.history.slice(0, Math.max(0, limit));
+  }
+
   /**
    * Log an alert and dispatch to all registered channels.
    */
   log(input: AlertInput): void {
     const at = input.at ?? new Date();
-    const context = input.context ?? null;
+    /* Redacted once, here, so no sink — console, Telegram, dashboard — can ever
+     * see the raw context. pino's own redaction cannot help: the context reaches
+     * it as a string. */
+    const context = redactAlertContext(input.context);
 
     const formatted: FormattedAlert = {
       severity: input.severity,
@@ -72,7 +98,13 @@ export class AlertLogger implements OnModuleInit {
       context,
       at,
       formatted: this.format(input, at),
+      dedupKey: input.dedupKey ?? `${input.source}:${input.message}`,
     };
+
+    this.history.unshift(formatted);
+    if (this.history.length > ALERT_HISTORY_SIZE) {
+      this.history.length = ALERT_HISTORY_SIZE;
+    }
 
     // Always log to NestJS logger
     this.logToConsole(formatted);
@@ -104,7 +136,7 @@ export class AlertLogger implements OnModuleInit {
         this.logger.debug(prefix);
     }
 
-    // Also log context if present (already redacted)
+    // Context was redacted in log() before this point.
     if (alert.context && Object.keys(alert.context).length > 0) {
       this.logger.debug(`  Context: ${JSON.stringify(alert.context)}`);
     }

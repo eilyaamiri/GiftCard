@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { AlertLogger, ALERT_SEVERITY_LEVELS, type AlertChannel, type FormattedAlert } from './alert-logger';
+import {
+  ALERT_HISTORY_SIZE,
+  ALERT_SEVERITY_LEVELS,
+  AlertLogger,
+  type AlertChannel,
+  type FormattedAlert,
+} from './alert-logger';
 import { redactAlertContext } from './alert-redact';
 
 describe('AlertLogger', () => {
@@ -115,5 +121,50 @@ describe('redactAlertContext', () => {
     const result = redactAlertContext(input);
 
     expect(result).toEqual(input);
+  });
+});
+
+describe('AlertLogger history and redaction', () => {
+  it('keeps recent alerts newest first, capped', () => {
+    const logger = new AlertLogger();
+    for (let i = 0; i < ALERT_HISTORY_SIZE + 5; i++) {
+      logger.log({ severity: 'WARNING', source: 'SYSTEM', message: `m${i}` });
+    }
+
+    const recent = logger.recent();
+    expect(recent).toHaveLength(ALERT_HISTORY_SIZE);
+    expect(recent[0]?.message).toBe(`m${ALERT_HISTORY_SIZE + 4}`);
+    expect(logger.recent(3).map((a) => a.message)).toEqual([
+      `m${ALERT_HISTORY_SIZE + 4}`,
+      `m${ALERT_HISTORY_SIZE + 3}`,
+      `m${ALERT_HISTORY_SIZE + 2}`,
+    ]);
+  });
+
+  it('redacts context before any channel or the history sees it', async () => {
+    const logger = new AlertLogger();
+    const sent: FormattedAlert[] = [];
+    logger.registerChannel({ name: 'spy', minSeverity: 'INFO', send: async (a) => void sent.push(a) });
+
+    logger.log({
+      severity: 'ERROR',
+      source: 'SUPPLIER',
+      message: 'x',
+      context: { orderId: 'o-1', token: 'secret-token', amountIrr: '9000000' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const expected = { orderId: 'o-1', token: '[REDACTED]', amountIrr: '[REDACTED]' };
+    expect(sent[0]?.context).toEqual(expected);
+    expect(logger.recent()[0]?.context).toEqual(expected);
+  });
+
+  it('derives a per-incident dedup key from source and message', () => {
+    const logger = new AlertLogger();
+    logger.log({ severity: 'ERROR', source: 'SUPPLIER', message: 'Supplier tillo down' });
+    logger.log({ severity: 'ERROR', source: 'SUPPLIER', message: 'Supplier runa down' });
+
+    const [runa, tillo] = logger.recent();
+    expect(tillo?.dedupKey).not.toBe(runa?.dedupKey);
   });
 });

@@ -108,3 +108,27 @@ unfulfilled tail `UNASSIGNED`. Claiming consumes it, so to get the queue back:
 
 `NODE_ENV` is overridden because the seed refuses to run under `production` —
 that guard is deliberate and stays. This database holds nothing but demo data.
+
+## Uptime watchdog
+
+`ops/healthcheck.sh` checks `/api/health` from outside the API process and
+pages Telegram when the API is down for two checks in a row, when it restarted
+outside a deploy (a crash the supervisor recovered), and once when it is back.
+A process that has crashed cannot report itself; this is the part that can.
+
+It reads `ALERT_TELEGRAM_ENABLED`, `ALERT_TELEGRAM_BOT_TOKEN` and
+`ALERT_TELEGRAM_CHAT_ID` from `/opt/baratpay/secrets/.env.api` — the same values
+the API uses — so set those there first. Install once, as the user that owns
+`/opt/baratpay`:
+
+    mkdir -p /opt/baratpay/state/healthcheck
+    ( crontab -l 2>/dev/null; echo '* * * * * /opt/baratpay/app/ops/healthcheck.sh >/dev/null 2>&1' ) | crontab -
+
+Try it without sending anything:
+
+    DRY_RUN=1 /opt/baratpay/app/ops/healthcheck.sh; cat /opt/baratpay/state/healthcheck/state
+
+A restart within 30 minutes of `HEAD` moving is treated as a deploy and does
+not page (`DEPLOY_GRACE_SECONDS`). A deploy that leaves the API down still does.
+`HEALTH_URL`, `FAIL_THRESHOLD` and `TIMEOUT_SECONDS` can be overridden in the
+crontab line.

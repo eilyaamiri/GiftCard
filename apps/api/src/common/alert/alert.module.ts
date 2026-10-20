@@ -14,7 +14,13 @@ import { TelegramChannel } from './channels/telegram.channel';
  */
 @Global()
 @Module({
-  providers: [AlertLogger, ConsoleChannel, TelegramChannel],
+  providers: [
+    AlertLogger,
+    ConsoleChannel,
+    /* A factory, not the class: its constructor takes test seams (env, fetch,
+     * sleep) that Nest must not try to resolve as providers. */
+    { provide: TelegramChannel, useFactory: () => new TelegramChannel() },
+  ],
   exports: [AlertLogger],
 })
 export class AlertModule implements OnModuleInit {

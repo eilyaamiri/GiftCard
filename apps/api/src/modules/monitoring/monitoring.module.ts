@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { prisma } from '@barat/database';
 
+import { AppConfigModule } from '../../common/config';
 import { FxModule } from '../fx/fx.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
 import { MonitoringController } from './monitoring.controller';
@@ -19,7 +20,7 @@ import { MONITORING_DATABASE } from './monitoring.tokens';
  * dependencies so it can still answer when a domain module fails to boot.
  */
 @Module({
-  imports: [FxModule, SuppliersModule],
+  imports: [AppConfigModule, FxModule, SuppliersModule],
   controllers: [MonitoringController],
   providers: [
     MonitoringService,

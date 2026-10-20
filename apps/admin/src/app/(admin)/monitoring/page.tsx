@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Activity, AlertTriangle, CheckCircle2, Clock, Database, Server, XCircle, Zap } from "lucide-react";
 import { formatJalaliDate, toPersianDigits } from "@barat/ui";
+import { REPORT_ROLES } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import Link from "next/link";
 
@@ -50,6 +51,32 @@ const monitoringSchema = z.object({
       hasWorkItem: z.boolean(),
     })
   ),
+  /* Defaulted so an admin deployed ahead of the API still renders the rest. */
+  paymentGateways: z
+    .array(
+      z.object({
+        provider: z.string(),
+        status: z.enum(["HEALTHY", "DEGRADED", "OFFLINE", "UNKNOWN"]),
+        windowMinutes: z.number(),
+        calls: z.number(),
+        okCalls: z.number(),
+        declinedCalls: z.number(),
+        connectionFailures: z.number(),
+        lastOkAt: z.string().nullable(),
+        lastConnectionFailureAt: z.string().nullable(),
+      })
+    )
+    .default([]),
+  recentAlerts: z
+    .array(
+      z.object({
+        severity: z.string(),
+        source: z.string(),
+        message: z.string(),
+        at: z.string(),
+      })
+    )
+    .default([]),
   generatedAt: z.string(),
 });
 
@@ -75,7 +102,7 @@ async function fetchMonitoring(): Promise<MonitoringSnapshot | null> {
 }
 
 export default async function MonitoringPage() {
-  await requireRole(["ADMIN", "MANAGEMENT", "FINANCE"]);
+  await requireRole(REPORT_ROLES);
   const snapshot = await fetchMonitoring();
 
   return (
@@ -109,6 +136,11 @@ export default async function MonitoringPage() {
           <div className="dashboard-grid report-grid">
             <FxProvidersPanel providers={snapshot.fxProviders} />
             <SuppliersPanel suppliers={snapshot.suppliers} />
+          </div>
+
+          <div className="dashboard-grid report-grid">
+            <PaymentGatewaysPanel gateways={snapshot.paymentGateways} />
+            <RecentAlertsPanel alerts={snapshot.recentAlerts} />
           </div>
 
           {/* Stuck Orders */}
@@ -334,6 +366,107 @@ function StuckOrdersPanel({ orders }: { orders: MonitoringSnapshot["stuckOrders"
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+function PaymentGatewaysPanel({ gateways }: { gateways: MonitoringSnapshot["paymentGateways"] }) {
+  return (
+    <section className="card panel">
+      <div className="panel-heading">
+        <div>
+          <h2 className="panel-title">وضعیت درگاه‌های پرداخت</h2>
+          <p className="panel-caption">
+            از روی تلاش‌های پرداخت یک ساعت اخیر؛ درگاه هرگز مستقیم تست نمی‌شود. پرداخت ردشده خطای درگاه نیست.
+          </p>
+        </div>
+      </div>
+      {gateways.length === 0 ? (
+        <p className="empty-hint">در یک ساعت اخیر تراکنشی با درگاه انجام نشده است؛ وضعیتی برای گزارش نیست.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>درگاه</th>
+                <th>وضعیت</th>
+                <th>موفق / کل</th>
+                <th>خطای اتصال</th>
+                <th>آخرین موفقیت</th>
+              </tr>
+            </thead>
+            <tbody>
+              {gateways.map((g) => (
+                <tr key={g.provider}>
+                  <td>{g.provider}</td>
+                  <td><StatusBadge status={g.status} /></td>
+                  <td>{toPersianDigits(g.okCalls)} / {toPersianDigits(g.calls)}</td>
+                  <td>{toPersianDigits(g.connectionFailures)}</td>
+                  <td className="bp-ltr">{g.lastOkAt ? formatJalaliDate(g.lastOkAt) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const ALERT_SEVERITY_STYLE: Record<string, { color: string; bg: string; label: string }> = {
+  CRITICAL: { color: "#d94a4a", bg: "#fdeceb", label: "بحرانی" },
+  ERROR: { color: "#d94a4a", bg: "#fdeceb", label: "خطا" },
+  WARNING: { color: "#d98324", bg: "#fdf1e3", label: "هشدار" },
+  INFO: { color: "#18a66a", bg: "#e7f7f0", label: "اطلاع" },
+};
+
+function RecentAlertsPanel({ alerts }: { alerts: MonitoringSnapshot["recentAlerts"] }) {
+  return (
+    <section className="card panel">
+      <div className="panel-heading">
+        <div>
+          <h2 className="panel-title">هشدارهای اخیر</h2>
+          <p className="panel-caption">
+            ۲۰ هشدار آخر. فقط خطا و بحرانی به تلگرام می‌رود. با ری‌استارت سرور پاک می‌شود.
+          </p>
+        </div>
+      </div>
+      {alerts.length === 0 ? (
+        <p className="empty-hint">از آخرین راه‌اندازی سرور هشداری ثبت نشده است.</p>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>زمان</th>
+                <th>سطح</th>
+                <th>منبع</th>
+                <th>پیام</th>
+              </tr>
+            </thead>
+            <tbody>
+              {alerts.map((a, index) => {
+                const style = ALERT_SEVERITY_STYLE[a.severity] ?? { color: "#6b7280", bg: "#f3f4f6", label: a.severity };
+                return (
+                  <tr key={`${a.at}-${index}`}>
+                    <td className="bp-ltr">{formatJalaliDate(a.at)}</td>
+                    <td>
+                      <span
+                        className="status-badge"
+                        style={{ backgroundColor: style.bg, color: style.color, padding: "2px 8px", borderRadius: "4px", fontSize: "0.85em" }}
+                      >
+                        {style.label}
+                      </span>
+                    </td>
+                    <td>{a.source}</td>
+                    <td className="bp-ltr">{a.message}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }
