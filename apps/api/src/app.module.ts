@@ -51,6 +51,7 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { GiftCardRequestsModule } from './modules/gift-card-requests/gift-card-requests.module';
 import { KbModule } from './modules/kb/kb.module';
+import { MonitoringModule } from './modules/monitoring/monitoring.module';
 import { FinanceController } from './modules/finance/finance.controller';
 
 @Module({
@@ -98,6 +99,7 @@ import { FinanceController } from './modules/finance/finance.controller';
     SuppliersModule,
     GiftCardRequestsModule,
     KbModule,
+    MonitoringModule,
   ],
   /* The finance read model is a single Prisma query behind one route, so it has
    * no module of its own: a module here would need an entry in the frozen
