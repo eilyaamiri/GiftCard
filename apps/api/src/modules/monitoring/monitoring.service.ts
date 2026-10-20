@@ -266,8 +266,15 @@ export class MonitoringService implements OnApplicationBootstrap, OnApplicationS
    *
    * A probe already running is not stacked on: a slow supplier must not pile
    * cycles on top of each other, which would also multiply its rate-limit hits.
+   *
+   * `manual` is for the dashboard button. A manual probe refreshes the shown
+   * status but does not count a failure toward the offline streak. The
+   * Telegram page says ">5 min" because the streak assumes probes five minutes
+   * apart. Before this, two clicks a few seconds apart during a short blip
+   * reached the threshold and paged ops with a false "connection lost". A
+   * manual probe that succeeds still clears the streak, which is accurate.
    */
-  async probeSuppliers(): Promise<void> {
+  async probeSuppliers(options: { readonly manual?: boolean } = {}): Promise<void> {
     if (this.inFlight) {
       return;
     }
@@ -276,6 +283,9 @@ export class MonitoringService implements OnApplicationBootstrap, OnApplicationS
       for (const supplier of this.suppliers) {
         const snapshot = await this.probeOneSupplier(supplier);
         this.supplierSnapshots.set(supplier.key, snapshot);
+        if (options.manual === true && snapshot.status === 'OFFLINE') {
+          continue;
+        }
         this.reportProbe(snapshot);
       }
     } finally {

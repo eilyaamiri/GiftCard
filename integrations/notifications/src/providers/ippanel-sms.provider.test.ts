@@ -268,4 +268,35 @@ describe('send', () => {
       }
     }
   });
+
+  it('never forwards a vendor message that echoes the API key back', async () => {
+    const result = await provider(
+      new ScriptedHttpClient([
+        json({ meta: { status: false, message: `invalid token: ${API_KEY}` } }, 401),
+      ]),
+    ).send(MESSAGE);
+
+    expect(result).toMatchObject({ success: false, failureCode: 'HTTP_401' });
+    expect(result.failureMessage).toBe('IPPanel rejected the request');
+    expect(JSON.stringify(result)).not.toContain(API_KEY);
+  });
+
+  it('strips line breaks so a vendor message cannot forge log lines', async () => {
+    const result = await provider(
+      new ScriptedHttpClient([
+        json({ meta: { status: false, message: 'bad pattern\r\n[ERROR] forged line' } }, 400),
+      ]),
+    ).send(MESSAGE);
+
+    expect(result.failureMessage).toBe('bad pattern [ERROR] forged line');
+    expect(result.failureMessage).not.toMatch(/[\r\n]/u);
+  });
+
+  it('caps a vendor message at a reason-sized length', async () => {
+    const result = await provider(
+      new ScriptedHttpClient([json({ meta: { status: false, message: 'x'.repeat(5_000) } }, 400)]),
+    ).send(MESSAGE);
+
+    expect(result.failureMessage).toHaveLength(200);
+  });
 });

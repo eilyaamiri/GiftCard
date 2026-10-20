@@ -94,7 +94,11 @@ describe('FX module wiring', () => {
         repository,
         { staleThresholdSeconds: 900 },
         undefined,
-        clock,
+        /* The Nobitex adapter stamps readings with the real clock, so the
+         * aggregator must use the same clock, as it does in production. With
+         * the fixed August clock the reading would be weeks in the future and
+         * is now (correctly) refused as future-dated. */
+        { now: () => new Date() },
       );
 
       const snapshot = await service.getRateSnapshot(PAIR);

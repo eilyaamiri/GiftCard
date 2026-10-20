@@ -36,7 +36,7 @@ vi.hoisted(() => {
 
 import { AppModule } from '../../app.module';
 import { ROLES_METADATA_KEY } from '../identity/rbac/roles.decorator';
-import { FinanceController } from './finance.controller';
+import { FinanceController, refundQuerySchema } from './finance.controller';
 
 describe('FinanceController wiring', () => {
   /**
@@ -128,5 +128,21 @@ describe('FinanceController wiring', () => {
       | string[]
       | undefined;
     expect(roles).toEqual(expect.arrayContaining(['ADMIN', 'MANAGEMENT', 'FINANCE']));
+  });
+
+  /*
+   * The bare `\d{4}-\d{2}-\d{2}` pattern let `2026-13-45` through. It became an
+   * Invalid Date, reached Prisma, and returned a 500 instead of a 400.
+   */
+  it('rejects impossible calendar dates before any query runs', () => {
+    expect(refundQuerySchema.safeParse({ from: '2026-13-45', to: '2026-10-01' }).success).toBe(false);
+    expect(refundQuerySchema.safeParse({ from: '2026-02-30', to: '2026-03-01' }).success).toBe(false);
+    expect(refundQuerySchema.safeParse({ from: '2026-10-01', to: '2026-10-32' }).success).toBe(false);
+  });
+
+  it('rejects a reversed range and accepts a valid one, including a leap day', () => {
+    expect(refundQuerySchema.safeParse({ from: '2026-10-31', to: '2026-10-01' }).success).toBe(false);
+    expect(refundQuerySchema.safeParse({ from: '2026-10-01', to: '2026-10-01' }).success).toBe(true);
+    expect(refundQuerySchema.safeParse({ from: '2028-02-29', to: '2028-03-01' }).success).toBe(true);
   });
 });

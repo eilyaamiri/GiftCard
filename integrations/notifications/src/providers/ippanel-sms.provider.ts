@@ -173,7 +173,8 @@ export class IppanelSmsProvider implements SmsProvider {
           /* The vendor's own reason is useful operationally, but it is their
            * text about our request: if it quotes the code back, that must not
            * travel on into a log (AGENTS.md rule 10). */
-          failureMessage: redact(readMessage(payload), code) ?? 'IPPanel rejected the request',
+          failureMessage:
+            redact(readMessage(payload), [code, this.apiKey]) ?? 'IPPanel rejected the request',
           sentAt,
         };
       }
@@ -214,10 +215,25 @@ function toE164(value: string): string | null {
   return null;
 }
 
-/** Drops a vendor message that quotes the code rather than trying to scrub it. */
-function redact(message: string | null, code: string): string | null {
+/** Long enough for any real vendor reason; short enough to never carry a body. */
+const MAX_VENDOR_MESSAGE_LENGTH = 200;
+
+/**
+ * Drops a vendor message that quotes a secret back, rather than trying to
+ * scrub it. The secrets are the OTP code and our API key; an auth error that
+ * echoes the rejected key would otherwise carry the key into the result.
+ * Control characters (CR/LF) are stripped so the text cannot forge log
+ * lines, and the length is capped: it is a reason, not a response body.
+ */
+function redact(message: string | null, secrets: readonly string[]): string | null {
   if (message === null) return null;
-  return message.includes(code) ? 'IPPanel rejected the request' : message;
+  if (secrets.some((secret) => secret !== '' && message.includes(secret))) {
+    return 'IPPanel rejected the request';
+  }
+  // eslint-disable-next-line no-control-regex -- stripping control characters is the point
+  const clean = message.replace(/[\u0000-\u001f\u007f]+/gu, ' ').trim();
+  if (clean === '') return null;
+  return clean.length > MAX_VENDOR_MESSAGE_LENGTH ? clean.slice(0, MAX_VENDOR_MESSAGE_LENGTH) : clean;
 }
 
 function readMessage(payload: unknown): string | null {
