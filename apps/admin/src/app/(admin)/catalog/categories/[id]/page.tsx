@@ -15,7 +15,7 @@ export default async function CategoryDetailPage({ params }: { params: Promise<{
 
   let category;
   try {
-    category = await api.get(`/api/admin/catalog/categories/${id}`, adminCategorySchema);
+    category = await api.get(`/api/admin/catalog/categories/${encodeURIComponent(id)}`, adminCategorySchema);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;

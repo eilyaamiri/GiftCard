@@ -14,7 +14,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
 
   let supplier;
   try {
-    supplier = await api.get(`/api/admin/catalog/suppliers/${id}`, adminSupplierDetailSchema);
+    supplier = await api.get(`/api/admin/catalog/suppliers/${encodeURIComponent(id)}`, adminSupplierDetailSchema);
   } catch (error) {
     if (error instanceof ApiClientError && error.status === 404) notFound();
     throw error;

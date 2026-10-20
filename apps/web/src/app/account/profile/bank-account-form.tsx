@@ -212,7 +212,7 @@ export function BankAccountForm({ profile }: { profile: AccountProfile }) {
       ) : null}
 
       {editing ? (
-        <form onSubmit={submit} noValidate>
+        <form method="post" onSubmit={submit} noValidate>
           {stored ? (
             <FormMessage tone="hint">
               فقط شماره‌ای را که می‌خواهید تغییر دهید وارد کنید؛ شمارهٔ دیگر دست‌نخورده می‌ماند.

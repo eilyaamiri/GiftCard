@@ -132,7 +132,7 @@ function LoginForm() {
                 <div className="alert warn" style={{ marginBlockEnd: 14 }}>نشست شما پایان یافته است. برای ادامه دوباره وارد شوید.</div>
               ) : null}
 
-              <form className="auth-form" onSubmit={submit} noValidate>
+              <form className="auth-form" method="post" onSubmit={submit} noValidate>
                 <div className="field">
                   <Label htmlFor="identifier" required>شماره موبایل یا ایمیل</Label>
                   <Input

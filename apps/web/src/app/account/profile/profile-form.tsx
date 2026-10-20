@@ -39,7 +39,7 @@ export function ProfileForm({ profile }: { profile: AccountProfile }) {
   }
 
   return (
-    <form className="card pad" onSubmit={submit} noValidate>
+    <form className="card pad" method="post" onSubmit={submit} noValidate>
       <div className="field">
         <Label htmlFor="firstName" required>نام</Label>
         <Input id="firstName" name="firstName" autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} invalid={Boolean(error) && !firstName.trim()} />

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ChevronDown, MessageCircleQuestion } from "lucide-react";
+import { jsonForInlineScript } from "@barat/ui";
 import type { FaqEntry } from "@/lib/faq";
 
 /**
@@ -86,9 +87,11 @@ export function FaqSection({
         </div>
       </div>
 
+      {/* The entries are admin-edited text: plain JSON.stringify would let an
+          answer containing `</script>` close this element and run as script. */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+        dangerouslySetInnerHTML={{ __html: jsonForInlineScript(structuredData) }}
       />
     </section>
   );

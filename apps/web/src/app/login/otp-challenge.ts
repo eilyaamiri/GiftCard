@@ -1,4 +1,5 @@
 import type { IdentityType } from "@barat/contracts";
+import { resolvedPathname, sameOriginPath } from "@barat/ui";
 
 /**
  * The handoff between /login and /otp.
@@ -37,7 +38,9 @@ export function readChallenge(): OtpChallenge | null {
     if (typeof parsed !== "object" || parsed === null) return null;
     const value = parsed as Partial<OtpChallenge>;
     if (typeof value.challengeId !== "string" || typeof value.identifier !== "string") return null;
-    return value as OtpChallenge;
+    /* `next` is navigated to after verify; it is re-checked on the way out of
+     * storage rather than trusted because this module once wrote it. */
+    return { ...(value as OtpChallenge), next: safeNextPath(typeof value.next === "string" ? value.next : null) };
   } catch {
     return null;
   }
@@ -48,13 +51,16 @@ export function clearChallenge(): void {
 }
 
 /**
- * Only a same-origin path may be followed after login. `//evil.example` and any
- * absolute URL are rejected, which is what keeps `?next=` from being an open
- * redirect.
+ * Only a same-origin path may be followed after login. `//evil.example`, any
+ * absolute URL, and the forms a URL parser rewrites into one (`/\evil.example`,
+ * `/<TAB>/evil.example`) are rejected, which is what keeps `?next=` from being
+ * an open redirect.
  */
 export function safeNextPath(candidate: string | null | undefined, fallback = "/account"): string {
-  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) return fallback;
+  const path = sameOriginPath(candidate);
+  if (path === null) return fallback;
   // Landing back on the sign-in flow after signing in is a loop, not a destination.
-  if (candidate.startsWith("/login") || candidate.startsWith("/otp")) return fallback;
-  return candidate;
+  const pathname = resolvedPathname(path);
+  if (pathname.startsWith("/login") || pathname.startsWith("/otp")) return fallback;
+  return path;
 }

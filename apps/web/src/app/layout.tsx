@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { vazirmatn } from "@barat/ui/fonts";
+import { jsonForInlineScript } from "@barat/ui";
 import { Providers } from "./providers";
 import { getSession } from "@/lib/session";
 import { getSupportChannels } from "@/lib/support-channels";
@@ -50,7 +51,7 @@ export const viewport: Viewport = {
 /* Organization + WebSite, so search engines can tie the domain to the brand
  * name in both scripts. Built from constants only — nothing user-supplied is
  * ever interpolated into this script tag. */
-const STRUCTURED_DATA = JSON.stringify([
+const STRUCTURED_DATA = jsonForInlineScript([
   {
     "@context": "https://schema.org",
     "@type": "Organization",
