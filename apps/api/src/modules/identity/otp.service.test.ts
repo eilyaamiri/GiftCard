@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
+/* argon2 stays real; `verify` is wrapped only so the race tests can count how
+ * many guesses actually reached a comparison. */
+vi.mock('argon2', async (importOriginal) => {
+  const actual = await importOriginal<typeof argon2>();
+  return { ...actual, verify: vi.fn(actual.verify) };
+});
+
+import * as argon2 from 'argon2';
+
 import { BaratDomainException } from '../../common/errors/domain.exception';
 import { OtpService, IDENTITY_CONFLICT_FLAG } from './otp.service';
 import type { IdentityDatabase } from './identity.tokens';
@@ -257,6 +266,58 @@ class FakeIdentityDatabase {
     },
   };
 
+  /* ------------------------------------------------- transactions and locks */
+
+  /** Keys currently held by `pg_advisory_xact_lock`, with their waiters. */
+  private readonly advisoryLocks = new Map<string, Array<() => void>>();
+  readonly lockKeysTaken: string[] = [];
+
+  /**
+   * Interactive transaction. Writes are not rolled back (no test needs it), but
+   * advisory locks taken inside are released when the callback settles, exactly
+   * like a transaction-scoped Postgres lock.
+   */
+  readonly $transaction = async (callback: (tx: unknown) => Promise<unknown>): Promise<unknown> => {
+    const held: string[] = [];
+    const tx = Object.create(this) as this & { $executeRaw: unknown };
+    Object.defineProperty(tx, '$executeRaw', {
+      value: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+        if (!strings.join('?').includes('pg_advisory_xact_lock')) {
+          throw new Error('unexpected raw SQL in OTP fake');
+        }
+        const key = String(values[0]);
+        await this.acquire(key);
+        held.push(key);
+        this.lockKeysTaken.push(key);
+        return 1;
+      },
+    });
+    try {
+      return await callback(tx);
+    } finally {
+      for (const key of held) this.release(key);
+    }
+  };
+
+  private async acquire(key: string): Promise<void> {
+    const waiters = this.advisoryLocks.get(key);
+    if (waiters === undefined) {
+      this.advisoryLocks.set(key, []);
+      return;
+    }
+    await new Promise<void>((resolve) => waiters.push(resolve));
+  }
+
+  private release(key: string): void {
+    const waiters = this.advisoryLocks.get(key);
+    const next = waiters?.shift();
+    if (next) {
+      next();
+    } else {
+      this.advisoryLocks.delete(key);
+    }
+  }
+
   /* ------------------------------------------------------------- internals */
 
   private assertIdentityFree(type: string, valueNormalized: string): void {
@@ -295,6 +356,24 @@ class FakeIdentityDatabase {
       return false;
     }
     if (where.attempts?.lt !== undefined && challenge.attempts >= where.attempts.lt) {
+      return false;
+    }
+    if (where.attempts?.lte !== undefined && challenge.attempts > where.attempts.lte) {
+      return false;
+    }
+    if (where.attempts?.gte !== undefined && challenge.attempts < where.attempts.gte) {
+      return false;
+    }
+    if (where.lockedUntil === null && challenge.lockedUntil !== null) {
+      return false;
+    }
+    if (
+      where.lockedUntil?.lte !== undefined &&
+      (challenge.lockedUntil === null || challenge.lockedUntil > where.lockedUntil.lte)
+    ) {
+      return false;
+    }
+    if (Array.isArray(where.OR) && !where.OR.some((branch: any) => this.challengeMatches(challenge, branch))) {
       return false;
     }
     return true;
@@ -713,5 +792,178 @@ describe('identity conflict', () => {
       ),
     ).rejects.toThrow(BaratDomainException);
     expect(rig.database.customers).toHaveLength(0);
+  });
+});
+
+describe('OTP races (parallel requests)', () => {
+  const request = { identityType: 'MOBILE', identifier: MOBILE, purpose: 'LOGIN' } as never;
+
+  it('a burst of parallel wrong guesses is bounded by maxAttempts, not by the burst size', async () => {
+    const rig = buildHarness({ maxAttempts: 3 });
+    const requested = await rig.service.requestOtp(request, context);
+    const code = rig.sentCodes[0]!;
+    const wrong = code === '000000' ? '111111' : '000000';
+    const verify = vi.mocked(argon2.verify);
+    verify.mockClear();
+
+    /* All twenty read the challenge before any of them writes: the exact
+     * interleaving that used to give an attacker twenty comparisons. */
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () =>
+        rig.service.verifyOtp({ challengeId: requested.challengeId, code: wrong } as never, context),
+      ),
+    );
+
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(verify.mock.calls.length).toBeLessThanOrEqual(3);
+    expect(rig.database.challenges[0]!.attempts).toBe(3);
+    expect(rig.database.challenges[0]!.lockedUntil).not.toBeNull();
+  });
+
+  it('the correct code inside a parallel burst cannot be reached once the budget is spent', async () => {
+    const rig = buildHarness({ maxAttempts: 3 });
+    const requested = await rig.service.requestOtp(request, context);
+    const code = rig.sentCodes[0]!;
+    const wrong = code === '000000' ? '111111' : '000000';
+
+    const guesses = [...Array.from({ length: 3 }, () => wrong), code];
+    await Promise.allSettled(
+      guesses.map((guess) =>
+        rig.service.verifyOtp({ challengeId: requested.challengeId, code: guess } as never, context),
+      ),
+    );
+
+    /* Three reservations were taken by the wrong guesses (they were issued
+     * first), so the fourth request — the right code — never got a comparison. */
+    expect(rig.sessions.createSession).not.toHaveBeenCalled();
+    expect(rig.database.challenges[0]!.attempts).toBe(3);
+  });
+
+  it('the last attempt in the budget still succeeds with the right code', async () => {
+    const rig = buildHarness({ maxAttempts: 3 });
+    const requested = await rig.service.requestOtp(request, context);
+    const code = rig.sentCodes[0]!;
+    const wrong = code === '000000' ? '111111' : '000000';
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(
+        rig.service.verifyOtp({ challengeId: requested.challengeId, code: wrong } as never, context),
+      ).rejects.toThrow(BaratDomainException);
+    }
+    const result = await rig.service.verifyOtp(
+      { challengeId: requested.challengeId, code } as never,
+      context,
+    );
+
+    expect(result.accessToken).toBeDefined();
+    expect(rig.database.challenges[0]!.lockedUntil).toBeNull();
+    expect(rig.database.challenges[0]!.consumedAt).not.toBeNull();
+  });
+
+  it('parallel code requests for one number send exactly one SMS inside the cooldown', async () => {
+    const rig = buildHarness({ resendSeconds: 60, maxRequestsPerHour: 5 });
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, () => rig.service.requestOtp(request, context)),
+    );
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(rig.database.challenges).toHaveLength(1);
+    expect(rig.sms.send).toHaveBeenCalledTimes(1);
+    /* Every issuance took the per-identifier lock. */
+    expect(new Set(rig.database.lockKeysTaken)).toEqual(new Set([`otp-issue:MOBILE:${NORMALIZED}`]));
+  });
+
+  it('parallel code requests cannot exceed the hourly cap', async () => {
+    const rig = buildHarness({ resendSeconds: 0, maxRequestsPerHour: 3 });
+
+    await Promise.allSettled(Array.from({ length: 10 }, () => rig.service.requestOtp(request, context)));
+
+    expect(rig.database.challenges).toHaveLength(3);
+    expect(rig.sms.send).toHaveBeenCalledTimes(3);
+  });
+
+  it('requests for different numbers do not contend for the same lock', async () => {
+    const rig = buildHarness({ resendSeconds: 60 });
+
+    const results = await Promise.allSettled([
+      rig.service.requestOtp(request, context),
+      rig.service.requestOtp(
+        { identityType: 'MOBILE', identifier: '09351234567', purpose: 'LOGIN' } as never,
+        context,
+      ),
+    ]);
+
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(rig.database.challenges).toHaveLength(2);
+  });
+});
+
+describe('unverified identities are not login credentials', () => {
+  it('a stranger who receives the code for an e-mail another account typed in does not get that account', async () => {
+    const rig = buildHarness();
+    /* Customer A put victim@example.com on A's own account through the profile
+     * form, which stores it unverified. */
+    const squatter = rig.database.seedCustomer();
+    rig.database.seedIdentity(squatter.id, 'MOBILE', NORMALIZED);
+    rig.database.seedIdentity(squatter.id, 'EMAIL', 'victim@example.com', false);
+
+    /* The real owner of the mailbox signs in by e-mail, anonymously. */
+    const requested = await rig.service.requestOtp(
+      { identityType: 'EMAIL', identifier: 'victim@example.com', purpose: 'LOGIN' } as never,
+      context,
+    );
+
+    await expect(
+      rig.service.verifyOtp(
+        { challengeId: requested.challengeId, code: rig.sentCodes[0]! } as never,
+        context,
+      ),
+    ).rejects.toThrow(BaratDomainException);
+
+    expect(rig.sessions.createSession).not.toHaveBeenCalled();
+    const email = rig.database.identities.find((identity) => identity.type === 'EMAIL');
+    expect(email!.isVerified).toBe(false);
+    expect(rig.auditRecords).toContainEqual(
+      expect.objectContaining({ action: 'OTP_UNVERIFIED_IDENTITY_LOGIN_REFUSED', entityId: squatter.id }),
+    );
+  });
+
+  it('the signed-in owner can still verify their own unverified e-mail', async () => {
+    const rig = buildHarness();
+    const owner = rig.database.seedCustomer();
+    rig.database.seedIdentity(owner.id, 'MOBILE', NORMALIZED);
+    rig.database.seedIdentity(owner.id, 'EMAIL', 'me@example.com', false);
+    const authenticated = { ...context, customerId: owner.id };
+
+    const requested = await rig.service.requestOtp(
+      { identityType: 'EMAIL', identifier: 'me@example.com', purpose: 'VERIFY_EMAIL' } as never,
+      authenticated,
+    );
+    const result = await rig.service.verifyOtp(
+      { challengeId: requested.challengeId, code: rig.sentCodes[0]! } as never,
+      authenticated,
+    );
+
+    expect(result.isNewCustomer).toBe(false);
+    const email = rig.database.identities.find((identity) => identity.type === 'EMAIL');
+    expect(email!.isVerified).toBe(true);
+  });
+
+  it('a verified identity still signs its owner in anonymously, as before', async () => {
+    const rig = buildHarness();
+    const owner = rig.database.seedCustomer();
+    rig.database.seedIdentity(owner.id, 'EMAIL', 'me@example.com', true);
+
+    const requested = await rig.service.requestOtp(
+      { identityType: 'EMAIL', identifier: 'me@example.com', purpose: 'LOGIN' } as never,
+      context,
+    );
+    await rig.service.verifyOtp(
+      { challengeId: requested.challengeId, code: rig.sentCodes[0]! } as never,
+      context,
+    );
+
+    expect(rig.sessions.createSession).toHaveBeenCalledWith(owner.id, expect.anything());
   });
 });

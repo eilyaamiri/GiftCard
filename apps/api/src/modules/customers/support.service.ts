@@ -148,7 +148,7 @@ export class SupportService {
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
-    return toDto(row);
+    return toCustomerDto(row);
   }
 
   async list(customerId: string): Promise<readonly SupportTicketDto[]> {
@@ -158,7 +158,7 @@ export class SupportService {
       take: 100,
       include: TICKET_INCLUDE,
     });
-    return rows.map(toDto);
+    return rows.map(toCustomerDto);
   }
 
   async listAll(): Promise<readonly SupportTicketDto[]> {
@@ -182,7 +182,7 @@ export class SupportService {
       include: TICKET_INCLUDE,
     });
     if (row === null) throw DomainErrors.notFound(`support ticket ${ticketId}`);
-    return toDto(row);
+    return toCustomerDto(row);
   }
 
   async replyAsCustomer(
@@ -221,7 +221,7 @@ export class SupportService {
       ip: actor.ip,
       userAgent: actor.userAgent,
     });
-    return toDto(row);
+    return toCustomerDto(row);
   }
 
   async replyAsStaff(
@@ -313,6 +313,20 @@ export class SupportService {
     });
     return toDto(row);
   }
+}
+
+/**
+ * The customer's view of their own ticket.
+ *
+ * The staff projection carries back-office data a customer has no use for:
+ * internal staff ids and the ownership history (which managers reassigned the
+ * ticket to whom, by full name, and why). The storefront renders neither — it
+ * shows only `ownerStaffName` and the message authors — so they are dropped
+ * here rather than handed to every customer's browser. The shape is unchanged
+ * (`null` / empty list) so the web client's schema still parses it.
+ */
+function toCustomerDto(row: TicketRow): SupportTicketDto {
+  return { ...toDto(row), ownerStaffId: null, ownershipHistory: [] };
 }
 
 function customerName(row: TicketRow): string | null {

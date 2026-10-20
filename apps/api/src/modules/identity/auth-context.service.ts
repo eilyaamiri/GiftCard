@@ -89,7 +89,17 @@ export function readCookie(request: ActorRequest, name: string): string | null {
       continue;
     }
     const value = part.slice(separator + 1).trim();
-    return value === '' ? null : decodeURIComponent(value);
+    if (value === '') {
+      return null;
+    }
+    /* A malformed escape (`%E0%A4%A`) makes decodeURIComponent throw a URIError,
+     * which inside a guard surfaced as a 500 on any route. A cookie that cannot
+     * be decoded is not a credential: treat it as absent. */
+    try {
+      return decodeURIComponent(value);
+    } catch {
+      return null;
+    }
   }
 
   return null;

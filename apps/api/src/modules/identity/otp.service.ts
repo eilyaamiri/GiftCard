@@ -42,6 +42,14 @@ const LOCKOUT_SECONDS = 60 * 60;
 
 export const IDENTITY_CONFLICT_FLAG = 'IDENTITY_CONFLICT';
 
+/**
+ * Advisory-lock key for OTP issuance to one identifier. Only ever passed to
+ * `hashtext()` as a bound parameter; the raw identifier is not logged.
+ */
+export function otpLockKey(identityType: IdentityType, normalized: string): string {
+  return `otp-issue:${identityType}:${normalized}`;
+}
+
 export interface OtpRequestContext extends IdentityActor {
   /** Set when the caller already holds a session (adding a second identifier). */
   readonly customerId?: string | null;
@@ -93,15 +101,12 @@ export class OtpService implements OnModuleInit {
   ): Promise<RequestOtpResponse> {
     const normalized = normalizeIdentity(input.identityType, input.identifier);
     const policy = this.config.otp;
-    const now = new Date();
 
-    await this.enforceHourlyLimit(input.identityType, normalized, now, policy.maxRequestsPerHour);
-    const requestCount = await this.enforceResendCooldown(
-      input.identityType,
-      normalized,
-      now,
-      policy.resendSeconds,
-    );
+    /* Cheap pre-check outside any lock, so an over-limit caller is turned away
+     * before an argon2 hash is spent on them. It is advisory only: the same two
+     * checks are repeated below under the per-identifier lock, which is what
+     * actually holds when requests arrive in parallel. */
+    await this.enforceIssuanceLimits(this.database, input.identityType, normalized, new Date());
 
     /* On a demo deployment with no SMS gateway the operator can pin the code.
      * This replaces the source of randomness and nothing else: the value below
@@ -109,22 +114,37 @@ export class OtpService implements OnModuleInit {
      * random one would be, so the verify path has no idea which it got. */
     const code = this.config.otpDevFixedCode ?? generateOtp(policy.length);
     const codeHash = await argon2.hash(code, { type: argon2.argon2id });
-    const expiresAt = new Date(now.getTime() + policy.ttlSeconds * 1000);
 
-    const challenge = await this.database.otpChallenge.create({
-      data: {
-        customerId: context.customerId ?? null,
-        identityType: input.identityType,
-        identityValueNormalized: normalized,
-        purpose: input.purpose,
-        codeHash,
-        maxAttempts: policy.maxAttempts,
-        requestCount,
-        expiresAt,
-        ip: context.ip,
-        userAgent: context.userAgent,
-      },
-      select: { id: true },
+    /* Check-then-create was a race: N parallel requests for one number all saw
+     * "no challenge in the cooldown window" and each sent an SMS, so both the
+     * resend cooldown and the hourly cap could be bypassed (SMS bombing of a
+     * victim's phone, at our cost). The check and the insert now run in one
+     * transaction holding a transaction-scoped advisory lock keyed by the
+     * identifier, so requests for the same number are serialised and the
+     * second one sees the first one's row. Different numbers never contend. */
+    const { challenge, expiresAt } = await this.database.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${otpLockKey(input.identityType, normalized)}))`;
+
+      const now = new Date();
+      const requestCount = await this.enforceIssuanceLimits(tx, input.identityType, normalized, now);
+      const expires = new Date(now.getTime() + policy.ttlSeconds * 1000);
+
+      const created = await tx.otpChallenge.create({
+        data: {
+          customerId: context.customerId ?? null,
+          identityType: input.identityType,
+          identityValueNormalized: normalized,
+          purpose: input.purpose,
+          codeHash,
+          maxAttempts: policy.maxAttempts,
+          requestCount,
+          expiresAt: expires,
+          ip: context.ip,
+          userAgent: context.userAgent,
+        },
+        select: { id: true },
+      });
+      return { challenge: created, expiresAt: expires };
     });
 
     await this.deliver(input.identityType, normalized, code);
@@ -152,14 +172,31 @@ export class OtpService implements OnModuleInit {
     };
   }
 
+  /**
+   * Hourly cap, then resend cooldown. Returns the request counter to store on
+   * the new challenge. Runs against whichever client it is given so the same
+   * rules apply to the unlocked pre-check and the locked re-check.
+   */
+  private async enforceIssuanceLimits(
+    database: Pick<IdentityDatabase, 'otpChallenge'>,
+    identityType: IdentityType,
+    normalized: string,
+    now: Date,
+  ): Promise<number> {
+    const policy = this.config.otp;
+    await this.enforceHourlyLimit(database, identityType, normalized, now, policy.maxRequestsPerHour);
+    return this.enforceResendCooldown(database, identityType, normalized, now, policy.resendSeconds);
+  }
+
   private async enforceHourlyLimit(
+    database: Pick<IdentityDatabase, 'otpChallenge'>,
     identityType: IdentityType,
     normalized: string,
     now: Date,
     maxRequestsPerHour: number,
   ): Promise<void> {
     const windowStart = new Date(now.getTime() - 60 * 60 * 1000);
-    const issued = await this.database.otpChallenge.count({
+    const issued = await database.otpChallenge.count({
       where: {
         identityType,
         identityValueNormalized: normalized,
@@ -177,12 +214,13 @@ export class OtpService implements OnModuleInit {
 
   /** Returns the request counter to store on the new challenge. */
   private async enforceResendCooldown(
+    database: Pick<IdentityDatabase, 'otpChallenge'>,
     identityType: IdentityType,
     normalized: string,
     now: Date,
     resendSeconds: number,
   ): Promise<number> {
-    const latest = await this.database.otpChallenge.findFirst({
+    const latest = await database.otpChallenge.findFirst({
       where: { identityType, identityValueNormalized: normalized },
       orderBy: { createdAt: 'desc' },
       select: { createdAt: true, requestCount: true },
@@ -289,21 +327,42 @@ export class OtpService implements OnModuleInit {
       throw DomainErrors.conflict(GENERIC_OTP_FAILURE, 'OTP challenge is not usable');
     }
 
-    const matches = await argon2.verify(challenge.codeHash, input.code).catch(() => false);
-
-    if (!matches) {
-      await this.registerFailedAttempt(challenge.id, challenge.attempts, challenge.maxAttempts, now);
-      throw DomainErrors.conflict(GENERIC_OTP_FAILURE, 'OTP code mismatch');
-    }
-
-    /* Single use: consumption is a conditional update, so two concurrent
-     * verifications of the same code cannot both succeed. */
-    const consumed = await this.database.otpChallenge.updateMany({
+    /* Reserve one attempt BEFORE comparing. Previously every request read the
+     * same `attempts` value, ran argon2, and only incremented afterwards, so a
+     * burst of N parallel guesses was N comparisons against a budget of
+     * `maxAttempts` — the attempt cap did not bound guessing at all. Now the
+     * increment is a conditional update that only succeeds while budget is
+     * left; a request that cannot reserve never reaches the comparison. */
+    const reserved = await this.database.otpChallenge.updateMany({
       where: {
         id: challenge.id,
         consumedAt: null,
         expiresAt: { gt: now },
         attempts: { lt: challenge.maxAttempts },
+        OR: [{ lockedUntil: null }, { lockedUntil: { lte: now } }],
+      },
+      data: { attempts: { increment: 1 } },
+    });
+    if (reserved.count !== 1) {
+      throw DomainErrors.conflict(GENERIC_OTP_FAILURE, 'OTP attempt budget exhausted');
+    }
+
+    const matches = await argon2.verify(challenge.codeHash, input.code).catch(() => false);
+
+    if (!matches) {
+      await this.lockIfExhausted(challenge.id, challenge.maxAttempts, now);
+      throw DomainErrors.conflict(GENERIC_OTP_FAILURE, 'OTP code mismatch');
+    }
+
+    /* Single use: consumption is a conditional update, so two concurrent
+     * verifications of the same code cannot both succeed. The attempt this
+     * request reserved is already counted, hence `lte`. */
+    const consumed = await this.database.otpChallenge.updateMany({
+      where: {
+        id: challenge.id,
+        consumedAt: null,
+        expiresAt: { gt: now },
+        attempts: { lte: challenge.maxAttempts },
       },
       data: { consumedAt: now },
     });
@@ -348,19 +407,20 @@ export class OtpService implements OnModuleInit {
     };
   }
 
-  private async registerFailedAttempt(
-    challengeId: string,
-    attempts: number,
-    maxAttempts: number,
-    now: Date,
-  ): Promise<void> {
-    const exhausted = attempts + 1 >= maxAttempts;
+  /**
+   * After a wrong guess: if the reserved attempts have reached the budget, mark
+   * the challenge locked. The condition is evaluated by the database, so it is
+   * correct however many guesses were in flight at once.
+   */
+  private async lockIfExhausted(challengeId: string, maxAttempts: number, now: Date): Promise<void> {
     await this.database.otpChallenge.updateMany({
-      where: { id: challengeId, consumedAt: null, attempts: { lt: maxAttempts } },
-      data: {
-        attempts: { increment: 1 },
-        ...(exhausted ? { lockedUntil: new Date(now.getTime() + LOCKOUT_SECONDS * 1000) } : {}),
+      where: {
+        id: challengeId,
+        consumedAt: null,
+        lockedUntil: null,
+        attempts: { gte: maxAttempts },
       },
+      data: { lockedUntil: new Date(now.getTime() + LOCKOUT_SECONDS * 1000) },
     });
   }
 
@@ -400,6 +460,32 @@ export class OtpService implements OnModuleInit {
 
       await this.assertCustomerUsable(owner.customerId);
       if (!owner.isVerified) {
+        /* An unverified identity is one the account holder TYPED (the account
+         * e-mail form stores it unverified on purpose) — nobody has proved the
+         * account holder controls it. Receiving a code at that address proves
+         * the caller controls the address, not that they own the account. Left
+         * open, customer A could put victim B's e-mail on A's account, and B's
+         * first e-mail login would land B inside A's account, where A can read
+         * every gift-card code B buys. So an unverified identity may only be
+         * verified by its own signed-in owner; it is never a login credential
+         * for a stranger. (AccountService.updateEmail documents the same rule:
+         * "an unverified e-mail cannot be used to take over an account".) */
+        if (authenticatedCustomerId !== owner.customerId) {
+          await this.audit.record({
+            actor: 'anonymous',
+            actorType: 'ANONYMOUS',
+            action: 'OTP_UNVERIFIED_IDENTITY_LOGIN_REFUSED',
+            entity: 'Customer',
+            entityId: owner.customerId,
+            after: { identityType, purpose },
+            ip: actor.ip,
+            userAgent: actor.userAgent,
+          });
+          throw DomainErrors.conflict(
+            'این شناسه هنوز تأیید نشده است. لطفاً با شمارهٔ موبایل وارد شوید یا با پشتیبانی تماس بگیرید.',
+            'login through an unverified identity owned by another account refused',
+          );
+        }
         await this.database.customerIdentity.update({
           where: { id: owner.id },
           data: { isVerified: true, verifiedAt: new Date() },

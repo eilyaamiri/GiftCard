@@ -53,6 +53,43 @@ describe('deepRedact', () => {
       holderName: 'یکتا کریمی',
     });
   });
+
+  it('strips credentials whose names contain none of the original key parts', () => {
+    /* `apiKey`, `privateKey`, `Authorization`, `Cookie` and the gateway
+     * `authority` all passed through untouched before: none contains
+     * code/pin/otp/token/secret/password. */
+    const result = deepRedact({
+      apiKey: 'fc_live_abc',
+      supplier: { privateKey: '-----BEGIN', encryptionKey: 'k' },
+      headers: { Authorization: 'Bearer eyJ', Cookie: 'barat_session=eyJ' },
+      card: { cvv2: '123' },
+      passphrase: 'p',
+      encryptedPayload: 'v1.x.y.z',
+      authority: 'A000000000000000000000000000abcdef',
+      providerAuthority: 'A000000000000000000000000000abcdef',
+      jwt: 'eyJ',
+    });
+
+    expect(JSON.stringify(result)).not.toMatch(/fc_live_abc|BEGIN|eyJ|123|abcdef|v1\.x/u);
+  });
+
+  it('keeps hashed or descriptive neighbours of the exact-match keys readable', () => {
+    /* Payments deliberately audits `authorityHash` instead of the token; the
+     * exact match must not swallow it. */
+    const result = deepRedact({
+      authorityHash: 'f00d',
+      reason: 'unknown_authority',
+      ibanMasked: 'IR56017***************1234',
+      status: 'PAID',
+    });
+
+    expect(result).toEqual({
+      authorityHash: 'f00d',
+      reason: 'unknown_authority',
+      ibanMasked: 'IR56017***************1234',
+      status: 'PAID',
+    });
+  });
 });
 
 describe('AuditService', () => {

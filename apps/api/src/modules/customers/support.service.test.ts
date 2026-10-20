@@ -171,6 +171,42 @@ describe('SupportService customer scoping', () => {
       expect.objectContaining({ where: { id: 'ticket-1', workItem: { customerId: 'customer-a' } } }),
     );
   });
+
+  it("keeps internal staff ids and the reassignment history out of the customer's own view", async () => {
+    const row = ticketRow({
+      ownerStaffId: 'staff-2',
+      owner: { id: 'staff-2', fullName: 'کارشناس دوم' },
+      ownershipEvents: [
+        {
+          id: 'own-1',
+          previousStaff: { fullName: 'کارشناس اول' },
+          newStaff: { fullName: 'کارشناس دوم' },
+          changedBy: { fullName: 'مدیر عملیات' },
+          reason: 'STAFF_REPLY_TAKEOVER',
+          createdAt: new Date('2026-01-01T01:00:00.000Z'),
+        },
+      ],
+    });
+    const database = {
+      supportTicket: { findFirst: vi.fn(async () => row), findMany: vi.fn(async () => [row]) },
+    } as unknown as CustomersDatabase;
+    const service = new SupportService(database, { record: vi.fn() } as never);
+
+    for (const dto of [await service.getForCustomer('customer-a', 'ticket-1'), ...(await service.list('customer-a'))]) {
+      expect(dto.ownerStaffId).toBeNull();
+      expect(dto.ownershipHistory).toEqual([]);
+      /* What the storefront actually renders is still there. */
+      expect(dto.ownerStaffName).toBe('کارشناس دوم');
+      expect(JSON.stringify(dto)).not.toContain('staff-2');
+      expect(JSON.stringify(dto)).not.toContain('مدیر عملیات');
+    }
+
+    /* The staff view is unchanged. */
+    const staffDatabase = { supportTicket: { findUnique: vi.fn(async () => row) } } as unknown as CustomersDatabase;
+    const staffDto = await new SupportService(staffDatabase, { record: vi.fn() } as never).getForStaff('ticket-1');
+    expect(staffDto.ownerStaffId).toBe('staff-2');
+    expect(staffDto.ownershipHistory).toHaveLength(1);
+  });
 });
 
 describe('SupportService SLA flags', () => {
