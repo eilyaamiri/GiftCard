@@ -7,7 +7,10 @@ import { redactAlertContext } from '../alert-redact';
  * Telegram channel — sends alerts via Telegram bot API.
  *
  * - Sends only ERROR and CRITICAL by default
- * - Rate limits: max 1 alert per source per 30 seconds
+ * - Rate limits: max 1 message per INCIDENT (dedupKey) per 30 seconds.
+ *   Keyed by incident rather than by source: two suppliers failing within the
+ *   same half-minute are two pages, while one supplier re-reporting the same
+ *   failure is suppressed.
  * - Retry: 3 attempts with exponential backoff
  * - HTML-escapes all user-controlled text
  */
@@ -22,14 +25,18 @@ export class TelegramChannel implements AlertChannel {
   private readonly rateLimitSeconds: number;
   private readonly enabled: boolean;
 
-  /** Per-source last-send timestamps for rate limiting. */
+  /** Per-incident last-send timestamps for rate limiting. */
   private readonly lastSent = new Map<string, number>();
 
-  constructor() {
-    this.botToken = process.env['ALERT_TELEGRAM_BOT_TOKEN'];
-    this.chatId = process.env['ALERT_TELEGRAM_CHAT_ID'];
-    this.rateLimitSeconds = Number(process.env['ALERT_TELEGRAM_RATE_LIMIT_SECONDS'] ?? '30');
-    this.enabled = process.env['ALERT_TELEGRAM_ENABLED'] === 'true';
+  constructor(
+    env: Readonly<Record<string, string | undefined>> = process.env,
+    private readonly transport: typeof fetch = (...args) => fetch(...args),
+    private readonly wait: (ms: number) => Promise<void> = sleep,
+  ) {
+    this.botToken = env['ALERT_TELEGRAM_BOT_TOKEN'];
+    this.chatId = env['ALERT_TELEGRAM_CHAT_ID'];
+    this.rateLimitSeconds = Number(env['ALERT_TELEGRAM_RATE_LIMIT_SECONDS'] ?? '30');
+    this.enabled = env['ALERT_TELEGRAM_ENABLED'] === 'true';
 
     if (this.enabled && (!this.botToken || !this.chatId)) {
       this.logger.warn(
@@ -49,20 +56,35 @@ export class TelegramChannel implements AlertChannel {
       return;
     }
 
-    // Rate limiting per source
+    // Rate limiting per incident
     const now = Date.now();
-    const lastSentTime = this.lastSent.get(alert.source) ?? 0;
-    if (now - lastSentTime < this.rateLimitSeconds * 1000) {
-      this.logger.debug(`Rate limited: ${alert.source} (last sent ${now - lastSentTime}ms ago)`);
+    const windowMs = this.rateLimitSeconds * 1000;
+    const lastSentTime = this.lastSent.get(alert.dedupKey) ?? 0;
+    if (now - lastSentTime < windowMs) {
+      this.logger.debug(`Rate limited: ${alert.dedupKey}`);
       return;
     }
+    /* Claimed BEFORE the network call: two identical alerts raised in the same
+     * tick would otherwise both pass the check while the first is in flight. */
+    this.lastSent.set(alert.dedupKey, now);
+    this.prune(now, windowMs);
 
     // Format message for Telegram
     const message = this.formatTelegramMessage(alert);
 
     // Send with retry
     await this.sendWithRetry(message, 3);
-    this.lastSent.set(alert.source, now);
+  }
+
+  /**
+   * Keys carry order and supplier ids, so the map would grow forever on a long
+   * uptime. Anything older than the window can no longer suppress anything.
+   */
+  private prune(now: number, windowMs: number): void {
+    if (this.lastSent.size < 200) return;
+    for (const [key, at] of this.lastSent) {
+      if (now - at >= windowMs) this.lastSent.delete(key);
+    }
   }
 
   private formatTelegramMessage(alert: FormattedAlert): string {
@@ -100,7 +122,7 @@ export class TelegramChannel implements AlertChannel {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const url = `https://api.telegram.org/bot${this.botToken}/sendMessage`;
-        const response = await fetch(url, {
+        const response = await this.transport(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -112,21 +134,35 @@ export class TelegramChannel implements AlertChannel {
         });
 
         if (!response.ok) {
-          const body = await response.text();
-          throw new Error(`Telegram API error ${response.status}: ${body}`);
+          throw new TelegramHttpError(response.status);
         }
 
         return; // Success
       } catch (err) {
-        this.logger.warn(`Telegram send attempt ${attempt}/${maxAttempts} failed: ${err}`);
+        /* Status or error class only. The request URL embeds the bot token, and
+         * a network error's message can echo that URL back. */
+        const reason =
+          err instanceof TelegramHttpError
+            ? `HTTP ${err.status}`
+            : err instanceof Error
+              ? err.name
+              : 'unknown error';
+        this.logger.warn(`Telegram send attempt ${attempt}/${maxAttempts} failed: ${reason}`);
 
         if (attempt < maxAttempts) {
-          await sleep(delays[attempt - 1] ?? 4000);
+          await this.wait(delays[attempt - 1] ?? 4000);
         }
       }
     }
 
     this.logger.error(`Telegram send failed after ${maxAttempts} attempts`);
+  }
+}
+
+class TelegramHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Telegram API responded ${status}`);
+    this.name = 'TelegramHttpError';
   }
 }
 
