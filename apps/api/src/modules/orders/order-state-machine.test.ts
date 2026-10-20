@@ -162,6 +162,31 @@ describe('OrderStateMachine.transition', () => {
     });
   });
 
+  it('folds a caller guard into the conditional update', async () => {
+    const { stateMachine, updateMany } = machine();
+
+    await stateMachine.transition(order, 'FULFILLMENT_PENDING', actor, null, {
+      guard: { paidAt: { not: null } },
+    });
+
+    expect(updateMany.mock.calls[0]?.[0].where).toEqual({
+      paidAt: { not: null },
+      id: 'order-1',
+      status: 'PAID',
+    });
+  });
+
+  it('never lets a guard widen the write to another row or status', async () => {
+    const { stateMachine, updateMany } = machine();
+
+    await stateMachine.transition(order, 'FULFILLMENT_PENDING', actor, null, {
+      /* A malformed guard naming id/status is overridden by the machine's own. */
+      guard: { id: 'order-other', status: 'CANCELLED' },
+    });
+
+    expect(updateMany.mock.calls[0]?.[0].where).toMatchObject({ id: 'order-1', status: 'PAID' });
+  });
+
   it('stamps the timestamp the target status implies', async () => {
     const { stateMachine, updateMany } = machine();
     const now = new Date('2026-08-30T12:00:00.000Z');

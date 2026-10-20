@@ -125,6 +125,18 @@ const USD_DECIMAL_PLACES = 6;
  */
 const FROM_PRICE_CACHE_TTL_MS = 60_000;
 
+/**
+ * Hard ceiling on how many products the from-price cache remembers.
+ *
+ * The endpoint is public and takes up to 60 arbitrary ids per call, and a
+ * product we found nothing for is cached too (as `null`). Without a ceiling,
+ * anyone looping over random ids grows this map — in the API process — for as
+ * long as the process lives: entries are only ever overwritten, never evicted.
+ * The real catalog is a few thousand products, so the ceiling sits well above
+ * what a storefront needs and only ever bites on junk.
+ */
+export const FROM_PRICE_CACHE_MAX_ENTRIES = 5_000;
+
 /** `null` records a product we priced and found nothing for. */
 interface FromPriceCacheEntry {
   readonly amountIrr: string | null;
@@ -620,6 +632,19 @@ export class QuotesService {
   private async resolveTarget(input: CreateQuoteRequest): Promise<QuoteTarget> {
     if (input.topUpOfferId) {
       /*
+       * One top-up per quote, always. Fulfillment buys exactly ONE unit from the
+       * venue (`TopUpFulfillmentService` sends `quantity: 1` and keys the
+       * purchase on the order id), while the engine multiplies the price by
+       * `quantity`. A quote for three would charge the customer for three and
+       * credit them once. Every storefront form already sends 1; this makes the
+       * API refuse what fulfillment could never deliver.
+       */
+      if ((input.quantity ?? 1) !== 1) {
+        throw DomainErrors.validation([
+          { path: 'quantity', message: 'A top-up is bought one at a time' },
+        ]);
+      }
+      /*
        * The offer resolves to the game, the supplier AND the account fields the
        * venue expects, in one read. Validation against those fields happens
        * here rather than at purchase time on purpose: a top-up is a real charge
@@ -703,6 +728,14 @@ export class QuotesService {
       ]);
     }
     const amount = new Decimal(input.requestedAmountForeign);
+    if (amount.lte(0)) {
+      /* The wire schema admits "0" (it only forbids a sign). A zero-dollar
+       * payment is not a purchase: it would charge the customer the fee and
+       * margin floor for nothing, and hand an operator a task to pay $0. */
+      throw DomainErrors.validation([
+        { path: 'requestedAmountForeign', message: 'Amount must be greater than zero' },
+      ]);
+    }
     if (service.minAmount && amount.lt(service.minAmount.toString())) {
       throw DomainErrors.validation([
         { path: 'requestedAmountForeign', message: 'Amount is below the service minimum' },
@@ -887,6 +920,7 @@ export class QuotesService {
       return prices;
     }
     const expiresAt = now + FROM_PRICE_CACHE_TTL_MS;
+    this.makeRoomInFromPriceCache(missing, now);
     for (const productId of missing) {
       const amountIrr = computed.get(productId) ?? null;
       this.fromPriceCache.set(productId, { amountIrr, expiresAt });
@@ -895,6 +929,37 @@ export class QuotesService {
       }
     }
     return prices;
+  }
+
+  /**
+   * Keep the from-price cache under its ceiling before `incoming` is stored.
+   *
+   * Expired entries are dropped first; if that is not enough, the oldest
+   * insertions go (a `Map` iterates in insertion order, and the incoming keys
+   * are removed up front so they are re-inserted at the end). One pass per
+   * request, not per entry, so a full cache costs a bounded sweep rather than
+   * one per id. Eviction only ever costs a recomputation — the cache is
+   * display-only, so dropping an entry can never change a price.
+   */
+  private makeRoomInFromPriceCache(incoming: readonly string[], now: number): void {
+    for (const productId of incoming) {
+      this.fromPriceCache.delete(productId);
+    }
+    const limit = Math.max(FROM_PRICE_CACHE_MAX_ENTRIES - incoming.length, 0);
+    if (this.fromPriceCache.size <= limit) {
+      return;
+    }
+    for (const [key, cached] of this.fromPriceCache) {
+      if (cached.expiresAt <= now) {
+        this.fromPriceCache.delete(key);
+      }
+    }
+    for (const key of this.fromPriceCache.keys()) {
+      if (this.fromPriceCache.size <= limit) {
+        break;
+      }
+      this.fromPriceCache.delete(key);
+    }
   }
 
   private async computeFromPrices(

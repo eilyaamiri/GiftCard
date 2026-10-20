@@ -156,9 +156,29 @@ describe('cancelOrderForCustomer', () => {
     await rig.service.cancelOrderForCustomer('BP-2026-000001', actor);
 
     expect(rig.db.order.updateMany).toHaveBeenCalledWith({
-      where: { id: 'order-1', status: 'AWAITING_PAYMENT' },
+      where: {
+        id: 'order-1',
+        status: 'AWAITING_PAYMENT',
+        paidAt: null,
+        payments: { none: { status: { in: ['CREATED', 'REDIRECTED', 'PENDING'] } } },
+      },
       data: expect.objectContaining({ status: 'CANCELLED', cancelledAt: expect.any(Date) }),
     });
+  });
+
+  it('refuses when a payment session opens between the guard read and the cancel write', async () => {
+    /* The read saw no live payment; by the time the conditional update runs a
+     * session exists, so the guarded update matches nothing while the status is
+     * unchanged. Before the fix the write was conditional on status alone and
+     * would have cancelled an order the gateway was about to report as PAID. */
+    const rig = harness();
+    rig.db.order.updateMany.mockResolvedValue({ count: 0 });
+    rig.db.order.findUnique.mockResolvedValue({ status: 'AWAITING_PAYMENT' });
+
+    await expect(rig.service.cancelOrderForCustomer('BP-2026-000001', actor)).rejects.toMatchObject(
+      { code: 'CONFLICT' },
+    );
+    expect(rig.db.auditLog.create).not.toHaveBeenCalled();
   });
 
   it('records the customer as the actor on the audit row', async () => {
@@ -297,6 +317,20 @@ describe('cancelExpiredOrders', () => {
       cancelled: 2,
     });
     expect(rig.db.order.updateMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-checks "unpaid and no live payment" on the write, not only in the query', async () => {
+    const rig = harness();
+    rig.db.order.findMany.mockResolvedValue([orderRow()]);
+
+    await rig.service.cancelExpiredOrders({ now });
+
+    expect(rig.db.order.updateMany.mock.calls[0]?.[0]?.where).toEqual({
+      id: 'order-1',
+      status: 'AWAITING_PAYMENT',
+      paidAt: null,
+      payments: { none: { status: { in: ['CREATED', 'REDIRECTED', 'PENDING'] } } },
+    });
   });
 
   it('attributes the cancellation to the system, not to the customer', async () => {

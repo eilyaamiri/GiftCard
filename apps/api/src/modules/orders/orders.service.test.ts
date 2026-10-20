@@ -198,6 +198,45 @@ describe('OrdersService.createOrder', () => {
     });
   });
 
+  it('refuses an ACCEPTED quote whose lifetime has run out', async () => {
+    /* Acceptance freezes the price for the quote's TTL, not forever. Before the
+     * fix an accepted quote could anchor a brand-new order days later. */
+    const { service, db } = harness({
+      ...acceptedQuote,
+      expiresAt: new Date('2020-01-01T00:00:00.000Z'),
+    });
+
+    await expect(service.createOrder(request(), actor)).rejects.toMatchObject({
+      code: 'QUOTE_EXPIRED',
+    });
+    expect(db.order.create).not.toHaveBeenCalled();
+  });
+
+  it('re-checks expiry inside the write transaction', async () => {
+    /* The quote can expire between the first read and the insert. */
+    const { service, db } = harness(acceptedQuote);
+    db.quote.findUnique
+      .mockResolvedValueOnce(acceptedQuote)
+      .mockResolvedValueOnce({ ...acceptedQuote, expiresAt: new Date('2020-01-01T00:00:00.000Z') });
+
+    await expect(service.createOrder(request(), actor)).rejects.toMatchObject({
+      code: 'QUOTE_EXPIRED',
+    });
+    expect(db.order.create).not.toHaveBeenCalled();
+  });
+
+  it('still replays an existing order after its quote has expired', async () => {
+    /* Idempotent replay must keep working: the order already exists. */
+    const { service, db } = harness({
+      ...acceptedQuote,
+      expiresAt: new Date('2020-01-01T00:00:00.000Z'),
+    });
+    db.order.findUnique.mockResolvedValue(orderRow());
+
+    await expect(service.createOrder(request(), actor)).resolves.toMatchObject({ created: false });
+    expect(db.order.create).not.toHaveBeenCalled();
+  });
+
   it('refuses a quote that was never accepted', async () => {
     const { service } = harness({ ...acceptedQuote, status: 'ACTIVE' });
     await expect(service.createOrder(request(), actor)).rejects.toMatchObject({ code: 'CONFLICT' });
