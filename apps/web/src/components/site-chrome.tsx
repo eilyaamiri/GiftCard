@@ -113,8 +113,8 @@ export function SiteChrome({
               type="search"
               name="q"
               maxLength={120}
-              placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
-              aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+              placeholder="جست‌وجوی گیفت‌کارت، بازی، تلگرام"
+              aria-label="جست‌وجوی گیفت‌کارت، بازی، تلگرام"
             />
             <button type="submit" className="header-search-submit" aria-label="جست‌وجو">
               <Search size={17} aria-hidden="true" />
@@ -165,8 +165,8 @@ export function SiteChrome({
             type="search"
             name="q"
             maxLength={120}
-            placeholder="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
-            aria-label="جست‌وجوی گیفت‌کارت یا سرویس خارجی"
+            placeholder="جست‌وجوی گیفت‌کارت، بازی، تلگرام"
+            aria-label="جست‌وجوی گیفت‌کارت، بازی، تلگرام"
           />
           <button type="submit" className="header-search-mobile-submit" aria-label="جست‌وجو">
             <Search size={18} aria-hidden="true" />

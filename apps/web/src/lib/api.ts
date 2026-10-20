@@ -23,11 +23,13 @@ import {
   listBrandsResponseSchema,
   listCatalogProductsResponseSchema,
   listCategoriesResponseSchema,
+  listTopUpGamesResponseSchema,
   type FromPricesResponse,
   type GetCatalogProductResponse,
   type ListBrandsResponse,
   type ListCatalogProductsResponse,
   type ListCategoriesResponse,
+  type ListTopUpGamesResponse,
 } from "./catalog";
 
 /**
@@ -475,7 +477,10 @@ export const api = {
   post: <T>(path: string, payload?: unknown, schema?: z.ZodType<T>, headers?: Record<string, string>) =>
     request<T>(path, { method: "POST", body: JSON.stringify(payload ?? {}), ...(headers ? { headers } : {}) }, schema),
   patch: <T>(path: string, payload?: unknown, schema?: z.ZodType<T>) => request<T>(path, { method: "PATCH", body: JSON.stringify(payload ?? {}) }, schema),
-  /** Public direct top-up catalog. The route is still evolving, so the page owns
-   * the narrow normalization of its response while IDs remain server-sourced. */
-  topUps: () => request<unknown>("/api/catalog/top-ups"),
+  /** Public direct top-up catalog with optional search. The route is still evolving,
+   * so the page owns the narrow normalization of its response while IDs remain server-sourced. */
+  topUps: (search?: string): Promise<ListTopUpGamesResponse> => {
+    const query = search ? `?search=${encodeURIComponent(search)}` : "";
+    return request<ListTopUpGamesResponse>(`/api/catalog/top-ups${query}`, undefined, listTopUpGamesResponseSchema);
+  },
 };

@@ -164,6 +164,25 @@ export type ListCatalogProductsResponse = z.infer<typeof listCatalogProductsResp
 export type GetCatalogProductResponse = z.infer<typeof getCatalogProductResponseSchema>;
 export type CatalogSku = z.infer<typeof skuDtoSchema>;
 
+/**
+ * `GET /api/catalog/top-ups` — the games section of the storefront.
+ *
+ * Copied from `@barat/contracts` because the package does not re-export it yet.
+ */
+const topUpGameSummaryItemSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  nameFa: z.string().nullable(),
+  brandName: z.string().nullable(),
+  region: z.string().nullable(),
+  imageUrl: z.string().nullable(),
+  offerCount: z.number().int().min(0),
+});
+
+export const listTopUpGamesResponseSchema = z.object({ items: z.array(topUpGameSummaryItemSchema) });
+export type ListTopUpGamesResponse = z.infer<typeof listTopUpGamesResponseSchema>;
+
 /** The filters `/api/catalog/products` understands. */
 export interface CatalogQuery {
   readonly categorySlug?: string | undefined;

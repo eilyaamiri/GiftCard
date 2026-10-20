@@ -2,6 +2,7 @@ import { api, ApiClientError } from "./api";
 import {
   imageUrlOf as gameImageUrl,
   telegramProductOf,
+  imageUrlOf,
   topUpGameDetailSchema,
   topUpGameSummarySchema,
   type TopUpField,
@@ -290,5 +291,5 @@ export function inputKindOf(field: Pick<TopUpField, "fieldType" | "options">): "
   return "text";
 }
 
-export { gameImageUrl };
+export { gameImageUrl, imageUrlOf, isSteamEntry };
 export type { TopUpField, TopUpGameDetail, TopUpGameSummary, TopUpOffer };
