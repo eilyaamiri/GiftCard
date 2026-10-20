@@ -15,7 +15,7 @@ import {
   type RawFxRate,
 } from '@barat/fx';
 
-import type { AlertLogger } from '../../common/alert';
+import { AlertLogger } from '../../common/alert';
 import { BaratDomainException, DomainErrors } from '../../common/errors/domain.exception';
 import {
   FX_AGGREGATOR_CONFIG,
@@ -95,7 +95,9 @@ export class FxAggregatorService {
     @Inject(FX_AGGREGATOR_CONFIG) config: FxAggregatorConfig,
     @Optional() @Inject(FX_AUDIT_RECORDER) private readonly audit?: FxAuditRecorder,
     @Optional() @Inject(FX_CLOCK) clock?: FxClock,
-    @Optional() private readonly alertLogger?: AlertLogger,
+    /* Explicit token: a type-only import would erase the class from the DI
+     * metadata, and with @Optional Nest would silently inject undefined. */
+    @Optional() @Inject(AlertLogger) private readonly alertLogger?: AlertLogger,
   ) {
     if (
       !Number.isSafeInteger(config.staleThresholdSeconds) ||

@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 
-import type { AlertLogger } from '../../common/alert';
+import { AlertLogger } from '../../common/alert';
 import { AuditService } from '../audit/audit.service';
 import { DELIVERABLE_ORDER_STATUSES } from '../fulfillment/checklist-evaluation';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
@@ -146,7 +146,9 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
      * unlike a provider adapter, there is only ever one of it.
      */
     private readonly topUps: TopUpFulfillmentService,
-    @Optional() private readonly alertLogger?: AlertLogger,
+    /* Explicit token: a type-only import would erase the class from the DI
+     * metadata, and with @Optional Nest would silently inject undefined. */
+    @Optional() @Inject(AlertLogger) private readonly alertLogger?: AlertLogger,
   ) {}
 
   /**
