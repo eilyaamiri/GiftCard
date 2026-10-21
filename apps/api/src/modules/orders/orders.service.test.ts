@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CreateOrderRequest, IrrString } from '@barat/contracts';
+import { orderDeliveryDtoSchema, type CreateOrderRequest, type IrrString } from '@barat/contracts';
 
 import type { AuditService } from '../audit/audit.service';
 import type { GiftCardAssetService } from '../fulfillment/gift-card-asset.service';
 import { OrderStateMachine } from './order-state-machine';
-import { OrdersService, uniqueViolationTargets } from './orders.service';
+import { revealDeliveryResponseSchema } from './orders.schemas';
+import { httpDeliveryUrl, OrdersService, uniqueViolationTargets } from './orders.service';
 import type { OrdersDatabase } from './orders.tokens';
 
 const QUOTE_AMOUNT = 1_234_500n;
@@ -538,6 +539,54 @@ describe('OrdersService.revealDeliveryForCustomer', () => {
     });
     // The recipient address is not part of the reveal shape and must not leak in.
     expect(Object.keys(revealed)).not.toContain('recipientEmail');
+  });
+
+  it('WEB-3: never hands back a stored link that is not http(s)', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+    // A row written before links were validated on the way in.
+    readSecret.mockResolvedValue({
+      assetId: 'asset-1',
+      orderId: 'order-1',
+      assetType: 'URL',
+      deliveryUrl: 'javascript:alert(document.cookie)',
+      expiryDate: null,
+    });
+
+    const revealed = await service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1');
+
+    expect(revealed.deliveryUrl).toBeNull();
+    expect(revealDeliveryResponseSchema.safeParse(revealed).success).toBe(true);
+  });
+});
+
+describe('httpDeliveryUrl (WEB-3)', () => {
+  it.each([
+    ['https://redeem.example/abc?x=1', 'https://redeem.example/abc?x=1'],
+    ['http://redeem.example/abc', 'http://redeem.example/abc'],
+    ['javascript:alert(1)', null],
+    ['data:text/html,<script>alert(1)</script>', null],
+    ['ftp://redeem.example/abc', null],
+    ['not a url', null],
+    [null, null],
+  ])('%s → %s', (value, expected) => {
+    expect(httpDeliveryUrl(value)).toBe(expected);
+  });
+
+  it('the response schemas refuse anything else, too', () => {
+    const base = { assetType: 'URL', code: null, pin: null, expiryDate: null };
+    expect(
+      revealDeliveryResponseSchema.safeParse({ ...base, deliveryUrl: 'javascript:alert(1)' }).success,
+    ).toBe(false);
+    expect(
+      orderDeliveryDtoSchema.shape.deliveryUrl.safeParse('javascript:alert(1)').success,
+    ).toBe(false);
+    expect(orderDeliveryDtoSchema.shape.deliveryUrl.safeParse('https://redeem.example/a').success).toBe(
+      true,
+    );
   });
 });
 

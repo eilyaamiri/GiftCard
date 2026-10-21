@@ -118,4 +118,17 @@ SELECT
   (SELECT count(*) FROM "FulfillmentChecklist") AS fulfillment_checklists,
   (SELECT count(*) FROM "GiftCardCodeRequest")  AS gift_card_code_requests;
 
+\echo ''
+\echo '-- 9. WEB-3: stored delivery links that are not http(s). From this release the'
+\echo '--    customer sees no link for these; replace the card if a real order is listed.'
+-- Only the scheme is shown: the link itself is the card.
+SELECT a.id AS asset_id, o."orderNumber", a.status,
+       coalesce(substring(a."deliveryUrl" from '^[A-Za-z][A-Za-z0-9+.-]*:'), '(no scheme)') AS scheme
+FROM "GiftCardAsset" a
+JOIN "Order" o ON o.id = a."orderId"
+WHERE a."deliveryUrl" IS NOT NULL
+  AND a."deliveryUrl" !~* '^https?://'
+ORDER BY a."createdAt"
+LIMIT 50;
+
 ROLLBACK;

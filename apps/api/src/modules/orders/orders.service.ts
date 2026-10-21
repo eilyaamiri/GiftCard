@@ -354,7 +354,7 @@ export class OrdersService implements OrderPaymentBridge {
       assetType: revealed.assetType,
       code: revealed.code ?? null,
       pin: revealed.pin ?? null,
-      deliveryUrl: revealed.deliveryUrl ?? null,
+      deliveryUrl: httpDeliveryUrl(revealed.deliveryUrl),
       expiryDate: revealed.expiryDate?.toISOString() ?? null,
     };
   }
@@ -976,6 +976,26 @@ function itemTitleFa(row: OrderRow): string {
   return row.quote.service?.nameFa ?? 'سفارش';
 }
 
+/**
+ * A stored delivery link, or null unless it is http(s) (WEB-3).
+ *
+ * New links are checked on the way in; rows written before that check may hold
+ * anything, and a `javascript:` link rendered as the customer's redemption
+ * button would run in our origin. Such a row shows no link instead; the card
+ * can be replaced through the manager's replacement path.
+ */
+export function httpDeliveryUrl(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'https:' || protocol === 'http:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function toDeliveryDto(
   asset: OrderRow['giftCardAssets'][number] | undefined,
 ): OrderDeliveryDto | null {
@@ -986,7 +1006,7 @@ function toDeliveryDto(
     assetType: asset.assetType,
     status: asset.status,
     maskedCode: asset.maskedCode,
-    deliveryUrl: asset.deliveryUrl,
+    deliveryUrl: httpDeliveryUrl(asset.deliveryUrl),
     recipientEmailMasked: asset.recipientEmail ? maskEmail(asset.recipientEmail) : null,
     expiryDate: asset.expiryDate?.toISOString() ?? null,
     sentAt: asset.sentAt?.toISOString() ?? null,
