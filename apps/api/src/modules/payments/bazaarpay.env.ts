@@ -26,16 +26,22 @@ export interface BazaarPayEnv {
   readonly baseUrl: string | undefined;
   readonly amountUnit: PaymentAmountUnit;
   readonly timeoutMs: number;
+  /** `BAZAARPAY_AUTO_LOGIN`: skip BazaarPay's own login for a signed-in customer. */
+  readonly autoLogin: boolean;
 }
 
 type Env = Readonly<Record<string, string | undefined>>;
 
-export function readBazaarPayEnv(env: Env = process.env): BazaarPayEnv {
-  const flag = (env['BAZAARPAY_ENABLED'] ?? '').trim().toLowerCase();
+function readFlag(env: Env, key: string): boolean {
+  const flag = (env[key] ?? '').trim().toLowerCase();
   if (flag !== '' && flag !== 'true' && flag !== 'false') {
-    throw new Error('BAZAARPAY_ENABLED must be "true" or "false"');
+    throw new Error(`${key} must be "true" or "false"`);
   }
-  const enabled = flag === 'true';
+  return flag === 'true';
+}
+
+export function readBazaarPayEnv(env: Env = process.env): BazaarPayEnv {
+  const enabled = readFlag(env, 'BAZAARPAY_ENABLED');
 
   const unit = (env['BAZAARPAY_AMOUNT_UNIT'] ?? 'IRR').trim().toUpperCase();
   if (unit !== 'IRR' && unit !== 'IRT') {
@@ -63,5 +69,6 @@ export function readBazaarPayEnv(env: Env = process.env): BazaarPayEnv {
     baseUrl: baseUrl === '' ? undefined : baseUrl,
     amountUnit: unit,
     timeoutMs,
+    autoLogin: readFlag(env, 'BAZAARPAY_AUTO_LOGIN'),
   };
 }

@@ -24,6 +24,13 @@ const SERVICE_NAME_MAX = 512;
 const PAYMENT_HOST_SUFFIX = 'bazaar-pay.ir';
 /** HTTP statuses on `/trace/` that are a real verdict on the token. */
 const DEFINITE_TRACE_REJECTIONS: ReadonlySet<number> = new Set([400, 404]);
+/**
+ * Auto-login is a convenience on the way to the payment page, so it gets a
+ * short leash of its own: a slow token call must not hold up the checkout.
+ */
+const AUTO_LOGIN_TIMEOUT_MS = 3_000;
+/** Printable ASCII without spaces; anything else is not put into a URL. */
+const AUTO_LOGIN_TOKEN_PATTERN = /^[\x21-\x7E]{1,2048}$/u;
 
 export interface BazaarPayPaymentProviderConfig {
   /** The merchant `Authorization: Token ...` value. A secret: never logged, never in an error. */
@@ -37,6 +44,14 @@ export interface BazaarPayPaymentProviderConfig {
   readonly baseUrl?: string;
   readonly timeoutMs?: number;
   readonly userAgent?: string;
+  /**
+   * Sign the customer straight into the hosted page ("auto login") with a token
+   * the merchant requests for the customer's mobile, so someone already signed
+   * in on our site is not asked to log in again at BazaarPay. BazaarPay has to
+   * enable it for the merchant; until it does, every token request is refused
+   * and the customer simply logs in as before. Off unless explicitly `true`.
+   */
+  readonly autoLogin?: boolean;
 }
 
 export interface BazaarPayHttpResponse {
@@ -79,6 +94,18 @@ export function toBazaarPayAmount(amountIrr: bigint, unit: PaymentAmountUnit): b
     throw new RangeError('IRR amount is not exactly representable in toman');
   }
   return amountIrr / 10n;
+}
+
+/**
+ * The mobile in the `09xxxxxxxxx` form the vendor examples use, or null.
+ * Anything that is not plainly an Iranian mobile is not sent at all.
+ */
+export function toBazaarPayPhone(mobile: string | null | undefined): string | null {
+  if (mobile === null || mobile === undefined) return null;
+  const value = mobile.trim().replace(/^\+/u, '');
+  if (/^09\d{9}$/u.test(value)) return value;
+  if (/^989\d{9}$/u.test(value)) return `0${value.slice(2)}`;
+  return null;
 }
 
 type TraceStatus =
@@ -131,6 +158,13 @@ type TraceOutcome =
  *    failure and the next attempt creates a new token; an orphan token that was
  *    never paid expires by itself and moves no money.
  *  - `refund` is intentionally NOT_SUPPORTED until the refund flow is designed.
+ *
+ * Auto-login (`/merchant/create-user-access-token/` + `auto_login_token` on the
+ * payment page) was documented by BazaarPay from January 2024 and dropped from
+ * the public docs in September 2025; it is kept strictly best effort here, as
+ * that documentation itself required. The token signs the customer into their
+ * BazaarPay wallet, so it is never logged, stored or quoted in an error, and it
+ * is only ever requested for a mobile the caller has verified.
  */
 export class BazaarPayPaymentProvider implements RialPaymentProvider {
   readonly name = 'bazaarpay';
@@ -142,6 +176,7 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
   private readonly userAgent: string;
+  private readonly autoLogin: boolean;
 
   constructor(
     config: BazaarPayPaymentProviderConfig,
@@ -169,6 +204,7 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
     this.baseUrl = validateHttpUrl(config.baseUrl ?? DEFAULT_BAZAARPAY_BASE_URL, 'base').replace(/\/+$/u, '');
     this.timeoutMs = timeoutMs;
     this.userAgent = config.userAgent ?? 'CENTO-payments/1.0';
+    this.autoLogin = config.autoLogin === true;
   }
 
   async createPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
@@ -179,11 +215,16 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
       return { ok: false, providerCode: null, failureReason: 'REQUEST_REJECTED' };
     }
 
-    const call = await this.post('/checkout/init/', {
-      amount: Number(providerAmount),
-      destination: this.destination,
-      service_name: input.description.slice(0, SERVICE_NAME_MAX),
-    });
+    const phone = toBazaarPayPhone(input.customerMobile);
+    /* Both calls are independent, so the login token costs no extra round trip. */
+    const [call, autoLoginToken] = await Promise.all([
+      this.post('/checkout/init/', {
+        amount: Number(providerAmount),
+        destination: this.destination,
+        service_name: input.description.slice(0, SERVICE_NAME_MAX),
+      }),
+      this.autoLogin && phone !== null ? this.createAutoLoginToken(phone) : Promise.resolve(null),
+    ]);
     if (call.kind !== 'ok') {
       return {
         ok: false,
@@ -198,7 +239,7 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
       return { ok: false, providerCode: call.status, failureReason: 'UNKNOWN_PROVIDER_RESPONSE' };
     }
 
-    const redirectUrl = this.buildRedirectUrl(paymentUrl, token, input.orderNumber);
+    const redirectUrl = this.buildRedirectUrl(paymentUrl, token, input.orderNumber, phone, autoLoginToken);
     if (redirectUrl === null) {
       return { ok: false, providerCode: call.status, failureReason: 'UNKNOWN_PROVIDER_RESPONSE' };
     }
@@ -312,8 +353,30 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
     return { kind: 'status', status: status as TraceStatus };
   }
 
+  /**
+   * Best effort by design. A refusal (403 while the feature is not enabled for
+   * the merchant, or switched off on BazaarPay's side), a timeout or an odd body
+   * all mean the same thing: the customer logs in on the hosted page as before.
+   */
+  private async createAutoLoginToken(phone: string): Promise<string | null> {
+    const call = await this.post(
+      '/merchant/create-user-access-token/',
+      { user_phone_number: phone, scope: 'purchase' },
+      Math.min(this.timeoutMs, AUTO_LOGIN_TIMEOUT_MS),
+    );
+    if (call.kind !== 'ok') return null;
+    const token = readString(call.payload, 'access_token');
+    return token !== null && AUTO_LOGIN_TOKEN_PATTERN.test(token) ? token : null;
+  }
+
   /** The hosted page, with our own return URL attached as the vendor documents. */
-  private buildRedirectUrl(paymentUrl: string, token: string, orderNumber: string): string | null {
+  private buildRedirectUrl(
+    paymentUrl: string,
+    token: string,
+    orderNumber: string,
+    phone: string | null,
+    autoLoginToken: string | null,
+  ): string | null {
     let page: URL;
     try {
       page = new URL(paymentUrl);
@@ -332,16 +395,23 @@ export class BazaarPayPaymentProvider implements RialPaymentProvider {
     back.searchParams.set('token', token);
     back.searchParams.set('order', orderNumber);
     page.searchParams.set('redirect_url', back.toString());
+    /* `phone` only pre-fills the login form; the token skips the form. */
+    if (phone !== null) page.searchParams.set('phone', phone);
+    if (autoLoginToken !== null) page.searchParams.set('auto_login_token', autoLoginToken);
     return page.toString();
   }
 
-  private async post(path: string, body: Readonly<Record<string, unknown>>): Promise<Call> {
+  private async post(
+    path: string,
+    body: Readonly<Record<string, unknown>>,
+    timeoutMs: number = this.timeoutMs,
+  ): Promise<Call> {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, this.timeoutMs);
+    }, timeoutMs);
 
     try {
       const response = await this.httpClient.postJson(
