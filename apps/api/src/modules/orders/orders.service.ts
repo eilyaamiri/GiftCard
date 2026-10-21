@@ -71,6 +71,9 @@ const ORDER_INCLUDE = {
     },
   },
   giftCardAssets: {
+    /* The live card only: one superseded by a replacement stays on record but
+     * is never shown to the customer again (FUL-10). */
+    where: { liveOrderKey: { not: null } },
     select: {
       assetType: true,
       status: true,
@@ -283,9 +286,10 @@ export class OrdersService implements OrderPaymentBridge {
    *
    *   1. the order is looked up by `orderNumber` AND the session `customerId`,
    *      so another customer's order is simply not found;
-   *   2. only the newest asset on the order is readable, and only once its
-   *      status is `SENT` — that is the same flag the operator workspace and
-   *      the self-service delivery both set, so "delivered" has one meaning;
+   *   2. only the order's live asset is readable (never one superseded by a
+   *      replacement), only once its status is `SENT` — that is the same flag
+   *      the operator workspace and the self-service delivery both set, so
+   *      "delivered" has one meaning — and never for a refunded order;
    *   3. the decryption itself goes through `GiftCardAssetService.readSecret`,
    *      which writes `GIFT_CARD_CODE_VIEWED` before it decrypts. Every reveal
    *      is on record with the customer as the actor.
@@ -301,7 +305,9 @@ export class OrdersService implements OrderPaymentBridge {
       where: { orderNumber, customerId },
       select: {
         id: true,
+        status: true,
         giftCardAssets: {
+          where: { liveOrderKey: { not: null } },
           select: { id: true, status: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -310,6 +316,14 @@ export class OrdersService implements OrderPaymentBridge {
     });
     if (!order) {
       throw DomainErrors.notFound('order');
+    }
+    /* FUL-12: once the money is going back, the card is no longer the
+     * customer's to read. */
+    if (REFUNDED_ORDER_STATUSES.includes(order.status)) {
+      throw DomainErrors.conflict(
+        'مبلغ این سفارش به شما بازگردانده شده یا در حال بازگشت است و کد آن دیگر نمایش داده نمی‌شود.',
+        `order ${order.id} is ${order.status}; delivery is withdrawn`,
+      );
     }
 
     const asset = order.giftCardAssets[0];

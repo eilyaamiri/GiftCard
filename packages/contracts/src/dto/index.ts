@@ -7,4 +7,5 @@ export * from './topup';
 export * from './order';
 export * from './payment';
 export * from './refund';
+export * from './supplier';
 export * from './auth';

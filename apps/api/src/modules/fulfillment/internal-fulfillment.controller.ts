@@ -1,7 +1,9 @@
 import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
-import { AppConfigService } from '../../common/config';
+/* The concrete module, not the barrel: the barrel's ConfigModule validates the
+ * whole environment at import time. */
+import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { FulfillmentService, type DeliveryOutcome } from './fulfillment.service';

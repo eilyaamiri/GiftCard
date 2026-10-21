@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { DeliveryStatus, StaffRole } from '@barat/contracts';
+import type { DeliveryStatus, StaffRole, WorkItemStatus } from '@barat/contracts';
 
 import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
@@ -8,7 +8,12 @@ import { openServiceAccountPassword } from '../quotes/service-account-fields';
 import type { StaffContext } from '../workitems/staff-context';
 import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
 import { ChecklistService, type ChecklistState } from './checklist.service';
-import { SEND_BLOCKERS, type SendBlocker } from './checklist-evaluation';
+import {
+  DELIVERABLE_ORDER_STATUSES,
+  EXTREME_VARIANCE_MULTIPLE,
+  SEND_BLOCKERS,
+  type SendBlocker,
+} from './checklist-evaluation';
 import { assessCostVariance, COST_VARIANCE_REASONS, type CostVarianceAssessment } from './cost-variance';
 import {
   GiftCardAssetService,
@@ -175,6 +180,13 @@ function staffActor(staff: StaffContext): DispatchActor {
 
 /** Statuses an asset may be dispatched from. `SENT` is deliberately absent. */
 const DISPATCHABLE_STATUSES: readonly DeliveryStatus[] = ['READY', 'DELIVERY_FAILED'];
+
+/** A task in one of these is no longer being worked; its secrets are closed to operators. */
+const CLOSED_WORK_ITEM_STATUSES: ReadonlySet<WorkItemStatus> = new Set<WorkItemStatus>([
+  'COMPLETED',
+  'FAILED',
+  'CANCELLED',
+]);
 
 @Injectable()
 export class FulfillmentService {
@@ -457,7 +469,7 @@ export class FulfillmentService {
       toleranceBps: context.maxSupplierCostToleranceBps,
     });
 
-    await this.store.updateSupplierCost({
+    const recorded = await this.store.updateSupplierCost({
       fulfillmentId: record.id,
       actualSupplierCost: input.actualSupplierCost,
       actualSupplierCurrency: currency,
@@ -465,6 +477,14 @@ export class FulfillmentService {
       costVarianceBps: variance.varianceBps,
       fulfilledByStaffId: input.staff.id,
     });
+    if (!recorded) {
+      /* Another request recorded a cost between our read and this write
+       * (FUL-8). Changing it now is a correction, which needs a manager. */
+      throw DomainErrors.conflict(
+        'هزینهٔ واقعی تأمین‌کننده هم‌زمان ثبت شد. برای تغییر آن از اصلاح هزینه (با تأیید مدیر) استفاده کنید.',
+        `fulfillment ${record.id}: a concurrent request recorded the actual cost first`,
+      );
+    }
 
     await this.audit.record({
       actor: input.staff.id,
@@ -832,7 +852,15 @@ export class FulfillmentService {
           ? 'برای هزینهٔ ثبت‌شدهٔ تأمین مبنای مقایسه‌ای وجود ندارد، بنابراین بودجه‌دار بودن این خرید اثبات نشده است.'
           : `هزینهٔ واقعی تأمین ${variance.varianceBps} بیس‌پوینت بیشتر از مبلغ استعلام است؛ حد مجاز ${variance.toleranceBps} بیس‌پوینت است.`;
 
-    return `${finding} تحویل کد به مشتری متوقف نشده است و این بررسی فقط دربارهٔ مبلغ خرید است. برای تأیید یا اصلاح مبلغ، در همین سفارش به تسک تحویل بروید و کارت «اختلاف هزینهٔ تأمین‌کننده» را باز کنید.`;
+    /* FUL-9: past twice the tolerance, or in another currency, the send waits
+     * for this approval — the manager must know the customer is waiting. */
+    const held =
+      variance.reason === COST_VARIANCE_REASONS.CURRENCY_MISMATCH ||
+      (variance.varianceBps !== null && variance.varianceBps > EXTREME_VARIANCE_MULTIPLE * variance.toleranceBps);
+    const effect = held
+      ? 'این اختلاف آن‌قدر بزرگ است که تحویل کد به مشتری تا تأیید شما متوقف شده است.'
+      : 'تحویل کد به مشتری متوقف نشده است و این بررسی فقط دربارهٔ مبلغ خرید است.';
+    return `${finding} ${effect} برای تأیید یا اصلاح مبلغ، در همین سفارش به تسک تحویل بروید و کارت «اختلاف هزینهٔ تأمین‌کننده» را باز کنید.`;
   }
 
   /* ---------------------------------------------------------------------- */
@@ -1434,6 +1462,7 @@ export class FulfillmentService {
   }): Promise<{ assetType: string; code?: string; pin?: string; deliveryUrl?: string }> {
     const context = await this.loadContext(input.workItemId);
     this.assertCanOperate(context, input.staff);
+    this.assertMayRevealSecret(context, input.staff);
 
     const asset = await this.assets.getView(input.assetId);
     if (asset.orderId !== context.orderId) {
@@ -1585,6 +1614,26 @@ export class FulfillmentService {
     if (context.assignedToStaffId !== staff.id) {
       throw DomainErrors.forbidden(
         `staff ${staff.id} does not hold the claim on work item ${context.workItemId}`,
+      );
+    }
+  }
+
+  /**
+   * FUL-3: an operator sees a card's secret only while there is still a card
+   * to deliver — the task is being worked and the order is deliverable. Once
+   * the task is closed or turned into a refund, the customer's money may be on
+   * its way back while the code would stay in an operator's hands. A manager
+   * may still look, with the reason the audit row already requires.
+   */
+  private assertMayRevealSecret(context: FulfillmentContext, staff: StaffContext): void {
+    if (MANAGER_APPROVAL_ROLE_SET.has(staff.role)) {
+      return;
+    }
+    const taskOpen = !CLOSED_WORK_ITEM_STATUSES.has(context.workItemStatus) && context.workItemType !== 'REFUND_REVIEW';
+    if (!taskOpen || !DELIVERABLE_ORDER_STATUSES.includes(context.orderStatus)) {
+      throw DomainErrors.forbidden(
+        `staff ${staff.id} may not reveal a secret on work item ${context.workItemId} ` +
+          `(task ${context.workItemStatus}/${context.workItemType}, order ${context.orderStatus})`,
       );
     }
   }

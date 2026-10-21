@@ -50,10 +50,23 @@ export const SUPPLIER_AUDIT_ACTIONS = {
   PURCHASE_FAILED: 'SUPPLIER_PURCHASE_FAILED',
   PURCHASE_UNKNOWN: 'SUPPLIER_PURCHASE_UNKNOWN',
   STAFF_PURCHASE_REQUESTED: 'SUPPLIER_PURCHASE_REQUESTED_BY_STAFF',
+  PURCHASE_ATTEMPT_CLOSED: 'SUPPLIER_PURCHASE_ATTEMPT_CLOSED_BY_STAFF',
 } as const;
 
 const UNKNOWN_OUTCOME_PREFIX = 'UNKNOWN_OUTCOME';
 const PENDING_FOLLOWUP_PREFIX = 'SUPPLIER_PENDING';
+
+/**
+ * The supplier idempotency key for an order's purchase generation (FUL-2).
+ *
+ * Generation 1 keeps the key the automated path has always sent, so a purchase
+ * placed before this change and replayed after it still reaches the supplier
+ * as the same request. A later generation exists only after the previous one
+ * definitively failed and someone asked for a retry.
+ */
+export function purchaseIdempotencyKey(orderId: string, generation: number): string {
+  return generation === 1 ? `auto-fulfillment:${orderId}` : `auto-fulfillment:${orderId}:${generation}`;
+}
 
 function providerMap(providers: readonly SupplierProvider[]): ReadonlyMap<string, SupplierProvider> {
   return new Map(providers.map((provider) => [provider.key, provider]));
@@ -66,7 +79,15 @@ export interface SupplierPurchaseInput {
   readonly workItemId: string;
   readonly offerId: string;
   readonly quantity: number;
-  readonly idempotencyKey: string;
+  /**
+   * Start the next generation after a purchase that definitively FAILED. The
+   * idempotency key itself is never the caller's: it is derived from the order
+   * and the generation (FUL-2), so a fresh key can no longer slip past the
+   * supplier's duplicate protection.
+   */
+  readonly retry?: boolean;
+  /** The staff member who asked for this purchase; absent for the automated path. */
+  readonly requestedByStaffId?: string | null;
   readonly recipientEmail?: string;
   /**
    * The game account to credit, for a direct top-up. A public identifier such
@@ -336,15 +357,15 @@ export class SuppliersService {
    *   - no earlier purchase for the order is still an open "did we get charged?"
    *     question.
    *
-   * The customer id comes from the order, never from the body.
+   * The customer id, the quantity and the idempotency key all come from the
+   * order on the server, never from the body (Z-FUL-3, FUL-2).
    */
   async purchaseForStaff(input: {
     staff: StaffContext;
     orderId: string;
     workItemId: string;
     offerId: string;
-    quantity: number;
-    idempotencyKey: string;
+    retry?: boolean;
     recipientEmail?: string;
   }): Promise<SupplierPurchaseOutcome> {
     const target = await this.store.findAutoFulfillmentTarget(input.workItemId);
@@ -374,11 +395,6 @@ export class SuppliersService {
         { path: 'offerId', message: 'این پیشنهاد تأمین‌کننده برای محصول همین سفارش نیست.' },
       ]);
     }
-    if (input.quantity !== target.quantity) {
-      throw DomainErrors.validation([
-        { path: 'quantity', message: 'تعداد باید با تعداد سفارش برابر باشد.' },
-      ]);
-    }
 
     if (!DELIVERABLE_ORDER_STATUSES.some((status) => status === target.orderStatus)) {
       throw DomainErrors.conflict(
@@ -404,7 +420,8 @@ export class SuppliersService {
         orderId: target.orderId,
         workItemId: target.workItemId,
         supplierCode: offer.supplierCode,
-        quantity: input.quantity,
+        quantity: target.quantity,
+        retry: input.retry === true,
       },
     });
 
@@ -414,14 +431,59 @@ export class SuppliersService {
         customerId: target.customerId,
         workItemId: target.workItemId,
         offerId: offer.id,
-        quantity: input.quantity,
-        idempotencyKey: input.idempotencyKey,
+        quantity: target.quantity,
+        requestedByStaffId: input.staff.id,
+        ...(input.retry === true ? { retry: true } : {}),
         ...(input.recipientEmail === undefined ? {} : { recipientEmail: input.recipientEmail }),
       },
       // An open "did we get charged?" task for this order means a person still
       // has to answer that before anyone buys again.
       { refuseWhileAmbiguous: true },
     );
+  }
+
+  /**
+   * A person answers "did the supplier charge us?" for an order whose last
+   * purchase is still unsettled (IN_FLIGHT after a crash, PENDING, UNKNOWN).
+   *
+   * Manager-only: it is the decision that allows buying again. FAILED frees the
+   * order for an explicit retry; SUCCEEDED records that the card was obtained
+   * and must be entered through the normal supplier-result form.
+   */
+  async closePurchaseAttempt(input: {
+    staff: StaffContext;
+    orderId: string;
+    outcome: 'FAILED' | 'SUCCEEDED';
+    reason: string;
+  }): Promise<{ readonly generation: number; readonly status: 'FAILED' | 'SUCCEEDED' }> {
+    if (!MANAGER_APPROVAL_ROLE_SET.has(input.staff.role)) {
+      throw DomainErrors.forbidden(`staff ${input.staff.id} may not settle a supplier purchase`);
+    }
+    return this.withOrderPurchaseLock(input.orderId, async () => {
+      const latest = await this.store.latestPurchaseAttempt(input.orderId);
+      if (latest === null || (latest.status !== 'IN_FLIGHT' && latest.status !== 'UNKNOWN')) {
+        throw DomainErrors.conflict(
+          'خرید بازی برای بستن وجود ندارد.',
+          `order ${input.orderId} has no unsettled supplier purchase`,
+        );
+      }
+      await this.store.settlePurchaseAttempt({
+        id: latest.id,
+        status: input.outcome,
+        errorCode: input.outcome === 'FAILED' ? 'CLOSED_BY_STAFF' : null,
+      });
+      await this.audit.record({
+        actor: input.staff.id,
+        actorType: 'STAFF',
+        actorRole: input.staff.role,
+        action: SUPPLIER_AUDIT_ACTIONS.PURCHASE_ATTEMPT_CLOSED,
+        entity: 'Order',
+        entityId: input.orderId,
+        before: { generation: latest.generation, status: latest.status },
+        after: { status: input.outcome, reason: input.reason },
+      });
+      return { generation: latest.generation, status: input.outcome };
+    });
   }
 
   /** Runs `work` once every earlier purchase for the same order has settled. */
@@ -459,12 +521,55 @@ export class SuppliersService {
       );
     }
 
+    /*
+     * The durable twin of the in-process lock (FUL-2): the attempt row is
+     * written before the supplier hears anything, under a unique "one
+     * unsettled purchase per order" slot, with a key derived from the order.
+     * A restart, a second process or a replayed request therefore finds the
+     * row and stops, instead of buying a second card.
+     */
+    const latest = await this.store.latestPurchaseAttempt(input.orderId);
+    if (latest !== null && (latest.status === 'IN_FLIGHT' || latest.status === 'UNKNOWN')) {
+      throw DomainErrors.conflict(
+        'نتیجهٔ خرید قبلی این سفارش هنوز مشخص نشده است؛ پیش از خرید دوباره، آن را بررسی و ببندید.',
+        `order ${input.orderId} has an unsettled supplier purchase (generation ${latest.generation})`,
+      );
+    }
+    if (latest !== null && latest.status === 'SUCCEEDED') {
+      throw DomainErrors.conflict(
+        'کارت این سفارش پیش‌تر از تأمین‌کننده خریداری شده است.',
+        `order ${input.orderId} already has a successful supplier purchase`,
+      );
+    }
+    if (latest !== null && latest.status === 'FAILED' && input.retry !== true) {
+      throw DomainErrors.conflict(
+        'خرید قبلی این سفارش ناموفق بود؛ برای خرید دوباره «تلاش مجدد» را انتخاب کنید.',
+        `order ${input.orderId}: previous supplier purchase failed and no retry was requested`,
+      );
+    }
+    const generation = latest === null ? 1 : latest.generation + 1;
+    const idempotencyKey = purchaseIdempotencyKey(input.orderId, generation);
+    const attempt = await this.store.openPurchaseAttempt({
+      orderId: input.orderId,
+      supplierId: offer.supplierId,
+      offerId: offer.id,
+      idempotencyKey,
+      generation,
+      requestedByStaffId: input.requestedByStaffId ?? null,
+    });
+    if (attempt === null) {
+      throw DomainErrors.conflict(
+        'خرید دیگری برای این سفارش هم‌زمان در جریان است.',
+        `order ${input.orderId}: another process opened purchase generation ${generation}`,
+      );
+    }
+
     let result: SupplierPurchaseResult;
     try {
       result = await provider.purchase({
         providerSku: offer.providerSku,
         quantity: input.quantity,
-        idempotencyKey: input.idempotencyKey,
+        idempotencyKey,
         ...(input.recipientEmail === undefined ? {} : { recipientEmail: input.recipientEmail }),
         /*
          * Forwarded, not stored: this method is provider-neutral and has no
@@ -479,6 +584,15 @@ export class SuppliersService {
       // us before the connection broke. Never auto-retry this branch.
       result = { status: 'UNKNOWN', failureCode: 'PROVIDER_CONNECTION_AMBIGUOUS' };
     }
+
+    /* PENDING keeps the slot held (IN_FLIGHT): the supplier has the order and
+     * will answer later. Only SUCCEEDED and FAILED settle it. */
+    await this.store.settlePurchaseAttempt({
+      id: attempt.id,
+      status: result.status === 'PENDING' ? 'IN_FLIGHT' : result.status,
+      providerReference: result.providerReference ?? null,
+      errorCode: result.failureCode ?? null,
+    });
 
     const common = {
       supplierId: offer.supplierId,
@@ -524,7 +638,7 @@ export class SuppliersService {
           actualSupplierCost: result.cost?.amount ?? null,
           actualSupplierCurrency: result.cost?.currency ?? null,
           skuId: offer.skuId,
-          idempotencyKey: input.idempotencyKey,
+          idempotencyKey,
           asset: result.asset,
         });
 
@@ -559,7 +673,7 @@ export class SuppliersService {
 
       case 'PENDING': {
         const workItem = await this.escalator.openEscalation({
-          code: `${PENDING_FOLLOWUP_PREFIX}:${input.orderId}:${input.idempotencyKey}`,
+          code: `${PENDING_FOLLOWUP_PREFIX}:${input.orderId}:${idempotencyKey}`,
           orderId: input.orderId,
           customerId: input.customerId,
           type: 'SUPPLIER_FOLLOWUP',
@@ -585,7 +699,7 @@ export class SuppliersService {
 
       case 'UNKNOWN': {
         const workItem = await this.escalator.openEscalation({
-          code: `${UNKNOWN_OUTCOME_PREFIX}:${input.orderId}:${input.idempotencyKey}`,
+          code: `${UNKNOWN_OUTCOME_PREFIX}:${input.orderId}:${idempotencyKey}`,
           orderId: input.orderId,
           customerId: input.customerId,
           type: 'UNKNOWN_OUTCOME',
@@ -596,7 +710,7 @@ export class SuppliersService {
             supplierCode: offer.supplierCode,
             offerId: offer.id,
             providerReference: result.providerReference ?? null,
-            purchaseIdempotencyKey: input.idempotencyKey,
+            purchaseIdempotencyKey: idempotencyKey,
           },
         });
         await this.audit.record({

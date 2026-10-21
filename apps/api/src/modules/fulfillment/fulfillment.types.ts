@@ -7,6 +7,7 @@ import type {
   OrderStatus,
   QueueKey,
   StaffRole,
+  WorkItemStatus,
   WorkItemType,
 } from '@barat/contracts';
 
@@ -96,7 +97,12 @@ export interface GiftCardAssetView {
   readonly maskedCode: string | null;
   readonly hasPin: boolean;
   readonly serialNumber: string | null;
-  readonly deliveryUrl: string | null;
+  /**
+   * Only whether a link exists (FUL-5). For Runa and Giftbit the link IS the
+   * card, so it is read like a code: through the reveal path, with a reason
+   * and a GIFT_CARD_CODE_VIEWED event — never in the general workspace view.
+   */
+  readonly hasDeliveryUrl: boolean;
   readonly recipientEmailMasked: string | null;
   readonly expiryDate: Date | null;
   readonly supplierReference: string | null;
@@ -258,6 +264,8 @@ export interface FulfillmentContext {
   readonly maxSupplierCostToleranceBps: number;
   readonly workItemId: string;
   readonly workItemType: WorkItemType;
+  /** Whether the task is still being worked; a closed task reveals nothing to an operator (FUL-3). */
+  readonly workItemStatus: WorkItemStatus;
   readonly queueKey: QueueKey;
   readonly assignedToStaffId: string | null;
   readonly fulfillment: FulfillmentRecord | null;
@@ -359,6 +367,11 @@ export interface FulfillmentStore {
     idempotencyKey?: string;
   }): Promise<FulfillmentRecord>;
   findFulfillmentById(fulfillmentId: string): Promise<FulfillmentRecord | null>;
+  /**
+   * Records the first actual cost. Conditional on none being on file (FUL-8):
+   * returns false, writing nothing, when another request recorded one first —
+   * a replacement goes through `correctSupplierCost`, which needs a manager.
+   */
   updateSupplierCost(input: {
     fulfillmentId: string;
     actualSupplierCost: string;
@@ -367,7 +380,7 @@ export interface FulfillmentStore {
     costVarianceBps: number | null;
     /** `null` when automation spent the money and no operator holds the item. */
     fulfilledByStaffId: string | null;
-  }): Promise<void>;
+  }): Promise<boolean>;
   /**
    * Rewrites a cost already on record, and voids any approval with it.
    *

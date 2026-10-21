@@ -5,6 +5,7 @@ import type {
   DeliveryStatus,
   OrderStatus,
   QueueKey,
+  WorkItemStatus,
   WorkItemType,
 } from '@barat/contracts';
 
@@ -99,6 +100,7 @@ export interface SeedFulfillment {
   readonly quotedSupplierCurrency?: string;
   readonly maxSupplierCostToleranceBps?: number;
   readonly workItemType?: WorkItemType;
+  readonly workItemStatus?: WorkItemStatus;
   readonly queueKey?: QueueKey;
   readonly assignedToStaffId?: string | null;
   readonly internationalPayment?: InternationalPaymentBrief | null;
@@ -116,6 +118,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
   quotedSupplierCurrency: string;
   maxSupplierCostToleranceBps: number;
   workItemType: WorkItemType;
+  workItemStatus: WorkItemStatus;
   queueKey: QueueKey;
   assignedToStaffId: string | null;
   internationalPayment: InternationalPaymentBrief | null;
@@ -140,6 +143,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     this.quotedSupplierCurrency = seed.quotedSupplierCurrency ?? 'USD';
     this.maxSupplierCostToleranceBps = seed.maxSupplierCostToleranceBps ?? 500;
     this.workItemType = seed.workItemType ?? 'MANUAL_GIFT_CARD_FULFILLMENT';
+    this.workItemStatus = seed.workItemStatus ?? 'IN_PROGRESS';
     this.queueKey = seed.queueKey ?? 'GIFT_CARD_MANUAL';
     this.assignedToStaffId = seed.assignedToStaffId === undefined ? 'staff-operator' : seed.assignedToStaffId;
     this.internationalPayment = seed.internationalPayment ?? null;
@@ -165,6 +169,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
       maxSupplierCostToleranceBps: this.maxSupplierCostToleranceBps,
       workItemId: this.workItemId,
       workItemType: this.workItemType,
+      workItemStatus: this.workItemStatus,
       queueKey: this.queueKey,
       assignedToStaffId: this.assignedToStaffId,
       fulfillment,
@@ -355,10 +360,10 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     supplierReference: string | null;
     costVarianceBps: number | null;
     fulfilledByStaffId: string | null;
-  }): Promise<void> {
+  }): Promise<boolean> {
     const existing = this.fulfillments.get(input.fulfillmentId);
-    if (existing === undefined) {
-      return;
+    if (existing === undefined || existing.actualSupplierCost !== null) {
+      return false;
     }
     this.fulfillments.set(input.fulfillmentId, {
       ...existing,
@@ -368,6 +373,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
       costVarianceBps: input.costVarianceBps,
       fulfilledByStaffId: input.fulfilledByStaffId,
     });
+    return true;
   }
 
   /** Mirrors the real correction: the approval is voided with the amount. */
@@ -601,7 +607,7 @@ function toView(row: AssetRow): GiftCardAssetView {
     maskedCode: row.maskedCode,
     hasPin: row.assetType === 'CODE_PIN',
     serialNumber: row.serialNumber,
-    deliveryUrl: row.deliveryUrl,
+    hasDeliveryUrl: row.deliveryUrl !== null,
     recipientEmailMasked: row.recipientEmail === null ? null : maskEmail(row.recipientEmail),
     expiryDate: row.expiryDate,
     supplierReference: row.supplierReference,

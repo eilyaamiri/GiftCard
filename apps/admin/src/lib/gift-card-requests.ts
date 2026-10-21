@@ -49,7 +49,7 @@ export const giftCardRequests = {
   mine: () => api.get<GiftCardRequest[]>("/api/gift-card-requests/mine", giftCardRequestsSchema),
   create: (input: { workItemId: string; kind: GiftCardRequestKind; reason: string }) =>
     api.post<GiftCardRequest>("/api/gift-card-requests", input, giftCardRequestSchema),
-  fulfill: (requestId: string, input: { code: string; pin?: string }) =>
+  fulfill: (requestId: string, input: { code: string; pin?: string; replacementReason?: string }) =>
     api.post<GiftCardRequest>(
       `/api/gift-card-requests/${encodeURIComponent(requestId)}/fulfill`,
       input,

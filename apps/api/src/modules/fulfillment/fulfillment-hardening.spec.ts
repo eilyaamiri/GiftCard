@@ -268,3 +268,43 @@ describe('internal service token comparison', () => {
     expect(tokenMatches('', expected)).toBe(false);
   });
 });
+
+describe('FUL-3: who may still see a card secret', () => {
+  async function stored(): Promise<{ h: Harness; assetId: string }> {
+    const h = harness();
+    await recordAsset(h);
+    const assetId = [...h.store.assets.keys()][0]!;
+    return { h, assetId };
+  }
+
+  const reveal = (h: Harness, assetId: string, staff: StaffContext) =>
+    h.service.revealAssetSecret({ workItemId: h.store.workItemId, assetId, staff, reason: 'customer says code is invalid' });
+
+  it('the operator working the task may reveal it', async () => {
+    const { h, assetId } = await stored();
+    await expect(reveal(h, assetId, OPERATOR)).resolves.toMatchObject({ code: PLAINTEXT_CODE });
+  });
+
+  it.each([
+    ['the task is completed', (h: Harness) => { h.store.workItemStatus = 'COMPLETED'; }],
+    ['the task became a refund review', (h: Harness) => { h.store.workItemType = 'REFUND_REVIEW'; }],
+    ['the order is being refunded', (h: Harness) => { h.store.orderStatus = 'REFUND_PENDING'; }],
+    ['the order was delivered', (h: Harness) => { h.store.orderStatus = 'FULFILLED'; }],
+  ])('refuses the operator once %s', async (_label, change) => {
+    const { h, assetId } = await stored();
+    change(h);
+
+    await expect(reveal(h, assetId, OPERATOR)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(h.auditPayloads.join('\n')).not.toContain(PLAINTEXT_CODE);
+  });
+
+  it('a manager may still look, with a reason, after the task is closed', async () => {
+    const { h, assetId } = await stored();
+    h.store.workItemStatus = 'COMPLETED';
+    h.store.orderStatus = 'REFUNDED';
+
+    await expect(reveal(h, assetId, { id: 'staff-manager', role: 'OPS_MANAGER' })).resolves.toMatchObject({
+      code: PLAINTEXT_CODE,
+    });
+  });
+});

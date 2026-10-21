@@ -4,6 +4,8 @@ import type { SupplierAvailability } from '@barat/suppliers';
 import type {
   AutoFulfillmentTarget,
   SupplierOfferView,
+  SupplierPurchaseAttemptRecord,
+  SupplierPurchaseAttemptStatus,
   SupplierStore,
   SupplierView,
 } from '../suppliers.types';
@@ -32,6 +34,7 @@ export class InMemorySupplierStore implements SupplierStore {
   readonly targets: AutoFulfillmentTarget[];
   readonly availabilityChecks: { offerId: string; availability: SupplierAvailability }[] = [];
   readonly ambiguousOrderIds: Set<string>;
+  readonly purchaseAttempts: SupplierPurchaseAttemptRecord[] = [];
 
   constructor(seed: SeedSupplierStore = {}) {
     this.suppliers = [...(seed.suppliers ?? [])];
@@ -86,5 +89,63 @@ export class InMemorySupplierStore implements SupplierStore {
         };
       }
     }
+  }
+
+  async latestPurchaseAttempt(orderId: string): Promise<SupplierPurchaseAttemptRecord | null> {
+    const mine = this.purchaseAttempts.filter((attempt) => attempt.orderId === orderId);
+    return mine.sort((a, b) => b.generation - a.generation)[0] ?? null;
+  }
+
+  /** Mirrors the two unique indexes: one unsettled attempt per order, one row per generation. */
+  async openPurchaseAttempt(input: {
+    orderId: string;
+    supplierId: string;
+    offerId: string;
+    idempotencyKey: string;
+    generation: number;
+    requestedByStaffId: string | null;
+  }): Promise<SupplierPurchaseAttemptRecord | null> {
+    const clash = this.purchaseAttempts.some(
+      (attempt) =>
+        attempt.orderId === input.orderId &&
+        (attempt.generation === input.generation || attempt.status === 'IN_FLIGHT' || attempt.status === 'UNKNOWN'),
+    );
+    if (clash || this.purchaseAttempts.some((attempt) => attempt.idempotencyKey === input.idempotencyKey)) {
+      return null;
+    }
+    const record: SupplierPurchaseAttemptRecord = {
+      id: `attempt-${this.purchaseAttempts.length + 1}`,
+      orderId: input.orderId,
+      supplierId: input.supplierId,
+      offerId: input.offerId,
+      idempotencyKey: input.idempotencyKey,
+      generation: input.generation,
+      status: 'IN_FLIGHT',
+      providerReference: null,
+      errorCode: null,
+      requestedByStaffId: input.requestedByStaffId,
+      startedAt: new Date(),
+      settledAt: null,
+    };
+    this.purchaseAttempts.push(record);
+    return record;
+  }
+
+  async settlePurchaseAttempt(input: {
+    id: string;
+    status: SupplierPurchaseAttemptStatus;
+    providerReference?: string | null;
+    errorCode?: string | null;
+  }): Promise<void> {
+    const index = this.purchaseAttempts.findIndex((attempt) => attempt.id === input.id);
+    const existing = this.purchaseAttempts[index];
+    if (existing === undefined) throw new Error(`No purchase attempt ${input.id}`);
+    this.purchaseAttempts[index] = {
+      ...existing,
+      status: input.status,
+      ...(input.providerReference === undefined ? {} : { providerReference: input.providerReference }),
+      ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
+      ...(input.status === 'SUCCEEDED' || input.status === 'FAILED' ? { settledAt: new Date() } : {}),
+    };
   }
 }

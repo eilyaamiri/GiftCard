@@ -109,6 +109,14 @@ const MAX_WAITING_FUNDS_ATTEMPTS = 144;
 const WAITING_FUNDS_RETRY_MS = 10 * 60 * 1_000;
 
 /**
+ * A venue rate limit (FUL-7) is retried on its own, shorter cadence, a bounded
+ * number of times. `purchaseAttempts` counts every claim, so this is the total
+ * number of tries before the refusal is treated as a real failure.
+ */
+const RATE_LIMITED_RETRY_MS = 2 * 60 * 1_000;
+const MAX_RATE_LIMITED_ATTEMPTS = 10;
+
+/**
  * How many consecutive unreachable status polls before a person is asked.
  *
  * Five, not one: a supplier blip is not news, and escalating on the first
@@ -187,10 +195,23 @@ export class TopUpFulfillmentService {
     }
 
     const provider = this.providersByKey.get(target.supplierCode);
+    if (
+      provider !== undefined &&
+      target.providerOrderNumber === null &&
+      target.status === 'PURCHASING' &&
+      provider.idempotentPurchases === true
+    ) {
+      /* FUL-6: a purchase whose answer was lost in a restart. When the venue
+       * honours our key, sending it again returns the order it already holds —
+       * or places it if the first request never arrived. Either way the
+       * outcome is recovered without a person and without a second charge. */
+      return this.recoverLostPurchase(target, provider);
+    }
     if (provider === undefined || target.providerOrderNumber === null) {
       /*
-       * No adapter, or no order number to poll. Neither can be retried into
-       * working, so this escalates to a person rather than looping forever.
+       * No adapter, or no order number to poll (and no venue-side idempotency
+       * to recover with — Telegram). Neither can be retried into working, so
+       * this escalates to a person rather than looping forever.
        */
       return this.markUnknownAndEscalate(target, {
         reason:
@@ -453,6 +474,31 @@ export class TopUpFulfillmentService {
     };
   }
 
+  /** Re-send a lost purchase under its original key; see `poll`. */
+  private async recoverLostPurchase(
+    target: TopUpTarget,
+    provider: SupplierProvider,
+  ): Promise<TopUpOutcome> {
+    /* Refresh the claim so a second recoverer stands down for a full grace
+     * period; even if two raced, the venue's key makes them one order. */
+    const claimed = await this.store.transition({
+      fulfillmentId: target.fulfillmentId,
+      from: ['PURCHASING'],
+      to: 'PURCHASING',
+      event: { type: 'PURCHASE_REQUESTED', detail: { recovery: true, attempt: target.purchaseAttempts } },
+    });
+    if (!claimed) {
+      return {
+        decision: 'NOT_ELIGIBLE',
+        orderId: target.orderId,
+        fulfillmentId: target.fulfillmentId,
+        reason: 'PURCHASE_IN_FLIGHT',
+        workItemId: null,
+      };
+    }
+    return this.sendPurchase(target, provider);
+  }
+
   private async purchase(
     target: TopUpTarget,
     provider: SupplierProvider,
@@ -475,7 +521,14 @@ export class TopUpFulfillmentService {
         workItemId: null,
       };
     }
+    return this.sendPurchase(target, provider);
+  }
 
+  /** The supplier call itself, under a claim the caller already holds. */
+  private async sendPurchase(
+    target: TopUpTarget,
+    provider: SupplierProvider,
+  ): Promise<TopUpOutcome> {
     let result: Awaited<ReturnType<SupplierProvider['purchase']>>;
     try {
       result = await provider.purchase({
@@ -587,6 +640,34 @@ export class TopUpFulfillmentService {
       }
 
       case 'FAILED': {
+        /* FUL-7: a rate-limit refusal is the venue saying "not now", not "no".
+         * It charged nothing, so the purchase is simply tried again shortly —
+         * until the retries run out, when it becomes an ordinary failure. */
+        if (common.failureCode === 'RATE_LIMITED' && target.purchaseAttempts < MAX_RATE_LIMITED_ATTEMPTS) {
+          const nextCheckAt = new Date(Date.now() + RATE_LIMITED_RETRY_MS);
+          const deferred = await this.store.transition({
+            fulfillmentId: target.fulfillmentId,
+            from: ['PURCHASING'],
+            to: 'WAITING_FUNDS',
+            nextCheckAt,
+            ...common,
+            event: {
+              type: 'PURCHASE_RESPONDED',
+              failureCode: 'RATE_LIMITED',
+              providerStatus: common.providerStatus,
+              detail: { retryAt: nextCheckAt.toISOString() },
+            },
+          });
+          if (deferred) {
+            return {
+              decision: 'WAITING_FUNDS',
+              orderId: target.orderId,
+              fulfillmentId: target.fulfillmentId,
+              reason: 'RATE_LIMITED',
+              workItemId: null,
+            };
+          }
+        }
         /*
          * The supplier states nothing was charged. That is definitive about the
          * MONEY — nothing is owed to the venue — but it says nothing about

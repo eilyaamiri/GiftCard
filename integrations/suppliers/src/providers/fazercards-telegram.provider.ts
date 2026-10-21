@@ -264,7 +264,12 @@ export class FazerCardsTelegramSupplierProvider implements SupplierProvider {
     const attempt = this.runPurchase(ref, username).then((result) => {
       // UNKNOWN and PENDING are not safe to retry: the venue may already have
       // charged the account. Reconcile by provider reference or escalate instead.
-      this.rememberSettled(identifier, result);
+      // A 429 is the one answer that is not remembered (FUL-7): the venue
+      // refused the request before acting on it, so a later retry is a first
+      // attempt, not a duplicate — caching it would fail the order for a day.
+      if (!(result.status === 'FAILED' && result.failureCode === 'RATE_LIMITED')) {
+        this.rememberSettled(identifier, result);
+      }
       return result;
     }).finally(() => { this.inFlightPurchases.delete(identifier); });
     this.inFlightPurchases.set(identifier, attempt);

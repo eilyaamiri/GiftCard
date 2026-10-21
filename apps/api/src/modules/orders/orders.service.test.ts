@@ -455,6 +455,35 @@ describe('OrdersService.revealDeliveryForCustomer', () => {
     },
   );
 
+  it.each(['REFUND_PENDING', 'REFUNDED'])('FUL-12: withdraws a delivered card once the order is %s', async (status) => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      status,
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+
+    await expect(service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(readSecret).not.toHaveBeenCalled();
+  });
+
+  it('FUL-10: reads only the live card, never one superseded by a replacement', async () => {
+    const { service, db } = harness(null);
+    db.order.findFirst.mockResolvedValue(null);
+
+    await service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1').catch(() => undefined);
+
+    expect(db.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          giftCardAssets: expect.objectContaining({ where: { liveOrderKey: { not: null } } }),
+        }),
+      }),
+    );
+  });
+
   it('reveals a SENT asset as the customer, with the reveal reason on record', async () => {
     const { service, db, readSecret } = harness(null);
     db.order.findFirst.mockResolvedValue({

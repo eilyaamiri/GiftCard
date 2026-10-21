@@ -106,6 +106,6 @@ export class WorkItemsController {
     @Req() request: unknown,
   ): Promise<{ item: WorkItemSummary; refundId: string }> {
     const staff = requireStaff(request);
-    return this.workItems.convertToRefund(id, staff.id, body.note, body.amountIrr);
+    return this.workItems.convertToRefund(id, staff.id, body.note, body.amountIrr, body.cardDisposition);
   }
 }

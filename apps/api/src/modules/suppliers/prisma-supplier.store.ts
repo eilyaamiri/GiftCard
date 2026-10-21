@@ -7,6 +7,8 @@ import { PROVIDER_SKU_MAP } from './suppliers.types';
 import type {
   AutoFulfillmentTarget,
   SupplierOfferView,
+  SupplierPurchaseAttemptRecord,
+  SupplierPurchaseAttemptStatus,
   SupplierStore,
   SupplierView,
 } from './suppliers.types';
@@ -183,4 +185,94 @@ export class PrismaSupplierStore implements SupplierStore {
       data: { availability: input.availability, lastCheckedAt: input.checkedAt },
     });
   }
+
+  async latestPurchaseAttempt(orderId: string): Promise<SupplierPurchaseAttemptRecord | null> {
+    const row = await this.db.supplierPurchaseAttempt.findFirst({
+      where: { orderId },
+      orderBy: { generation: 'desc' },
+    });
+    return row === null ? null : toAttemptRecord(row);
+  }
+
+  async openPurchaseAttempt(input: {
+    orderId: string;
+    supplierId: string;
+    offerId: string;
+    idempotencyKey: string;
+    generation: number;
+    requestedByStaffId: string | null;
+  }): Promise<SupplierPurchaseAttemptRecord | null> {
+    try {
+      const row = await this.db.supplierPurchaseAttempt.create({
+        data: {
+          orderId: input.orderId,
+          supplierId: input.supplierId,
+          offerId: input.offerId,
+          idempotencyKey: input.idempotencyKey,
+          generation: input.generation,
+          status: 'IN_FLIGHT',
+          /* The order's one unsettled-purchase slot; the unique index is the
+           * cross-process guarantee. */
+          openOrderKey: input.orderId,
+          requestedByStaffId: input.requestedByStaffId,
+        },
+      });
+      return toAttemptRecord(row);
+    } catch (error) {
+      if (isUniqueViolation(error)) return null;
+      throw error;
+    }
+  }
+
+  async settlePurchaseAttempt(input: {
+    id: string;
+    status: SupplierPurchaseAttemptStatus;
+    providerReference?: string | null;
+    errorCode?: string | null;
+  }): Promise<void> {
+    const settled = input.status === 'SUCCEEDED' || input.status === 'FAILED';
+    await this.db.supplierPurchaseAttempt.update({
+      where: { id: input.id },
+      data: {
+        status: input.status,
+        ...(input.providerReference === undefined ? {} : { providerReference: input.providerReference }),
+        ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
+        ...(settled ? { openOrderKey: null, settledAt: new Date() } : {}),
+      },
+    });
+  }
+}
+
+function toAttemptRecord(row: {
+  id: string;
+  orderId: string;
+  supplierId: string;
+  offerId: string | null;
+  idempotencyKey: string;
+  generation: number;
+  status: string;
+  providerReference: string | null;
+  errorCode: string | null;
+  requestedByStaffId: string | null;
+  startedAt: Date;
+  settledAt: Date | null;
+}): SupplierPurchaseAttemptRecord {
+  return {
+    id: row.id,
+    orderId: row.orderId,
+    supplierId: row.supplierId,
+    offerId: row.offerId,
+    idempotencyKey: row.idempotencyKey,
+    generation: row.generation,
+    status: row.status as SupplierPurchaseAttemptStatus,
+    providerReference: row.providerReference,
+    errorCode: row.errorCode,
+    requestedByStaffId: row.requestedByStaffId,
+    startedAt: row.startedAt,
+    settledAt: row.settledAt,
+  };
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002';
 }
