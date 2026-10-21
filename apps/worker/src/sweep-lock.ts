@@ -9,11 +9,11 @@ import type { Redis } from 'ioredis';
  * but nothing stops a *slow* run from still being in flight when the next tick
  * fires. The worker runs `concurrency` jobs at once, a failed run is retried
  * with backoff while the next tick is already queued, and a second worker
- * process (`main.ts` and `sweeps.entry.ts`, or two replicas) consumes the same
- * queue. Without a lock, two delivery-retry runs read the same `DELIVERY_FAILED`
- * asset; the first run's retry fails and puts it back to `DELIVERY_FAILED`, and
- * the second run — which read it before — re-sends it at once, skipping the
- * cool-down and the attempt cap.
+ * process (two replicas, or an old one still draining during a restart)
+ * consumes the same queue. Without a lock, two delivery-retry runs read the
+ * same `DELIVERY_FAILED` asset; the first run's retry fails and puts it back to
+ * `DELIVERY_FAILED`, and the second run — which read it before — re-sends it
+ * at once, skipping the cool-down and the attempt cap.
  *
  * The lock is a Redis `SET NX PX` with a random owner token, renewed while the
  * sweep runs and released only by its owner (compare-and-delete in Lua), so a

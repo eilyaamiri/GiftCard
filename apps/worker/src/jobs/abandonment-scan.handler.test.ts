@@ -4,6 +4,8 @@ import { AbandonmentScanHandler } from './abandonment-scan.handler';
 
 const NOW = new Date('2026-10-20T10:00:00.000Z');
 const STALE = new Date('2026-10-20T06:00:00.000Z');
+/** Inside the default 60-minute cart window. */
+const RECENT = new Date('2026-10-20T09:40:00.000Z');
 
 interface State {
   carts: Map<string, { id: string; status: string; updatedAt: Date }>;
@@ -18,7 +20,19 @@ interface State {
  * restores it when the callback throws, which is what lets the test observe a
  * claim being rolled back.
  */
-function fakePrisma(state: State, hooks: { beforeTxQuoteCheck?: () => void } = {}) {
+interface Hooks {
+  beforeTxQuoteCheck?: () => void;
+  /** Overrides the evidence the cart branch reads. */
+  evidence?: { orderUpdatedAt?: Date; paymentUpdatedAt?: Date; quoteUpdatedAt?: Date };
+  /** Makes the next record insert fail like the unique index would. */
+  uniqueViolationOnCreate?: boolean;
+}
+
+function uniqueViolation(): Error {
+  return Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+}
+
+function fakePrisma(state: State, hooks: Hooks = {}) {
   const tx = {
     cart: {
       updateMany: vi.fn(async ({ where }: { where: { id: string; status: string } }) => {
@@ -46,11 +60,20 @@ function fakePrisma(state: State, hooks: { beforeTxQuoteCheck?: () => void } = {
       }),
     },
     abandonmentRecord: {
-      findFirst: vi.fn(async ({ where }: { where: { quoteId: string } }) => {
-        const hit = state.records.find((r) => r['quoteId'] === where.quoteId);
-        return hit === undefined ? null : { id: 'r' };
-      }),
+      findFirst: vi.fn(
+        async ({ where }: { where: { quoteId?: string; cartId?: string; type?: unknown } }) => {
+          const hit = state.records.find((r) =>
+            where.cartId !== undefined
+              ? r['cartId'] === where.cartId && r['type'] === where.type
+              : r['quoteId'] === where.quoteId,
+          );
+          return hit === undefined ? null : { id: 'r' };
+        },
+      ),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        if (hooks.uniqueViolationOnCreate === true) {
+          throw uniqueViolation();
+        }
         state.records.push(data);
         return data;
       }),
@@ -78,11 +101,21 @@ function fakePrisma(state: State, hooks: { beforeTxQuoteCheck?: () => void } = {
           {
             id: 'o1',
             totalAmountIrr: 1_000_000n,
-            updatedAt: STALE,
-            payments: [{ id: 'p1' }],
+            updatedAt: hooks.evidence?.orderUpdatedAt ?? STALE,
+            payments: [{ id: 'p1', updatedAt: hooks.evidence?.paymentUpdatedAt ?? STALE }],
           },
         ],
-        quotes: [],
+        quotes:
+          hooks.evidence?.quoteUpdatedAt === undefined
+            ? []
+            : [
+                {
+                  id: 'q-cart',
+                  finalAmountIrr: 1_000_000n,
+                  status: 'ACTIVE',
+                  updatedAt: hooks.evidence.quoteUpdatedAt,
+                },
+              ],
       })),
     },
     quote: {
@@ -184,6 +217,66 @@ describe('AbandonmentScanHandler — races with the payment flow', () => {
     expect(state.advisoryLocks[0]).toBe(
       'SELECT pg_advisory_xact_lock(hashtext(?))|abandonment:quote:q1',
     );
+  });
+
+  it.each([
+    ['order', { orderUpdatedAt: RECENT }],
+    ['payment', { paymentUpdatedAt: RECENT }],
+    ['quote', { quoteUpdatedAt: RECENT }],
+  ] as const)(
+    'does not call a cart abandoned while its %s saw activity inside the window',
+    async (_label, evidence) => {
+      const state = emptyState();
+      // The cart row itself has been untouched for four hours.
+      state.carts.set('c1', { id: 'c1', status: 'OPEN', updatedAt: STALE });
+
+      const result = await new AbandonmentScanHandler(
+        fakePrisma(state, { evidence }) as never,
+      ).handle({ now: NOW.toISOString() });
+
+      expect(result.details).toMatchObject({ cartsClassified: 0 });
+      expect(state.records).toHaveLength(0);
+      expect(state.carts.get('c1')?.status).toBe('OPEN');
+    },
+  );
+
+  it('records the latest funnel activity as the abandonment time', async () => {
+    const state = emptyState();
+    state.carts.set('c1', { id: 'c1', status: 'OPEN', updatedAt: STALE });
+    const paymentAt = new Date('2026-10-20T08:30:00.000Z');
+
+    await new AbandonmentScanHandler(
+      fakePrisma(state, { evidence: { paymentUpdatedAt: paymentAt } }) as never,
+    ).handle({ now: NOW.toISOString() });
+
+    expect(state.records[0]).toMatchObject({ cartId: 'c1', lastEventAt: paymentAt });
+  });
+
+  it('counts a write refused by the unique index as skipped, not a failed sweep', async () => {
+    const state = emptyState();
+    state.carts.set('c1', { id: 'c1', status: 'OPEN', updatedAt: STALE });
+    state.quotes.set('q1', { id: 'q1', status: 'EXPIRED', acceptedAt: null });
+
+    const result = await new AbandonmentScanHandler(
+      fakePrisma(state, { uniqueViolationOnCreate: true }) as never,
+    ).handle({ now: NOW.toISOString() });
+
+    expect(result).toMatchObject({ changed: 0, skipped: 2 });
+    // The cart claim rolled back with the insert; the next sweep sees the record.
+    expect(state.carts.get('c1')?.status).toBe('OPEN');
+  });
+
+  it('does not write a second record for a cart already recorded with that type', async () => {
+    const state = emptyState();
+    state.carts.set('c1', { id: 'c1', status: 'OPEN', updatedAt: STALE });
+    state.records.push({ type: 'PAYMENT_ABANDONMENT', cartId: 'c1' });
+
+    const result = await new AbandonmentScanHandler(fakePrisma(state) as never).handle({
+      now: NOW.toISOString(),
+    });
+
+    expect(result.details).toMatchObject({ cartsClassified: 0 });
+    expect(state.records).toHaveLength(1);
   });
 
   it('rejects malformed payload overrides by field name', async () => {

@@ -6,14 +6,23 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { AppConfigService } from '../../common/config/app-config.service';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
+import { DeliveryProblemService } from './delivery-problem.service';
 import { FulfillmentService, type DeliveryOutcome } from './fulfillment.service';
-import { internalRetryDeliveryBodySchema, type InternalRetryDeliveryBody } from './fulfillment.schemas';
+import {
+  internalReportDeliveryProblemBodySchema,
+  internalRetryDeliveryBodySchema,
+  type InternalReportDeliveryProblemBody,
+  type InternalRetryDeliveryBody,
+} from './fulfillment.schemas';
 
 /** Header the worker presents. */
 export const INTERNAL_SERVICE_TOKEN_HEADER = 'x-internal-service-token';
 
 /** Path the delivery-retry worker posts to. Mirrored in `apps/worker`. */
 export const INTERNAL_RETRY_DELIVERY_PATH = '/internal/fulfillment/retry-delivery';
+
+/** Path the worker reports stuck and exhausted deliveries to. Mirrored in `apps/worker`. */
+export const INTERNAL_REPORT_DELIVERY_PROBLEM_PATH = '/internal/fulfillment/report-delivery-problem';
 
 interface RequestWithHeaders {
   headers?: Record<string, unknown>;
@@ -38,8 +47,8 @@ export function tokenMatches(presented: string, expected: string): boolean {
  * The worker cannot decrypt a gift-card code — the key and the crypto live only
  * in the API process — so an automatic delivery retry has to come back through
  * here. This endpoint deliberately exposes nothing but "retry the delivery of an
- * asset that already exists": no asset creation, no code in the request, no code
- * in the response.
+ * asset that already exists" and "tell a human about this asset": no asset
+ * creation, no code in the request, no code in the response.
  *
  * The token comes from the validated environment (`INTERNAL_SERVICE_TOKEN`,
  * at least 32 characters). This fails closed: with no token configured every
@@ -50,6 +59,7 @@ export class InternalFulfillmentController {
   constructor(
     @Inject(FulfillmentService) private readonly fulfillment: FulfillmentService,
     @Inject(AppConfigService) private readonly config: AppConfigService,
+    @Inject(DeliveryProblemService) private readonly problems: DeliveryProblemService,
   ) {}
 
   @Post('retry-delivery')
@@ -67,6 +77,15 @@ export class InternalFulfillmentController {
       attemptNumber: outcome.attemptNumber,
       failureCode: outcome.failureCode,
     };
+  }
+
+  @Post('report-delivery-problem')
+  async reportDeliveryProblem(
+    @Body(zodPipe(internalReportDeliveryProblemBodySchema)) body: InternalReportDeliveryProblemBody,
+    @Req() request: unknown,
+  ): Promise<{ reported: boolean }> {
+    this.assertInternalCaller(request);
+    return this.problems.report({ assetId: body.assetId, problem: body.problem });
   }
 
   private assertInternalCaller(request: unknown): void {

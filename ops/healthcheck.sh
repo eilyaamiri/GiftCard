@@ -16,6 +16,12 @@
 #     deploy and does not page. A deploy that leaves the API DOWN still pages.
 # And sends one recovery message when the API answers again after an outage.
 #
+# It also checks the background worker (barat-worker) through the heartbeat
+# every completed sweep writes to Redis, and pages once when no sweep has
+# completed for FAIL_THRESHOLD runs in a row, and once when sweeps resume. Only
+# when the barat-worker unit is enabled (WORKER_CHECK=auto), so installing this
+# before the worker does not page about a service that does not exist yet.
+#
 # Secrets come from the same env file the API uses. The bot token is passed to
 # curl on stdin, never on the command line, so it does not show in `ps`.
 set -euo pipefail
@@ -31,6 +37,9 @@ TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-10}"
 DEPLOY_GRACE_SECONDS="${DEPLOY_GRACE_SECONDS:-1800}"
 # Set to 1 to print alerts instead of sending them (testing).
 DRY_RUN="${DRY_RUN:-0}"
+# auto = check the worker only when its systemd unit is enabled; 1 = always; 0 = never.
+WORKER_CHECK="${WORKER_CHECK:-auto}"
+WORKER_HEALTHCHECK="${WORKER_HEALTHCHECK:-$APP_DIR/apps/worker/dist/healthcheck.js}"
 
 if [ -f "$ENV_FILE" ]; then
   set -a; . "$ENV_FILE"; set +a
@@ -128,3 +137,47 @@ Time: $(now_tehran) (Tehran)"
 fi
 
 printf '%s %s %s %s %s\n' "$status" "$failures" "$uptime" "$head" "$head_changed_at" > "$STATE_FILE"
+
+# --- worker -------------------------------------------------------------------
+# Separate state file, so the API state line above keeps its format.
+check_worker=0
+case "$WORKER_CHECK" in
+  1) check_worker=1 ;;
+  auto) systemctl is-enabled --quiet barat-worker 2>/dev/null && check_worker=1 ;;
+esac
+
+if [ "$check_worker" = "1" ]; then
+  WORKER_STATE_FILE="$STATE_DIR/worker-state"
+  worker_prev_status="up"; worker_prev_failures=0
+  if [ -f "$WORKER_STATE_FILE" ]; then
+    read -r worker_prev_status worker_prev_failures < "$WORKER_STATE_FILE" || true
+  fi
+  worker_prev_failures="${worker_prev_failures:-0}"
+
+  # One line, never the Redis URL. Exit 0 healthy, 1 no recent sweep, 2 unknown.
+  # `timeout` guards a hung Redis; the check has its own 3 s connect timeout too.
+  worker_cmd=(node "$WORKER_HEALTHCHECK")
+  command -v timeout >/dev/null 2>&1 && worker_cmd=(timeout 20 "${worker_cmd[@]}")
+  worker_report="$("${worker_cmd[@]}" 2>/dev/null)" && worker_ok=1 || worker_ok=0
+  worker_report="${worker_report:-no answer from the worker health check}"
+
+  worker_status="$worker_prev_status"; worker_failures="$worker_prev_failures"
+  if [ "$worker_ok" = "1" ]; then
+    if [ "$worker_prev_status" = "down" ]; then
+      send_alert "✅ [RECOVERED] Barat Pay worker sweeps are running again
+${worker_report}
+Time: $(now_tehran) (Tehran)"
+    fi
+    worker_status="up"; worker_failures=0
+  else
+    worker_failures=$((worker_prev_failures + 1))
+    if [ "$worker_prev_status" = "up" ] && [ "$worker_failures" -ge "$FAIL_THRESHOLD" ]; then
+      send_alert "🚨 [CRITICAL] Barat Pay worker has stopped sweeping
+${worker_report}
+Quote expiry, abandonment and automatic delivery retries are not running.
+Time: $(now_tehran) (Tehran)"
+      worker_status="down"
+    fi
+  fi
+  printf '%s %s\n' "$worker_status" "$worker_failures" > "$WORKER_STATE_FILE"
+fi

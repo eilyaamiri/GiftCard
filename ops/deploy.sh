@@ -38,8 +38,8 @@ pnpm --filter @barat/database db:generate
 echo "==> migrate"
 pnpm --filter @barat/database exec prisma migrate deploy
 
-echo "==> build shared packages + api"
-pnpm --filter @barat/api... build
+echo "==> build shared packages + api + worker"
+pnpm --filter @barat/api... --filter @barat/worker... build
 
 echo "==> build web (alone: memory)"
 # API_PUBLIC_URL is blanked deliberately. next.config.ts bakes it into
@@ -69,11 +69,17 @@ for app in web admin; do
 done
 
 echo "==> restart"
-systemctl restart barat-api
-systemctl restart barat-web
-systemctl restart barat-admin
+units="barat-api barat-web barat-admin"
+# The worker joins once its unit is installed and enabled (ops/README.md,
+# "Background worker"); until then a deploy leaves it alone.
+if systemctl is-enabled --quiet barat-worker 2>/dev/null; then
+  units="$units barat-worker"
+fi
+for unit in $units; do
+  systemctl restart "$unit"
+done
 sleep 12
 
-for unit in barat-api barat-web barat-admin; do
-  printf "%-12s %s\n" "$unit" "$(systemctl is-active $unit)"
+for unit in $units; do
+  printf "%-13s %s\n" "$unit" "$(systemctl is-active "$unit")"
 done

@@ -443,6 +443,8 @@ export interface FulfillmentStore {
     orderId: string;
     recipientMasked: string;
     attemptNumber: number;
+    /** The staff member who pressed send; null for automatic attempts. */
+    initiatedByStaffId: string | null;
   }): Promise<{ id: string }>;
   completeDeliveryAttempt(input: {
     attemptId: string;

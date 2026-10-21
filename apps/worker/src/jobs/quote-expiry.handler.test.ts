@@ -2,8 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { QuoteExpiryHandler } from './quote-expiry.handler';
 
-function fakeDb(ids: string[], updatedCount: number) {
+function fakeDb(ids: string[], updatedCount: number, databaseNow: Date = new Date()) {
   return {
+    $queryRaw: vi.fn(async () => [{ now: databaseNow }]),
     quote: {
       findMany: vi.fn(async () => ids.map((id) => ({ id }))),
       updateMany: vi.fn(async () => ({ count: updatedCount })),
@@ -46,10 +47,50 @@ describe('QuoteExpiryHandler', () => {
 
   it('is a no-op on a second run', async () => {
     const db = fakeDb([], 0);
-    await expect(new QuoteExpiryHandler(db as never).handle({})).resolves.toEqual({
+    await expect(new QuoteExpiryHandler(db as never).handle({})).resolves.toMatchObject({
       changed: 0,
       skipped: 0,
     });
     expect(db.quote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('expires against the database clock, not a worker clock that runs fast', async () => {
+    // The worker host is 4.5 hours ahead; the database is right.
+    const databaseNow = new Date(Date.now() - 4.5 * 3_600_000);
+    const db = fakeDb(['q1'], 1, databaseNow);
+
+    const result = await new QuoteExpiryHandler(db as never).handle({});
+
+    expect(db.quote.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: 'ACTIVE', expiresAt: { lte: databaseNow } },
+      }),
+    );
+    expect(db.quote.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['q1'] }, status: 'ACTIVE', expiresAt: { lte: databaseNow } },
+      data: { status: 'EXPIRED' },
+    });
+    expect(result.details).toMatchObject({ clockSkewSeconds: 16_200 });
+  });
+
+  it('refuses a pinned clock ahead of the database clock', async () => {
+    const databaseNow = new Date(Date.now() - 3_600_000);
+    const db = fakeDb(['q1'], 1, databaseNow);
+
+    // Not ahead of this process, but an hour ahead of the database.
+    await expect(
+      new QuoteExpiryHandler(db as never).handle({ now: new Date().toISOString() }),
+    ).rejects.toThrow(/may not be in the future/);
+    expect(db.quote.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('fails the sweep when the database clock cannot be read', async () => {
+    const db = fakeDb(['q1'], 1);
+    db.$queryRaw.mockResolvedValueOnce([]);
+
+    await expect(new QuoteExpiryHandler(db as never).handle({})).rejects.toThrow(
+      /database clock unreadable/,
+    );
+    expect(db.quote.findMany).not.toHaveBeenCalled();
   });
 });

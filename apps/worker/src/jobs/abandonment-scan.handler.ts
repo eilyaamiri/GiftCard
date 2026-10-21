@@ -57,12 +57,11 @@ interface CartCandidate {
  * two overlapping sweeps (or a BullMQ retry after a mid-batch crash) cannot
  * produce two records for one cart.
  *
- * GAP NOTE: `AbandonmentRecord` has no unique index on `(type, quoteId)` in the
- * frozen schema, so the quote branch has no equivalent DB-level guard. It uses a
- * read-then-write guard inside a transaction and is safe under the single
- * repeatable job that actually drives this queue, but a genuinely concurrent
- * enqueue could double-write. The fix is a `@@unique([type, quoteId])` in
- * `packages/database/prisma/schema.prisma`, which this agent must not edit.
+ * The database backs both branches with `@@unique([type, cartId])` and
+ * `@@unique([type, quoteId])`. The read-then-write guards below stay, because
+ * they also cover the cross-type case (a quote recorded as abandoned and later
+ * seen as expired) that a per-type index cannot; the index is the last line,
+ * and a write that hits it is counted as skipped instead of failing the sweep.
  */
 export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData> {
   readonly queueName = QUEUE_NAMES.ABANDONMENT_SCAN;
@@ -106,7 +105,7 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
     let skipped = 0;
 
     for (const cart of candidates) {
-      const classified = await this.classifyCart(cart);
+      const classified = await this.classifyCart(cart, cutoff);
       if (classified) {
         changed += 1;
       } else {
@@ -117,7 +116,7 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
     return { changed, skipped };
   }
 
-  private async classifyCart(cart: CartCandidate): Promise<boolean> {
+  private async classifyCart(cart: CartCandidate, cutoff: Date): Promise<boolean> {
     // Read the evidence before taking the lock so the transaction stays short.
     const evidence = await this.db.cart.findUnique({
       where: { id: cart.id },
@@ -132,8 +131,9 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
             updatedAt: true,
             payments: {
               where: { status: { in: [...PAYMENT_STARTED_STATUSES] } },
+              orderBy: { updatedAt: 'desc' },
               take: 1,
-              select: { id: true },
+              select: { id: true, updatedAt: true },
             },
           },
         },
@@ -147,6 +147,21 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
 
     const order = evidence?.orders[0];
     const quote = evidence?.quotes[0];
+    const payment = order?.payments[0];
+
+    /* Idle means idle across the whole funnel, not only the cart row. Placing
+     * an order or starting a payment does not touch the cart, so a customer
+     * who is at the gateway right now has a cart that looks an hour old. The
+     * window itself is unchanged; it is measured from the latest activity. */
+    const lastEventAt = latestTimestamp([
+      cart.updatedAt,
+      order?.updatedAt,
+      payment?.updatedAt,
+      quote?.updatedAt,
+    ]);
+    if (lastEventAt.getTime() > cutoff.getTime()) {
+      return false;
+    }
 
     // A cart whose quote was accepted and paid is not abandoned; the paid order
     // would have flipped it to CONVERTED. Guarding anyway keeps a lagging write
@@ -161,7 +176,6 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
       quote !== undefined,
     );
     const amountIrr = order?.totalAmountIrr ?? quote?.finalAmountIrr ?? null;
-    const lastEventAt = latestTimestamp([cart.updatedAt, order?.updatedAt, quote?.updatedAt]);
 
     try {
       return await this.db.$transaction(async (tx) => {
@@ -185,6 +199,15 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
           throw new ClaimRolledBack();
         }
 
+        // One record per cart and type; the claim already serialises this cart.
+        const existing = await tx.abandonmentRecord.findFirst({
+          where: { type, cartId: cart.id },
+          select: { id: true },
+        });
+        if (existing !== null) {
+          return false;
+        }
+
         await tx.abandonmentRecord.create({
           data: {
             type,
@@ -201,7 +224,7 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
         return true;
       });
     } catch (error: unknown) {
-      if (error instanceof ClaimRolledBack) {
+      if (error instanceof ClaimRolledBack || isUniqueViolation(error)) {
         return false;
       }
       throw error;
@@ -240,11 +263,33 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
       const type: AbandonmentType =
         quote.status === 'EXPIRED' ? 'EXPIRED_QUOTE' : 'QUOTE_ABANDONMENT';
 
-      const written = await this.db.$transaction(async (tx) => {
-        /* There is no unique index on (type, quoteId), so the read-then-write
-         * below is only safe if no other runner is between the same two lines.
-         * A transaction-scoped advisory lock on the quote id serialises them
-         * across processes; it is released by the commit or rollback. */
+      const written = await this.recordQuote(quote, type);
+
+      if (written) {
+        changed += 1;
+      } else {
+        skipped += 1;
+      }
+    }
+
+    return { changed, skipped };
+  }
+
+  private async recordQuote(
+    quote: {
+      readonly id: string;
+      readonly customerId: string | null;
+      readonly commerceSessionId: string | null;
+      readonly finalAmountIrr: bigint;
+      readonly updatedAt: Date;
+    },
+    type: AbandonmentType,
+  ): Promise<boolean> {
+    try {
+      return await this.db.$transaction(async (tx) => {
+        /* The unique index covers one type; the lookup below covers both. A
+         * transaction-scoped advisory lock on the quote id keeps two runners
+         * from passing that lookup together; commit or rollback releases it. */
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`abandonment:quote:${quote.id}`}))`;
 
         // The quote may have been accepted since the batch was read.
@@ -276,16 +321,24 @@ export class AbandonmentScanHandler implements JobHandler<AbandonmentScanJobData
         });
         return true;
       });
-
-      if (written) {
-        changed += 1;
-      } else {
-        skipped += 1;
+    } catch (error: unknown) {
+      if (isUniqueViolation(error)) {
+        return false;
       }
+      throw error;
     }
-
-    return { changed, skipped };
   }
+}
+
+/**
+ * Another writer recorded this cart or quote first: already classified.
+ * Matched on the error code alone; importing Prisma's error class would load the
+ * database client module, which connects at import.
+ */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002'
+  );
 }
 
 export function classifyCartType(

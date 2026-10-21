@@ -999,6 +999,11 @@ describe('delivery retry', () => {
     const sent = h.events.filter((event) => event.action === 'FULFILLMENT_DELIVERY_RETRIED');
     expect(sent).toHaveLength(1);
     expect(sent[0]?.actor).toBe('system:delivery-retry');
+    // The worker's retry cap counts only system attempts, so each row says who sent it.
+    expect(h.store.attempts.map((attempt) => attempt.initiatedByStaffId)).toEqual([
+      OPERATOR.id,
+      null,
+    ]);
   });
 
   it('refuses to retry an asset that already went out', async () => {

@@ -14,6 +14,7 @@ its PostgreSQL and Redis containers and `/opt/baratpay` are untouched.
 | `deploy.sh` | `/opt/baratpay/deploy.sh` |
 | `ci-deploy.sh` | `/opt/baratpay/ci-deploy.sh` (mode 700) |
 | `nginx-baratpay.conf` | `/etc/nginx/sites-available/baratpay` |
+| `barat-worker.service` | `/etc/systemd/system/barat-worker.service` |
 
 Secrets are **not** here. They live in `/opt/baratpay/secrets/.env.{api,web,admin}`
 on the server, mode 600, and are never committed.
@@ -129,12 +130,64 @@ unfulfilled tail `UNASSIGNED`. Claiming consumes it, so to get the queue back:
 `NODE_ENV` is overridden because the seed refuses to run under `production` —
 that guard is deliberate and stays. This database holds nothing but demo data.
 
+## Background worker
+
+`apps/worker` runs three sweeps: quote expiry (every minute), abandonment
+(every 5 minutes) and automatic delivery retry (every 2 minutes). Until the
+security wave 1 release nothing in production ran them. The retry sweep e-mails
+a failed gift card again after 15 minutes, at most 5 automatic attempts per
+card (an operator's "resend" does not count). A card past that, or stuck in
+`SENDING` for over 15 minutes, is never re-sent automatically: it opens a
+reconciliation issue and pages Telegram once.
+
+The worker reads the API's env file. It needs `INTERNAL_SERVICE_TOKEN` there
+(the API holds the same value) and refuses to start in production without it;
+`INTERNAL_API_URL` defaults to `http://127.0.0.1:4000/api`. Enabling it is a
+change customers see, so do it on purpose, one step at a time, after the
+release is deployed:
+
+1. Check the token is set (must print 1):
+
+       sudo grep -c '^INTERNAL_SERVICE_TOKEN=.\{32,\}' /opt/baratpay/secrets/.env.api
+
+   If it prints 0, add one and restart the API so both sides hold it:
+
+       echo "INTERNAL_SERVICE_TOKEN=$(openssl rand -hex 32)" | sudo tee -a /opt/baratpay/secrets/.env.api >/dev/null
+
+       sudo systemctl restart barat-api
+
+2. See what the first sweeps will act on, and deal with any old test order in
+   the lists first:
+
+       sudo docker exec -i barat-postgres psql -U barat -d barat < /opt/baratpay/app/ops/sql/worker-activation-precheck.sql
+
+3. Install and start the unit:
+
+       sudo cp /opt/baratpay/app/ops/barat-worker.service /etc/systemd/system/
+
+       sudo systemctl daemon-reload
+
+       sudo systemctl enable --now barat-worker
+
+4. Confirm it runs (look for `Sweep workers started` and the per-sweep counts):
+
+       sudo journalctl -u barat-worker -n 30 --no-pager
+
+From then on `deploy.sh` rebuilds and restarts it with the other units, and
+the watchdog below pages when no sweep has completed for two checks in a row.
+To ask the heartbeat directly:
+
+    cd /opt/baratpay/app/apps/worker && sudo sh -c 'set -a; . /opt/baratpay/secrets/.env.api; node dist/healthcheck.js'
+
 ## Uptime watchdog
 
 `ops/healthcheck.sh` checks `/api/health` from outside the API process and
 pages Telegram when the API is down for two checks in a row, when it restarted
 outside a deploy (a crash the supervisor recovered), and once when it is back.
 A process that has crashed cannot report itself; this is the part that can.
+Once `barat-worker` is enabled it also reads the worker's heartbeat and pages
+when no sweep has completed for two checks in a row, and once when sweeps
+resume (`WORKER_CHECK=0` in the crontab line turns that off).
 
 It reads `ALERT_TELEGRAM_ENABLED`, `ALERT_TELEGRAM_BOT_TOKEN` and
 `ALERT_TELEGRAM_CHAT_ID` from `/opt/baratpay/secrets/.env.api` — the same values

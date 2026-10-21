@@ -1209,6 +1209,9 @@ export class FulfillmentService {
         orderId: context.orderId,
         recipientMasked,
         attemptNumber,
+        /* Recorded so the worker's automatic retry cap counts only its own
+         * attempts: an operator pressing "resend" does not use up the budget. */
+        initiatedByStaffId: input.actor.actorType === 'STAFF' ? input.actor.id : null,
       });
       attemptId = attempt.id;
 

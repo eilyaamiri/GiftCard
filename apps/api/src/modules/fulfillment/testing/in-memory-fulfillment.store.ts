@@ -68,6 +68,7 @@ interface AttemptRow {
   providerMessageId: string | null;
   errorCode: string | null;
   sentAt: Date | null;
+  initiatedByStaffId: string | null;
 }
 
 /**
@@ -547,6 +548,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
     orderId: string;
     recipientMasked: string;
     attemptNumber: number;
+    initiatedByStaffId: string | null;
   }): Promise<{ id: string }> {
     const row: AttemptRow = {
       id: this.nextId('attempt'),
@@ -558,6 +560,7 @@ export class InMemoryFulfillmentStore implements FulfillmentStore {
       providerMessageId: null,
       errorCode: null,
       sentAt: null,
+      initiatedByStaffId: input.initiatedByStaffId,
     };
     this.attempts.push(row);
     return { id: row.id };

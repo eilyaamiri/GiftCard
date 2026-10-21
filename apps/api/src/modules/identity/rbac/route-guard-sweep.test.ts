@@ -107,6 +107,8 @@ const UNDECORATED_BY_DESIGN: Readonly<Record<string, string>> = {
   'HealthController.live': 'load-balancer liveness probe',
   'InternalFulfillmentController.retryDelivery':
     'machine-to-machine; authenticated in-handler by INTERNAL_SERVICE_TOKEN',
+  'InternalFulfillmentController.reportDeliveryProblem':
+    'machine-to-machine; authenticated in-handler by INTERNAL_SERVICE_TOKEN',
 };
 
 function has(key: string, target: object): boolean {

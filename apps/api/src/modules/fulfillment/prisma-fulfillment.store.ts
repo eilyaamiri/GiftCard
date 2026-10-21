@@ -832,6 +832,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     orderId: string;
     recipientMasked: string;
     attemptNumber: number;
+    initiatedByStaffId: string | null;
   }): Promise<{ id: string }> {
     return this.db.deliveryAttempt.create({
       data: {
@@ -841,6 +842,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
         recipientMasked: input.recipientMasked,
         status: 'SENDING',
         attemptNumber: input.attemptNumber,
+        initiatedByStaffId: input.initiatedByStaffId,
       },
       select: { id: true },
     });

@@ -64,4 +64,31 @@ describe('HttpDeliveryRetryClient', () => {
     });
     await expect(client.retry('a1')).rejects.toThrow('aborted');
   });
+
+  it('reports a delivery problem by id only, on the same guarded transport', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ reported: true }));
+    const client = new HttpDeliveryRetryClient({
+      baseUrl: 'http://127.0.0.1:4000/api',
+      token: TOKEN,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    await expect(client.reportProblem('a1', 'SENDING_STUCK')).resolves.toEqual({ reported: true });
+
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('http://127.0.0.1:4000/api/internal/fulfillment/report-delivery-problem');
+    expect(JSON.parse(init.body as string)).toEqual({ assetId: 'a1', problem: 'SENDING_STUCK' });
+    expect(init.redirect).toBe('error');
+  });
+
+  it('rejects a malformed problem-report response', async () => {
+    const client = new HttpDeliveryRetryClient({
+      baseUrl: 'http://api:4000',
+      token: TOKEN,
+      fetchImpl: vi.fn(async () => jsonResponse({})) as unknown as typeof fetch,
+    });
+    await expect(client.reportProblem('a1', 'RETRIES_EXHAUSTED')).rejects.toBeInstanceOf(
+      DeliveryRetryClientError,
+    );
+  });
 });
