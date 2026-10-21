@@ -31,9 +31,3 @@ export async function requireSession(nextPath?: string): Promise<CustomerDto> {
   if (!customer) redirect(nextPath ? `/login?next=${encodeURIComponent(nextPath)}` : "/login");
   return customer;
 }
-
-/** Display name for a customer who may not have completed their profile yet. */
-export function customerDisplayName(customer: CustomerDto): string {
-  const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
-  return name || customer.maskedMobile || customer.maskedEmail || customer.customerCode;
-}

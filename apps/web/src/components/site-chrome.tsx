@@ -17,17 +17,13 @@ import { SteamIcon } from "@/components/steam-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { buildCategoryMenu } from "@/lib/category-menu";
+import { customerDisplayName } from "@/lib/customer-display";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 import { BRAND, copyrightYear } from "@/lib/brand";
 
 /** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
 const TRENDING_BRANDS_SHOWN = 8;
-
-function profileLabel(customer: CustomerDto): string {
-  const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
-  return name || customer.maskedMobile || customer.maskedEmail || customer.customerCode;
-}
 
 /**
  * Public storefront chrome with a session-aware identity area.
@@ -141,7 +137,7 @@ export function SiteChrome({
               <Link href="/account" className="customer-profile-link" aria-label="مشاهده پنل کاربری">
                 <span className="customer-profile-avatar"><CircleUserRound size={20} /></span>
                 <span className="customer-profile-copy">
-                  <strong>{profileLabel(customer)}</strong>
+                  <strong><bdi>{customerDisplayName(customer)}</bdi></strong>
                   <small>پنل کاربری</small>
                 </span>
               </Link>

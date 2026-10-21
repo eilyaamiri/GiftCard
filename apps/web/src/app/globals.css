@@ -845,6 +845,9 @@ a { color:inherit; text-decoration:none; }
  * search, categories and brands, just one tap away instead of always in view. */
 @media (max-width:767px) {
   .nav,.header-support,.header-search,.header-navbar,.header-end > .theme-switch { display:none; }
+  /* The bottom bar already carries the account tab, so a signed-in phone does
+   * not get a second, cramped copy of it in the topbar. */
+  .customer-profile-link { display:none; }
   /* The top-of-page logo is dropped below 768px; the wordmark moves next to
    * the drawer trigger instead, so the brand still appears exactly once. */
   .header-topbar > .logo { display:none; }

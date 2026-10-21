@@ -1,6 +1,7 @@
 import { Badge, Ltr, formatJalaliDate } from "@barat/ui";
 import { AccountNav } from "@/components/account-nav";
 import { api } from "@/lib/api";
+import { formatMaskedMobile } from "@/lib/customer-display";
 import { BankAccountForm } from "./bank-account-form";
 import { EmailForm } from "./email-form";
 import { ProfileForm } from "./profile-form";
@@ -26,7 +27,7 @@ export default async function AccountProfilePage() {
         <div className="summary-line">
           <span>شماره موبایل</span>
           <strong className="profile-identity-value">
-            <Ltr>{customer.maskedMobile ?? "—"}</Ltr>
+            <Ltr>{customer.maskedMobile ? formatMaskedMobile(customer.maskedMobile) : "—"}</Ltr>
             {customer.isMobileVerified ? <Badge tone="ok">تأیید شده</Badge> : null}
           </strong>
         </div>
