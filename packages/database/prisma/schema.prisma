@@ -222,6 +222,12 @@ enum ReconciliationIssueType {
   sent_not_fulfilled
   delivery_failed
   missing_actual_supplier_cost
+  /// The gateway answered "already verified" for a payment our row does not
+  /// hold as PAID.
+  provider_already_verified_mismatch
+  /// The gateway verified a payment whose local row was already closed
+  /// (FAILED / CANCELLED).
+  gateway_verified_local_closed
 }
 
 enum ReconciliationStatus {
@@ -701,6 +707,9 @@ model StaffUser {
   supportOwnershipTo          SupportOwnershipEvent[]    @relation("SupportOwnershipNew")
   supportOwnershipChanged     SupportOwnershipEvent[]    @relation("SupportOwnershipChanger")
   topUpEvents                 TopUpEvent[]               @relation("TopUpEventStaff")
+  giftCardAssetsReplaced      GiftCardAsset[]            @relation("GiftCardAssetReplacementApprover")
+  deliveryAttemptsInitiated   DeliveryAttempt[]          @relation("DeliveryAttemptInitiator")
+  supplierPurchasesRequested  SupplierPurchaseAttempt[]  @relation("SupplierPurchaseRequester")
 
   @@index([role, isActive])
   @@index([teamId])
@@ -965,6 +974,7 @@ model Supplier {
   fulfillments Fulfillment[]
   topUpGames        TopUpGame[]
   topUpFulfillments TopUpFulfillment[]
+  purchaseAttempts  SupplierPurchaseAttempt[]
 
   @@index([isActive])
 }
@@ -1427,7 +1437,8 @@ model Quote {
   fxRate          FxRate?              @relation(fields: [fxRateId], references: [id], onDelete: SetNull)
 
   components QuoteComponent[]
-  orders     Order[]
+  /// A quote anchors at most one order (`Order.quoteId` is unique).
+  order      Order?
 
   @@index([customerId, status, createdAt])
   @@index([status, expiresAt])
@@ -1456,7 +1467,7 @@ model QuoteComponent {
 
   createdAt DateTime @default(now())
 
-  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote Quote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
 
   @@index([quoteId, sortOrder])
 }
@@ -1515,7 +1526,9 @@ model Order {
   /// Public order number, e.g. `BP-2026-000123`.
   orderNumber String      @unique
   customerId  String
-  quoteId     String
+  /// One order per quote, enforced here as well as in the Serializable
+  /// order-creation transaction.
+  quoteId     String      @unique
   cartId      String?
   status      OrderStatus @default(DRAFT)
 
@@ -1556,10 +1569,10 @@ model Order {
   deliveryAttempts     DeliveryAttempt[]
   reconciliationIssues ReconciliationIssue[]
   topUpFulfillments    TopUpFulfillment[]
+  purchaseAttempts     SupplierPurchaseAttempt[]
 
   @@index([customerId, createdAt])
   @@index([status, createdAt])
-  @@index([quoteId])
   @@index([paidAt])
 }
 
@@ -1597,6 +1610,17 @@ model Payment {
 
   /// Idempotency for payment creation and verification (AGENTS.md rule 9).
   idempotencyKey String @unique
+
+  /// INVARIANT: at most one live gateway session per order. Equals `orderId`
+  /// while status is CREATED / REDIRECTED / PENDING and NULL otherwise, so the
+  /// `@unique` makes a second live session impossible (WorkItem.activeOrderKey
+  /// pattern). The application must clear it in the same write that leaves
+  /// those statuses.
+  liveOrderKey String? @unique
+  /// INVARIANT: at most one PAID payment per order. Equals `orderId` once this
+  /// payment is PAID, NULL otherwise. A unique violation means a second capture
+  /// and must go to reconciliation, never to fulfillment.
+  paidOrderKey String? @unique
 
   requestedAt  DateTime?
   redirectedAt DateTime?
@@ -1643,7 +1667,7 @@ model PaymentAttempt {
 
   createdAt DateTime @default(now())
 
-  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
 
   @@unique([paymentId, attemptNumber])
   @@index([paymentId, createdAt])
@@ -1746,7 +1770,7 @@ model SupportTicket {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  workItem WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem  @relation(fields: [workItemId], references: [id], onDelete: Restrict)
   owner    StaffUser? @relation("SupportTicketOwner", fields: [ownerStaffId], references: [id], onDelete: SetNull)
   messages SupportMessage[]
   ownershipEvents SupportOwnershipEvent[]
@@ -1822,7 +1846,7 @@ model FulfillmentChecklist {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  workItem WorkItem               @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem WorkItem               @relation(fields: [workItemId], references: [id], onDelete: Restrict)
   template TaskChecklistTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
 
   items FulfillmentChecklistItem[]
@@ -1887,6 +1911,11 @@ model Fulfillment {
   /// Idempotency for fulfillment (AGENTS.md rule 9).
   idempotencyKey String? @unique
 
+  /// INVARIANT: at most one non-terminal fulfillment per order. Equals
+  /// `orderId` while status is PENDING / IN_PROGRESS / AWAITING_APPROVAL and
+  /// NULL once COMPLETED / FAILED / CANCELLED (WorkItem.activeOrderKey pattern).
+  activeOrderKey String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1898,6 +1927,8 @@ model Fulfillment {
 
   giftCardAssets GiftCardAsset[]
 
+  /// One supplier order is recorded against one fulfillment. NULLs do not collide.
+  @@unique([supplierId, supplierOrderId])
   @@index([orderId])
   @@index([status, createdAt])
   @@index([supplierId, createdAt])
@@ -1938,7 +1969,7 @@ model GiftCardCodeRequest {
   cancelledAt        DateTime?
   updatedAt          DateTime @updatedAt
 
-  workItem   WorkItem     @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  workItem   WorkItem     @relation(fields: [workItemId], references: [id], onDelete: Restrict)
   order      Order        @relation(fields: [orderId], references: [id])
   requestedBy StaffUser  @relation("GiftCardCodeRequestCreator", fields: [requestedByStaffId], references: [id])
   fulfilledBy StaffUser? @relation("GiftCardCodeRequestFulfiller", fields: [fulfilledByStaffId], references: [id], onDelete: SetNull)
@@ -1984,6 +2015,18 @@ model GiftCardAsset {
   accessCount          Int       @default(0)
   lastAccessedAt       DateTime?
 
+  /// INVARIANT: at most one live asset per order. Equals `orderId` while the
+  /// asset is current and NULL once it has been superseded by a replacement.
+  liveOrderKey String? @unique
+
+  /// Replacement path (a defective card replaced under manager approval). The
+  /// superseded row is kept for audit; only the live one is shown to the
+  /// customer.
+  supersededAt                 DateTime?
+  supersededByAssetId          String?   @unique
+  replacementReason            String?
+  replacementApprovedByStaffId String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1991,6 +2034,9 @@ model GiftCardAsset {
   order       Order        @relation(fields: [orderId], references: [id])
   sku         Sku?         @relation(fields: [skuId], references: [id], onDelete: SetNull)
   enteredBy   StaffUser?   @relation("GiftCardAssetEnteredBy", fields: [enteredByUserId], references: [id], onDelete: SetNull)
+  supersededBy GiftCardAsset? @relation("GiftCardAssetReplacement", fields: [supersededByAssetId], references: [id], onDelete: Restrict)
+  supersedes   GiftCardAsset? @relation("GiftCardAssetReplacement")
+  replacementApprovedBy StaffUser? @relation("GiftCardAssetReplacementApprover", fields: [replacementApprovedByStaffId], references: [id], onDelete: SetNull)
 
   deliveryAttempts DeliveryAttempt[]
   giftCardRequest GiftCardCodeRequest?
@@ -2014,15 +2060,59 @@ model DeliveryAttempt {
   errorCode         String?
   attemptNumber     Int           @default(1)
   sentAt            DateTime?
+  /// Staff member who triggered this attempt; NULL for automatic (system)
+  /// attempts. The automatic retry cap counts only system attempts.
+  initiatedByStaffId String?
 
   createdAt DateTime @default(now())
 
   giftCardAsset GiftCardAsset? @relation(fields: [giftCardAssetId], references: [id], onDelete: SetNull)
   order         Order          @relation(fields: [orderId], references: [id])
+  initiatedBy   StaffUser?     @relation("DeliveryAttemptInitiator", fields: [initiatedByStaffId], references: [id], onDelete: SetNull)
 
   @@index([orderId, createdAt])
   @@index([giftCardAssetId, attemptNumber])
   @@index([status, createdAt])
+}
+
+/// One purchase request sent to a supplier for an order.
+///
+/// Durable twin of the in-process purchase lock: the row is written BEFORE the
+/// supplier call and its `idempotencyKey` is derived from the order on the
+/// server, so a restart, a second process or a replayed request cannot buy a
+/// second card for the same order. `openOrderKey` equals `orderId` while the
+/// attempt is IN_FLIGHT or UNKNOWN (outcome not yet settled) and NULL once it
+/// is SUCCEEDED or FAILED, so at most one unsettled purchase exists per order.
+model SupplierPurchaseAttempt {
+  id                 String  @id @default(cuid())
+  orderId            String
+  supplierId         String
+  offerId            String?
+  /// Deterministic, e.g. `purchase:<orderId>:1`. The generation suffix only
+  /// advances after an explicit retry of a definitively FAILED attempt.
+  idempotencyKey     String  @unique
+  generation         Int     @default(1)
+  /// IN_FLIGHT | SUCCEEDED | FAILED | UNKNOWN
+  status             String  @default("IN_FLIGHT")
+  openOrderKey       String? @unique
+  providerReference  String?
+  /// Normalised error key, never the raw provider body.
+  errorCode          String?
+  /// NULL when the automated path started the purchase.
+  requestedByStaffId String?
+
+  startedAt DateTime  @default(now())
+  settledAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order       Order      @relation(fields: [orderId], references: [id])
+  supplier    Supplier   @relation(fields: [supplierId], references: [id])
+  requestedBy StaffUser? @relation("SupplierPurchaseRequester", fields: [requestedByStaffId], references: [id], onDelete: SetNull)
+
+  @@unique([orderId, generation])
+  @@index([status, startedAt])
 }
 
 // ===========================================================================
@@ -2085,6 +2175,9 @@ model AbandonmentRecord {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// One record per abandoned quote / cart and type. NULLs do not collide.
+  @@unique([type, quoteId])
+  @@unique([type, cartId])
   @@index([type, detectedAt])
   @@index([customerId, detectedAt])
   @@index([commerceSessionId])
@@ -2115,6 +2208,11 @@ model ReconciliationIssue {
   resolutionNote     String?
   /// Required when status is IGNORED_WITH_REASON. The row is never deleted.
   ignoreReason       String?
+
+  /// Equals a stable key such as `<paymentId>:<reason>` while the issue is
+  /// OPEN or INVESTIGATING and NULL once it is RESOLVED / IGNORED_WITH_REASON,
+  /// so a replayed callback cannot open the same issue twice.
+  openDedupeKey String? @unique
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
