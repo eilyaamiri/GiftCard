@@ -9,9 +9,11 @@ import { envSchema } from './env.schema';
  * the feature, not the switch itself.
  */
 
-/* A configuration that boots, so each test varies exactly one thing. */
+/* A configuration that boots, so each test varies exactly one thing. A demo
+ * deployment is the only place the fixed code may live, so the base is not
+ * production. */
 const BASE = {
-  NODE_ENV: 'production',
+  NODE_ENV: 'staging',
   API_PUBLIC_URL: 'https://api.example.test',
   WEB_PUBLIC_URL: 'https://example.test',
   ADMIN_PUBLIC_URL: 'https://admin.example.test',
@@ -61,6 +63,25 @@ describe('OTP_DEV_FIXED_CODE', () => {
 
     expect(result.success).toBe(false);
     expect(messagesFor(result, 'OTP_DEV_FIXED_CODE').join(' ')).toMatch(/ZARINPAL_ENABLED/u);
+  });
+
+  it('refuses to boot alongside a live BazaarPay as well', () => {
+    const result = parse({
+      OTP_DEV_FIXED_CODE: '123456',
+      BAZAARPAY_ENABLED: 'true',
+      BAZAARPAY_API_TOKEN: 'token',
+      BAZAARPAY_DESTINATION: 'dest',
+    });
+
+    expect(result.success).toBe(false);
+    expect(messagesFor(result, 'OTP_DEV_FIXED_CODE').join(' ')).toMatch(/BAZAARPAY_ENABLED/u);
+  });
+
+  it('refuses to boot in production even with no gateway on', () => {
+    const result = parse({ NODE_ENV: 'production', PAYMENTS_ALLOW_MOCK: 'true', OTP_DEV_FIXED_CODE: '123456' });
+
+    expect(result.success).toBe(false);
+    expect(messagesFor(result, 'OTP_DEV_FIXED_CODE').join(' ')).toMatch(/production/u);
   });
 
   it('rejects a code whose length does not match OTP_LENGTH', () => {

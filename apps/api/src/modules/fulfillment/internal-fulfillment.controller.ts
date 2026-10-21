@@ -1,6 +1,7 @@
 import { Body, Controller, Inject, Post, Req } from '@nestjs/common';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
+import { AppConfigService } from '../../common/config';
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { FulfillmentService, type DeliveryOutcome } from './fulfillment.service';
@@ -38,15 +39,16 @@ export function tokenMatches(presented: string, expected: string): boolean {
  * asset that already exists": no asset creation, no code in the request, no code
  * in the response.
  *
- * GAP NOTE: `INTERNAL_SERVICE_TOKEN` is read from `process.env` rather than from
- * `common/config/env.schema.ts`, which is owned by another agent and frozen for
- * this task. It should be moved into the validated env schema (required in
- * production, minimum 32 chars). Until then this fails closed: an unset or short
- * token rejects every request rather than allowing them.
+ * The token comes from the validated environment (`INTERNAL_SERVICE_TOKEN`,
+ * at least 32 characters). This fails closed: with no token configured every
+ * request is rejected rather than allowed.
  */
 @Controller('internal/fulfillment')
 export class InternalFulfillmentController {
-  constructor(@Inject(FulfillmentService) private readonly fulfillment: FulfillmentService) {}
+  constructor(
+    @Inject(FulfillmentService) private readonly fulfillment: FulfillmentService,
+    @Inject(AppConfigService) private readonly config: AppConfigService,
+  ) {}
 
   @Post('retry-delivery')
   async retryDelivery(
@@ -66,10 +68,10 @@ export class InternalFulfillmentController {
   }
 
   private assertInternalCaller(request: unknown): void {
-    const expected = process.env['INTERNAL_SERVICE_TOKEN'];
-    if (typeof expected !== 'string' || expected.length < 32) {
+    const expected = this.config.internalServiceToken();
+    if (expected === null || expected.length < 32) {
       throw DomainErrors.forbidden(
-        'INTERNAL_SERVICE_TOKEN is unset or shorter than 32 characters; internal endpoints are disabled',
+        'INTERNAL_SERVICE_TOKEN is unset; internal endpoints are disabled',
       );
     }
 

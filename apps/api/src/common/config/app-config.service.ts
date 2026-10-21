@@ -194,6 +194,55 @@ export class AppConfigService {
     };
   }
 
+  /* ---------------------------------------------------------------- BazaarPay */
+
+  get bazaarPayEnabled(): boolean {
+    return this.get('BAZAARPAY_ENABLED');
+  }
+
+  /**
+   * BazaarPay settings. `null` when the gateway is disabled. `apiToken` is a
+   * secret: hand it to the adapter's constructor and nowhere else.
+   */
+  get bazaarPay(): {
+    apiToken: string;
+    destination: string;
+    baseUrl: string | undefined;
+    amountUnit: AppEnv['BAZAARPAY_AMOUNT_UNIT'];
+    timeoutMs: number;
+  } | null {
+    if (!this.bazaarPayEnabled) {
+      return null;
+    }
+
+    return {
+      apiToken: this.get('BAZAARPAY_API_TOKEN') ?? '',
+      destination: this.get('BAZAARPAY_DESTINATION') ?? '',
+      baseUrl: this.get('BAZAARPAY_BASE_URL'),
+      amountUnit: this.get('BAZAARPAY_AMOUNT_UNIT'),
+      timeoutMs: this.get('BAZAARPAY_TIMEOUT_MS'),
+    };
+  }
+
+  /**
+   * Whether the process may run on the mock gateway, which reports every
+   * payment as successful. Always true outside production; in production only
+   * when PAYMENTS_ALLOW_MOCK is set (the schema refuses to boot otherwise).
+   */
+  get paymentsAllowMock(): boolean {
+    return !this.isProduction || this.get('PAYMENTS_ALLOW_MOCK');
+  }
+
+  /* ------------------------------------------------------ internal service calls */
+
+  /**
+   * The worker's shared secret, or null when internal endpoints are disabled.
+   * Same handling rules as the other secrets: never log, never echo.
+   */
+  internalServiceToken(): string | null {
+    return this.get('INTERNAL_SERVICE_TOKEN') ?? null;
+  }
+
   /* ---------------------------------------------------------- infrastructure */
 
   get databaseUrl(): string {

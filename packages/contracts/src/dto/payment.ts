@@ -57,6 +57,8 @@ export const createPaymentRequestSchema = z.object({
     .string()
     .max(255)
     .regex(/^\/[A-Za-z0-9\-._~/?=&%]*$/u, 'returnPath must be a relative path')
+    /* `//host/path` is a protocol-relative URL: a browser leaves the site. */
+    .refine((value) => !value.startsWith('//'), 'returnPath must be a relative path')
     .optional(),
 });
 export type CreatePaymentRequest = z.infer<typeof createPaymentRequestSchema>;
@@ -101,7 +103,7 @@ export const verifyPaymentRequestSchema = z.object({
   paymentId: idSchema.optional(),
   /** Provider-side identifier from the callback, used when `paymentId` is absent. */
   providerAuthority: z.string().min(1).max(128).optional(),
-  provider: z.string().min(1).optional(),
+  provider: z.string().min(1).max(32).optional(),
   idempotencyKey: idempotencyKeySchema,
 });
 export type VerifyPaymentRequest = z.infer<typeof verifyPaymentRequestSchema>;

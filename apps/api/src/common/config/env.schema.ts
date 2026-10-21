@@ -124,8 +124,9 @@ export const envSchema = z
      * property OTP exists for: possession of the phone. Anyone who knows this
      * value can sign in as any mobile number.
      *
-     * The interlock below refuses to boot if this is set while ZarinPal is on,
-     * so it cannot be left behind on a deployment that takes real money.
+     * The interlock below refuses to boot if this is set in production or
+     * while a live payment gateway is on, so it cannot be left behind on a
+     * deployment that takes real money.
      */
     OTP_DEV_FIXED_CODE: blankAsUndefined(
       z.string().regex(/^\d+$/u, 'OTP_DEV_FIXED_CODE must contain digits only'),
@@ -144,6 +145,37 @@ export const envSchema = z
      * Both units are supported and non-divisible conversions are rejected.
      */
     ZARINPAL_AMOUNT_UNIT: z.enum(['IRR', 'IRT']).default('IRR'),
+
+    /* --------------------------------------------------------------- BazaarPay */
+    /**
+     * Second rial gateway. Exactly one of ZarinPal and BazaarPay may be on;
+     * turning either on is a human release gate (AGENTS.md section 4).
+     * `BAZAARPAY_API_TOKEN` is a secret: it is never logged or echoed.
+     */
+    BAZAARPAY_ENABLED: booleanFromEnv.default(false),
+    BAZAARPAY_API_TOKEN: blankAsUndefined(z.string().trim().min(1)),
+    BAZAARPAY_DESTINATION: blankAsUndefined(z.string().trim().min(1)),
+    /** Unset means the adapter's built-in production base URL. */
+    BAZAARPAY_BASE_URL: blankAsUndefined(httpUrl),
+    BAZAARPAY_AMOUNT_UNIT: z.enum(['IRR', 'IRT']).default('IRR'),
+    BAZAARPAY_TIMEOUT_MS: positiveInt.max(60_000).default(10_000),
+
+    /**
+     * Lets a production process run on the mock gateway, which treats every
+     * payment as successful. Off by default: with no live gateway configured,
+     * production refuses to boot instead of silently giving goods away.
+     */
+    PAYMENTS_ALLOW_MOCK: booleanFromEnv.default(false),
+
+    /* -------------------------------------------------- internal service calls */
+    /**
+     * Shared secret the worker presents in `x-internal-service-token` when it
+     * calls the API's internal endpoints. Unset disables those endpoints; the
+     * worker reads the same value together with INTERNAL_API_URL.
+     */
+    INTERNAL_SERVICE_TOKEN: blankAsUndefined(
+      z.string().min(32, 'INTERNAL_SERVICE_TOKEN must be at least 32 characters'),
+    ),
 
     /* ------------------------------------------------------------ FX / quotes */
     FX_STALE_THRESHOLD_SECONDS: positiveInt.max(86_400).default(900),
@@ -187,18 +219,71 @@ export const envSchema = z
       });
     }
 
+    /* BazaarPay, like ZarinPal, is fully configured or fully off. */
+    if (env.BAZAARPAY_ENABLED) {
+      for (const key of ['BAZAARPAY_API_TOKEN', 'BAZAARPAY_DESTINATION'] as const) {
+        if (!env[key]) {
+          ctx.addIssue({
+            code: 'custom',
+            path: [key],
+            message: `${key} is required when BAZAARPAY_ENABLED is true`,
+          });
+        }
+      }
+    }
+
+    /* Which gateway a customer is sent to must never depend on a precedence
+     * rule nobody wrote down. */
+    if (env.ZARINPAL_ENABLED && env.BAZAARPAY_ENABLED) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['BAZAARPAY_ENABLED'],
+        message:
+          'ZARINPAL_ENABLED and BAZAARPAY_ENABLED are both true: exactly one rial gateway may take payments',
+      });
+    }
+
+    /* With no live gateway the API falls back to the mock, which reports every
+     * payment as successful. In production that means goods for free, so it is
+     * only allowed when someone has said so explicitly. */
+    if (
+      env.NODE_ENV === 'production' &&
+      !env.ZARINPAL_ENABLED &&
+      !env.BAZAARPAY_ENABLED &&
+      !env.PAYMENTS_ALLOW_MOCK
+    ) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PAYMENTS_ALLOW_MOCK'],
+        message:
+          'No live payment gateway is enabled in production. Enable ZARINPAL_ENABLED or ' +
+          'BAZAARPAY_ENABLED, or set PAYMENTS_ALLOW_MOCK=true to run on the mock gateway knowingly',
+      });
+    }
+
     /* A fixed login code and a live payment gateway must never coexist. Taking
      * real money is the clearest signal that a deployment is not a demo, so it
      * is the signal this interlock uses: refusing to boot is the only failure
      * mode loud enough to stop the value being forgotten in an env file. */
-    if (env.OTP_DEV_FIXED_CODE && env.ZARINPAL_ENABLED) {
+    if (env.OTP_DEV_FIXED_CODE && (env.ZARINPAL_ENABLED || env.BAZAARPAY_ENABLED)) {
       ctx.addIssue({
         code: 'custom',
         path: ['OTP_DEV_FIXED_CODE'],
         message:
-          'OTP_DEV_FIXED_CODE must not be set while ZARINPAL_ENABLED is true — a fixed login code ' +
-          'lets anyone sign in as any mobile number, which is not survivable on a deployment ' +
-          'that accepts payments',
+          `OTP_DEV_FIXED_CODE must not be set while ${env.ZARINPAL_ENABLED ? 'ZARINPAL_ENABLED' : 'BAZAARPAY_ENABLED'} ` +
+          'is true — a fixed login code lets anyone sign in as any mobile number, which is not ' +
+          'survivable on a deployment that accepts payments',
+      });
+    }
+
+    /* Production is never a demo, whatever the gateway flags say. */
+    if (env.OTP_DEV_FIXED_CODE && env.NODE_ENV === 'production') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['OTP_DEV_FIXED_CODE'],
+        message:
+          'OTP_DEV_FIXED_CODE must not be set when NODE_ENV is production — a fixed login code ' +
+          'lets anyone sign in as any mobile number',
       });
     }
 

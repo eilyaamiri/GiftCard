@@ -6,6 +6,7 @@ import {
   positiveDecimalStringSchema,
   positiveIrrStringSchema,
   signedBpsSchema,
+  strictlyPositiveDecimalStringSchema,
 } from '../money/schemas';
 import { idSchema, isoDateTimeSchema } from './common';
 import { fxRateSnapshotSchema } from './fx';
@@ -171,8 +172,16 @@ export type PricingBreakdown = z.infer<typeof pricingBreakdownSchema>;
  * Admin quote simulator
  * ==========================================================================*/
 
-/** The simulator calls the same pure function; it never re-implements the formula. */
-export const simulateQuoteRequestSchema = pricingInputSchema;
+/**
+ * The simulator calls the same pure function; it never re-implements the formula.
+ *
+ * `customerForeignAmount` is what ONE unit is worth to the customer (a card's
+ * face value) as opposed to what it costs us. Supplying it reproduces a real
+ * SKU's quote; leaving it out prices a card whose face value equals its cost.
+ */
+export const simulateQuoteRequestSchema = pricingInputSchema.extend({
+  customerForeignAmount: strictlyPositiveDecimalStringSchema.optional(),
+});
 export type SimulateQuoteRequest = z.infer<typeof simulateQuoteRequestSchema>;
 
 export const simulateQuoteResponseSchema = z.object({

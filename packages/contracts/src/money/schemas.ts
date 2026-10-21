@@ -63,6 +63,15 @@ export const positiveDecimalStringSchema = decimalStringSchema.refine(
   'This amount may not be negative',
 );
 
+/**
+ * Strictly positive decimal string — an amount a customer asks for. Zero is
+ * refused at the edge rather than deep inside a service.
+ */
+export const strictlyPositiveDecimalStringSchema = positiveDecimalStringSchema.refine(
+  (value) => /[1-9]/u.test(value),
+  'This amount must be greater than zero',
+);
+
 /** An FX rate must be strictly greater than zero — a zero rate would make everything free. */
 export const fxRateStringSchema = positiveDecimalStringSchema.refine(
   (value) => /[1-9]/u.test(value),

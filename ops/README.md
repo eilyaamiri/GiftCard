@@ -102,6 +102,23 @@ without printing the value:
 
     sudo grep -c '^OTP_DEV_FIXED_CODE=.' /opt/baratpay/secrets/.env.api   # must print 0
 
+Since the security wave 1 release the API also refuses to start in production
+with the variable set, whatever the gateway flags say.
+
+## Payment gateway at boot
+
+In production the API starts only when exactly one live rial gateway is on
+(`ZARINPAL_ENABLED=true` or `BAZAARPAY_ENABLED=true`, never both). With neither,
+it would fall back to the mock gateway, which reports every payment as paid —
+so it refuses to boot unless `PAYMENTS_ALLOW_MOCK=true` says that is intended.
+Before deploying a release that carries this check, confirm which case the
+server is in without printing any secret:
+
+    sudo grep -cE '^(ZARINPAL|BAZAARPAY)_ENABLED=(true|1|yes)$' /opt/baratpay/secrets/.env.api   # must print 1
+
+`BAZAARPAY_*` and `INTERNAL_SERVICE_TOKEN` are now validated at boot with the
+rest of the environment; see `.env.example` for the full list.
+
 The operator queue only has claimable work because the seed leaves the
 unfulfilled tail `UNASSIGNED`. Claiming consumes it, so to get the queue back:
 

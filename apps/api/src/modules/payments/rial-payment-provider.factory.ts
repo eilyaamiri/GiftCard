@@ -6,7 +6,6 @@ import {
 } from '@barat/payments';
 
 import type { AppConfigService } from '../../common/config';
-import { readBazaarPayEnv, type BazaarPayEnv } from './bazaarpay.env';
 
 /**
  * Chooses exactly one rial gateway adapter at boot.
@@ -22,20 +21,21 @@ import { readBazaarPayEnv, type BazaarPayEnv } from './bazaarpay.env';
  * When a gateway is enabled its adapter validates every setting in its
  * constructor, so a half-configured production deployment fails at boot rather
  * than on the first customer payment.
+ *
+ * The environment schema already refuses each unsafe combination below. They
+ * are checked again here because this is the line that actually hands out the
+ * mock gateway, and a mock that reports every payment as paid must never be
+ * reachable in production by a path the schema did not foresee.
  */
-export function createRialPaymentProvider(
-  config: AppConfigService,
-  bazaarPay: BazaarPayEnv = readBazaarPayEnv(),
-): RialPaymentProvider {
-  if (bazaarPay.enabled) {
+export function createRialPaymentProvider(config: AppConfigService): RialPaymentProvider {
+  const bazaarPay = config.bazaarPay;
+
+  if (bazaarPay !== null) {
     if (config.zarinpalEnabled) {
       throw new Error(
         'ZARINPAL_ENABLED and BAZAARPAY_ENABLED are both true: exactly one rial gateway may take payments',
       );
     }
-    /* The schema refuses a fixed login code alongside a live ZarinPal, but it
-     * cannot know about this gateway. Taking real money is the signal that a
-     * deployment is not a demo, so the same interlock is enforced here. */
     if (config.otpDevFixedCode) {
       throw new Error(
         'OTP_DEV_FIXED_CODE must not be set while BAZAARPAY_ENABLED is true — a fixed login code ' +
@@ -55,17 +55,24 @@ export function createRialPaymentProvider(
   }
 
   const settings = config.zarinpal;
-  if (!config.zarinpalEnabled || settings === null) {
-    return new MockRialPaymentProvider();
+  if (config.zarinpalEnabled && settings !== null) {
+    return new ZarinPalPaymentProvider({
+      merchantId: settings.merchantId,
+      callbackUrl: settings.callbackUrl,
+      amountUnit: settings.amountUnit,
+      requestUrl: settings.requestUrl,
+      verifyUrl: settings.verifyUrl,
+      startPayUrl: settings.startPayUrl,
+      timeoutMs: settings.timeoutMs,
+    });
   }
 
-  return new ZarinPalPaymentProvider({
-    merchantId: settings.merchantId,
-    callbackUrl: settings.callbackUrl,
-    amountUnit: settings.amountUnit,
-    requestUrl: settings.requestUrl,
-    verifyUrl: settings.verifyUrl,
-    startPayUrl: settings.startPayUrl,
-    timeoutMs: settings.timeoutMs,
-  });
+  if (!config.paymentsAllowMock) {
+    throw new Error(
+      'No live payment gateway is enabled in production and PAYMENTS_ALLOW_MOCK is not set: ' +
+        'refusing to start on the mock gateway, which reports every payment as paid',
+    );
+  }
+
+  return new MockRialPaymentProvider();
 }
