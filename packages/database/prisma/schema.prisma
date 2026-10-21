@@ -1622,6 +1622,13 @@ model Payment {
   /// and must go to reconciliation, never to fulfillment.
   paidOrderKey String? @unique
 
+  /// Cross-process verification lease (PAY-9). A process that is about to ask
+  /// the gateway about this payment first sets these with a compare-and-set
+  /// that only succeeds when the lease is free or expired, and clears them when
+  /// done. Two API processes therefore never verify one payment at once, and a
+  /// crashed holder's lease simply runs out. No connection is held meanwhile.
+  verifyLeaseUntil DateTime?
+  verifyLeaseToken String?
   requestedAt  DateTime?
   redirectedAt DateTime?
   callbackAt   DateTime?

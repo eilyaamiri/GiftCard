@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MockRialPaymentProvider } from '@barat/payments';
-import type { RialPaymentProvider, VerifyResult } from '@barat/payments';
+import type { ConfirmPaymentResult, RialPaymentProvider, VerifyResult } from '@barat/payments';
 
 import type { AuditService } from '../audit/audit.service';
 /* The real port, from the module that owns it. Payments used to declare its own
@@ -10,9 +10,12 @@ import type { AuditService } from '../audit/audit.service';
 import type { FulfillmentTrigger, WorkItemSummary } from '../workitems/workitems.types';
 import {
   assertPaymentTransition,
+  FULFILLMENT_REPAIR_AFTER_MS,
   PaymentsService,
-  type PaymentDatabase,
+  VERIFY_COOLDOWN_MS,
+  VERIFY_LEASE_TTL_MS,
 } from './payments.service';
+import { FakeOrderBridge, FakePaymentDatabase, type Row } from './testing/fake-payment-database';
 
 /* ============================================================================
  * Fixtures
@@ -54,6 +57,7 @@ function seedRows(overrides: { quote?: Partial<Row>; order?: Partial<Row> } = {}
         status: 'AWAITING_PAYMENT',
         totalAmountIrr: AMOUNT_IRR,
         displayAmountToman: AMOUNT_TOMAN,
+        paidAt: null,
         ...overrides.order,
       },
     ],
@@ -66,6 +70,7 @@ interface Harness {
   readonly service: PaymentsService;
   readonly trigger: ReturnType<typeof vi.fn>;
   readonly audit: ReturnType<typeof vi.fn>;
+  readonly bridge: FakeOrderBridge;
 }
 
 function makeHarness(options: {
@@ -83,8 +88,9 @@ function makeHarness(options: {
   const audit = vi.fn(async () => undefined);
   const fulfillment: FulfillmentTrigger = { onOrderPaid: trigger };
   const auditService = { record: audit } as unknown as AuditService;
-  const service = new PaymentsService(provider, db, auditService, fulfillment);
-  return { db, provider, service, trigger, audit };
+  const bridge = new FakeOrderBridge(db);
+  const service = new PaymentsService(provider, db, auditService, fulfillment, bridge);
+  return { db, provider, service, trigger, audit, bridge };
 }
 
 async function startPayment(
@@ -104,6 +110,37 @@ function auditActions(audit: Harness['audit']): string[] {
   return audit.mock.calls.map((call) => (call[0] as { action: string }).action);
 }
 
+/** A provider whose verify always answers `result`. */
+function providerReturning(result: VerifyResult | (() => VerifyResult)): RialPaymentProvider {
+  const provider = new MockRialPaymentProvider();
+  return new Proxy(provider, {
+    get(target, property, receiver) {
+      if (property === 'verifyPayment') return async () => (typeof result === 'function' ? result() : result);
+      return Reflect.get(target, property, receiver) as unknown;
+    },
+  }) as RialPaymentProvider;
+}
+
+/** A two-phase gateway (BazaarPay-like): the mock plus a commit step. */
+function twoPhaseProvider(confirm: () => Promise<ConfirmPaymentResult> = async () => ({ confirmed: true })) {
+  const base = new MockRialPaymentProvider();
+  const confirmPayment = vi.fn(confirm);
+  const provider = new Proxy(base, {
+    get(target, property, receiver) {
+      if (property === 'confirmPayment') return confirmPayment;
+      return Reflect.get(target, property, receiver) as unknown;
+    },
+  }) as RialPaymentProvider & { forceNextVerify(outcome: string): void };
+  return { provider, base, confirmPayment };
+}
+
+/** Pretend the last gateway call for this payment was long ago. */
+function ageVerifyAttempts(db: FakePaymentDatabase, paymentId: string, ms: number): void {
+  for (const row of db.tables.paymentAttempt) {
+    if (row['paymentId'] === paymentId) row['createdAt'] = new Date(Date.now() - ms);
+  }
+}
+
 /* ============================================================================
  * State machine
  * ==========================================================================*/
@@ -119,9 +156,22 @@ describe('assertPaymentTransition', () => {
     expect(() => assertPaymentTransition('REFUNDED', 'PAID')).toThrow(/Illegal payment transition/u);
   });
 
-  it('only allows UNKNOWN -> PAID through the reconciliation path', () => {
+  it('only allows UNKNOWN -> PAID / FAILED through the reconciliation path', () => {
     expect(() => assertPaymentTransition('UNKNOWN', 'PAID')).toThrow(/Illegal payment transition/u);
+    expect(() => assertPaymentTransition('UNKNOWN', 'FAILED')).toThrow(/Illegal payment transition/u);
     expect(() => assertPaymentTransition('UNKNOWN', 'PAID', 'reconciliation')).not.toThrow();
+    expect(() => assertPaymentTransition('UNKNOWN', 'FAILED', 'reconciliation')).not.toThrow();
+  });
+
+  it('lets a gateway-verified payment complete from a closed row (PAY-2)', () => {
+    expect(() => assertPaymentTransition('FAILED', 'PAID')).not.toThrow();
+    expect(() => assertPaymentTransition('CANCELLED', 'PAID')).not.toThrow();
+  });
+
+  it('sends a second capture to the refund queue, never back to a live status', () => {
+    expect(() => assertPaymentTransition('REDIRECTED', 'REFUND_PENDING')).not.toThrow();
+    expect(() => assertPaymentTransition('FAILED', 'REFUND_PENDING')).not.toThrow();
+    expect(() => assertPaymentTransition('REFUND_PENDING', 'PAID')).toThrow(/Illegal payment transition/u);
   });
 });
 
@@ -150,6 +200,15 @@ describe('PaymentsService.createPayment', () => {
     // Rule 11: the quote is frozen the moment checkout starts.
     expect(harness.db.tables.quote[0]?.['status']).toBe('ACCEPTED');
     expect(harness.db.tables.quote[0]?.['acceptedAt']).toBeInstanceOf(Date);
+  });
+
+  it('moves the order to PAYMENT_PENDING through the order state machine (PAY-5)', async () => {
+    const harness = makeHarness();
+    await startPayment(harness);
+
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAYMENT_PENDING');
+    // The payments module itself never writes order.status.
+    expect(harness.db.callsFor('order', 'updateMany')).toHaveLength(0);
   });
 
   it('is idempotent: the same key returns the same payment and opens no second session', async () => {
@@ -257,10 +316,11 @@ describe('PaymentsService.createPayment', () => {
 
     expect(harness.db.paymentById(result.payment.id)['status']).toBe('UNKNOWN');
     expect(harness.db.paymentById(result.payment.id)['failureReason']).toBe('PROVIDER_TIMEOUT');
+    expect(harness.db.paymentById(result.payment.id)['liveOrderKey']).toBeNull();
     expect(result.redirectUrl).toBe('');
   });
 
-  it('marks an outright gateway rejection FAILED', async () => {
+  it('marks an outright gateway rejection FAILED and frees the live slot', async () => {
     const provider = new MockRialPaymentProvider();
     provider.forceNextCreate('failure');
     const harness = makeHarness({ provider });
@@ -273,6 +333,76 @@ describe('PaymentsService.createPayment', () => {
 
     expect(harness.db.paymentById(result.payment.id)['status']).toBe('FAILED');
     expect(harness.db.paymentById(result.payment.id)['failureReason']).toBe('REQUEST_REJECTED');
+    expect(harness.db.paymentById(result.payment.id)['liveOrderKey']).toBeNull();
+  });
+});
+
+describe('PAY-3: one live gateway session per order', () => {
+  it('a second request with a fresh key joins the open session instead of opening another', async () => {
+    const harness = makeHarness();
+    const createSpy = vi.spyOn(harness.provider, 'createPayment');
+    const first = await harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'tab-one-key' }, CUSTOMER_ID, CALLBACK_URL);
+
+    const second = await harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'tab-two-key' }, CUSTOMER_ID, CALLBACK_URL);
+
+    expect(second.payment.id).toBe(first.payment.id);
+    expect(second.redirectUrl).toBe(first.redirectUrl);
+    expect(second.created).toBe(false);
+    expect(harness.db.tables.payment).toHaveLength(1);
+    expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds the live slot in the database: a second live row for the order is refused', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBe(ORDER_ID);
+
+    await expect(
+      (harness.db.payment as unknown as { create(args: Row): Promise<unknown> }).create({
+        data: { orderId: ORDER_ID, idempotencyKey: 'other', liveOrderKey: ORDER_ID, status: 'CREATED' },
+      }),
+    ).rejects.toThrow(/liveOrderKey/u);
+  });
+
+  it('refuses to open a session while an earlier one is still being opened', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    const row = harness.db.paymentById(paymentId);
+    // Another process reserved the slot and has not heard back from the gateway.
+    row['status'] = 'CREATED';
+    row['providerAuthority'] = null;
+
+    await expect(
+      harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'idem-2' }, CUSTOMER_ID, CALLBACK_URL),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+  });
+
+  it('refuses a new session while an earlier one is UNKNOWN at the gateway', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { authority } = await startPayment(harness);
+    provider.forceNextVerify('timeout');
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    await expect(
+      harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'idem-2' }, CUSTOMER_ID, CALLBACK_URL),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(harness.db.tables.payment).toHaveLength(1);
+  });
+
+  it('still lets a customer retry on an order whose earlier payment failed', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    provider.forceNextCreate('failure');
+    await startPayment(harness, 'idem-1');
+
+    const retry = await harness.service.createPayment(
+      { orderId: ORDER_ID, idempotencyKey: 'idem-2' },
+      CUSTOMER_ID,
+      CALLBACK_URL,
+    );
+    expect(retry.created).toBe(true);
+    expect(harness.db.paymentById(retry.payment.id)['status']).toBe('REDIRECTED');
   });
 });
 
@@ -290,9 +420,11 @@ describe('PaymentsService.callback idempotency', () => {
       responses.push(await harness.service.callback({ Authority: authority, Status: 'OK' }));
     }
 
-    // Exactly one payment row, and it is PAID.
+    // Exactly one payment row, and it is PAID and holds the order's paid slot.
     expect(harness.db.tables.payment).toHaveLength(1);
     expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['paidOrderKey']).toBe(ORDER_ID);
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBeNull();
 
     // Exactly one order transition to PAID.
     const paidOrderUpdates = harness.db
@@ -425,26 +557,54 @@ describe('PaymentsService.callback with untrusted input', () => {
     expect(response.outcome).toBe('FAILED');
     expect(harness.db.paymentById(paymentId)['status']).toBe('FAILED');
     expect(harness.db.paymentById(paymentId)['failureReason']).toBe('VERIFY_FAILED');
-    expect(harness.db.tables.order[0]?.['status']).toBe('AWAITING_PAYMENT');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAYMENT_PENDING');
     expect(harness.trigger).not.toHaveBeenCalled();
   });
 
-  it('maps a NOK status to a customer cancellation without calling the gateway', async () => {
-    const harness = makeHarness();
-    const verifySpy = vi.spyOn(harness.provider, 'verifyPayment');
+  it('PAY-1: asks the gateway on a NOK callback, and only a gateway "not paid" cancels', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const verifySpy = vi.spyOn(provider, 'verifyPayment');
     const { paymentId, authority } = await startPayment(harness);
+    provider.forceNextVerify('failure');
 
     const response = await harness.service.callback({ Authority: authority, Status: 'NOK' });
 
+    expect(verifySpy).toHaveBeenCalledTimes(1);
     expect(response.outcome).toBe('CANCELLED');
     expect(harness.db.paymentById(paymentId)['status']).toBe('CANCELLED');
     expect(harness.db.paymentById(paymentId)['failureReason']).toBe('CUSTOMER_CANCELLED');
-    expect(verifySpy).not.toHaveBeenCalled();
   });
 
-  it('maps an unrecognised status to an indeterminate provider response, not to success', async () => {
+  it('PAY-1: a forged NOK for a payment the customer did make cannot cancel it', async () => {
     const harness = makeHarness();
     const { paymentId, authority } = await startPayment(harness);
+
+    // Whoever holds the authority sends "cancel"; the gateway says it was paid.
+    const response = await harness.service.callback({ Authority: authority, Status: 'NOK' });
+
+    expect(response.outcome).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('PAY-1: a NOK the gateway cannot answer parks the payment as UNKNOWN, not CANCELLED', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId, authority } = await startPayment(harness);
+    provider.forceNextVerify('timeout');
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'NOK' });
+
+    expect(response.outcome).toBe('UNKNOWN');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
+  });
+
+  it('maps an unrecognised status the gateway confirms as unpaid to an indeterminate provider response', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId, authority } = await startPayment(harness);
+    provider.forceNextVerify('failure');
 
     const response = await harness.service.callback({ Authority: authority, Status: 'weird' });
 
@@ -454,8 +614,10 @@ describe('PaymentsService.callback with untrusted input', () => {
   });
 
   it('records a payment attempt for every callback, successful or not', async () => {
-    const harness = makeHarness();
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
     const { paymentId, authority } = await startPayment(harness);
+    provider.forceNextVerify('failure');
 
     await harness.service.callback({ Authority: authority, Status: 'NOK' });
     await harness.service.callback({ Authority: authority, Status: 'NOK' });
@@ -464,7 +626,7 @@ describe('PaymentsService.callback with untrusted input', () => {
       (row) => row['paymentId'] === paymentId && row['action'] === 'CALLBACK',
     );
     expect(attempts).toHaveLength(2);
-    expect(attempts.map((row) => row['attemptNumber'])).toEqual([1, 2]);
+    expect(attempts.map((row) => row['attemptNumber'])).toEqual([1, 3]);
   });
 });
 
@@ -473,17 +635,7 @@ describe('PaymentsService.callback with untrusted input', () => {
  * ==========================================================================*/
 
 describe('PaymentsService verification amount checks', () => {
-  function providerReturning(result: VerifyResult): RialPaymentProvider {
-    const provider = new MockRialPaymentProvider();
-    return new Proxy(provider, {
-      get(target, property, receiver) {
-        if (property === 'verifyPayment') return async () => result;
-        return Reflect.get(target, property, receiver) as unknown;
-      },
-    }) as RialPaymentProvider;
-  }
-
-  it('refuses to mark PAID when the gateway reports a different amount', async () => {
+  it('refuses to mark PAID when the gateway reports a different amount, with a typed issue (PAY-12)', async () => {
     const harness = makeHarness();
     const { paymentId, authority } = await startPayment(harness);
 
@@ -503,7 +655,6 @@ describe('PaymentsService verification amount checks', () => {
     });
     // Reuse the same store so the payment exists for the mismatching provider.
     mismatchingHarness.db.tables.payment.push({ ...harness.db.paymentById(paymentId) });
-    // The mock provider name must still match for the compound lookup.
     const response = await mismatchingHarness.service.callback({
       Authority: authority,
       Status: 'OK',
@@ -514,8 +665,16 @@ describe('PaymentsService verification amount checks', () => {
     expect(mismatchingHarness.db.paymentById(paymentId)['failureReason']).toBe('AMOUNT_MISMATCH');
     expect(auditActions(mismatchingHarness.audit)).toContain('AMOUNT_MISMATCH');
     expect(mismatchingHarness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(mismatchingHarness.db.tables.reconciliationIssue[0]).toMatchObject({
+      type: 'amount_mismatch',
+      expectedAmountIrr: AMOUNT_IRR,
+      actualAmountIrr: 4_000_000n,
+      differenceIrr: -1_000_000n,
+    });
     expect(mismatchingHarness.trigger).not.toHaveBeenCalled();
     expect(mismatchingHarness.db.tables.order[0]?.['status']).toBe('AWAITING_PAYMENT');
+    // PAY-10: the money was settled, so the bank's 72-hour reversal is not promised.
+    expect(response.messageFa).not.toMatch(/۷۲/u);
   });
 
   it('accepts an IRT-quoted verification only when it converts back to the exact IRR total', async () => {
@@ -596,16 +755,18 @@ describe('PaymentsService already-verified handling', () => {
     expect(payment['status']).toBe('UNKNOWN');
     expect(payment['providerVerifyCode']).toBe(101);
     expect(payment['failureReason']).toBe('PROVIDER_ALREADY_VERIFIED_LOCAL_STATE_MISMATCH');
+    expect(payment['liveOrderKey']).toBeNull();
 
     expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
     const issue = harness.db.tables.reconciliationIssue[0];
     expect(issue?.['paymentId']).toBe(paymentId);
+    expect(issue?.['type']).toBe('provider_already_verified_mismatch');
     expect((issue?.['details'] as { reason: string }).reason).toBe(
       'PROVIDER_ALREADY_VERIFIED_LOCAL_STATE_MISMATCH',
     );
 
     // The order must not advance and fulfillment must not run on an unknown state.
-    expect(harness.db.tables.order[0]?.['status']).toBe('AWAITING_PAYMENT');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAYMENT_PENDING');
     expect(harness.trigger).not.toHaveBeenCalled();
     expect(auditActions(harness.audit)).toContain('PAYMENT_ALREADY_VERIFIED_LOCAL_STATE_MISMATCH');
   });
@@ -626,8 +787,10 @@ describe('PaymentsService indeterminate outcomes', () => {
 
     expect(response.outcome).toBe('UNKNOWN');
     expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
-    expect(harness.db.tables.order[0]?.['status']).toBe('AWAITING_PAYMENT');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAYMENT_PENDING');
     expect(harness.trigger).not.toHaveBeenCalled();
+    // PAY-10: tell the customer not to pay twice, not that money is coming back.
+    expect(response.messageFa).toMatch(/دوباره پرداخت نکنید/u);
   });
 
   it('treats a thrown provider error as UNKNOWN, never as a failure to write off', async () => {
@@ -652,7 +815,23 @@ describe('PaymentsService indeterminate outcomes', () => {
     expect(response.outcome).toBe('UNKNOWN');
     expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
     expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue[0]?.['type']).toBe('unknown_payment');
     expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it('PAY-11: a refreshed result page does not open a second issue for the same payment', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+    ageVerifyAttempts(harness.db, paymentId, VERIFY_COOLDOWN_MS + 1);
+    await harness.service.verifyPayment({ paymentId, idempotencyKey: 'verify-key-000001' }, CUSTOMER_ID);
+    ageVerifyAttempts(harness.db, paymentId, VERIFY_COOLDOWN_MS + 1);
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue[0]?.['openDedupeKey']).toBe(`${paymentId}:UNKNOWN_PAYMENT_STATE`);
   });
 });
 
@@ -695,6 +874,26 @@ describe('PaymentsService.verifyPayment', () => {
       harness.service.verifyPayment({ paymentId: 'nope', idempotencyKey: 'v' }, CUSTOMER_ID),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
+
+  it('PAY-13: answers a closed payment from its row between gateway calls', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId } = await startPayment(harness);
+    provider.forceNextVerify('failure');
+    await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+    const verifySpy = vi.spyOn(provider, 'verifyPayment');
+
+    for (let i = 0; i < 5; i += 1) {
+      const response = await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+      expect(response).toMatchObject({ outcome: 'FAILED', verified: false });
+    }
+    expect(verifySpy).not.toHaveBeenCalled();
+
+    ageVerifyAttempts(harness.db, paymentId, VERIFY_COOLDOWN_MS + 1);
+    provider.forceNextVerify('failure');
+    await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+    expect(verifySpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 /* ============================================================================
@@ -728,265 +927,6 @@ describe('payment DTO safety', () => {
     expect(serialised).not.toContain('merchant');
   });
 });
-
-/* ============================================================================
- * In-memory stand-in for the Prisma delegates the payments service uses.
- *
- * Unit tests must never touch PostgreSQL or a payment gateway, but they must
- * still exercise the real idempotency logic — which is expressed as conditional
- * `updateMany` statements. So this fake implements the small slice of the query
- * surface `PaymentsService` actually calls: `{ in: [...] }` filters, the
- * `provider_providerAuthority` compound unique key, detached read results and
- * transaction rollback.
- * ==========================================================================*/
-
-export type Row = Record<string, unknown>;
-
-export type TableName =
-  | 'quote'
-  | 'order'
-  | 'payment'
-  | 'paymentAttempt'
-  | 'reconciliationIssue';
-
-export interface RecordedCall {
-  readonly table: TableName;
-  readonly operation: string;
-  readonly args: Record<string, unknown>;
-}
-
-const TABLE_NAMES: readonly TableName[] = [
-  'quote',
-  'order',
-  'payment',
-  'paymentAttempt',
-  'reconciliationIssue',
-];
-
-/** Columns that must read as `null` rather than `undefined` when never written. */
-const NULLABLE_DEFAULTS: Readonly<Record<TableName, readonly string[]>> = {
-  quote: ['acceptedAt'],
-  order: ['paidAt'],
-  payment: [
-    'providerAuthority',
-    'providerRefId',
-    'providerRequestCode',
-    'providerVerifyCode',
-    'providerAmount',
-    'providerAmountUnit',
-    'providerFee',
-    'providerFeeType',
-    'maskedCard',
-    'cardHash',
-    'failureReason',
-    'requestedAt',
-    'redirectedAt',
-    'callbackAt',
-    'verifiedAt',
-  ],
-  paymentAttempt: ['providerCode', 'providerMessage', 'ip', 'userAgent', 'durationMs'],
-  reconciliationIssue: ['paymentId', 'orderId', 'expectedAmountIrr', 'actualAmountIrr'],
-};
-
-function valuesEqual(left: unknown, right: unknown): boolean {
-  if (typeof left === 'bigint' || typeof right === 'bigint') {
-    if (left === null || left === undefined || right === null || right === undefined) return false;
-    return String(left) === String(right);
-  }
-  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime();
-  return left === right;
-}
-
-function matchesWhere(row: Row, where: Record<string, unknown>): boolean {
-  for (const [key, condition] of Object.entries(where)) {
-    // Prisma compound unique keys arrive as a single nested object.
-    if (key === 'provider_providerAuthority') {
-      const compound = condition as Record<string, unknown>;
-      if (
-        !valuesEqual(row['provider'], compound['provider']) ||
-        !valuesEqual(row['providerAuthority'], compound['providerAuthority'])
-      ) {
-        return false;
-      }
-      continue;
-    }
-    if (condition !== null && typeof condition === 'object' && !(condition instanceof Date)) {
-      const operators = condition as Record<string, unknown>;
-      if (Array.isArray(operators['in'])) {
-        const candidates = operators['in'] as readonly unknown[];
-        if (!candidates.some((candidate) => valuesEqual(row[key], candidate))) return false;
-        continue;
-      }
-      if ('not' in operators) {
-        if (valuesEqual(row[key], operators['not'])) return false;
-        continue;
-      }
-      throw new Error(`Unsupported filter for "${key}" in the payments test database`);
-    }
-    if (!valuesEqual(row[key], condition)) return false;
-  }
-  return true;
-}
-
-class FakeTable {
-  constructor(
-    private readonly store: FakePaymentDatabase,
-    private readonly name: TableName,
-  ) {}
-
-  private get rows(): Row[] {
-    return this.store.tables[this.name];
-  }
-
-  private where(args: Record<string, unknown>): Record<string, unknown> {
-    return (args['where'] as Record<string, unknown> | undefined) ?? {};
-  }
-
-  /**
-   * Always returns a detached copy, like Prisma does. Handing out the live row
-   * would hide read-your-own-stale-snapshot races, which is exactly what the
-   * idempotency tests need to reproduce.
-   */
-  private hydrate(row: Row, args: Record<string, unknown>): Row {
-    const include = args['include'] as Record<string, unknown> | undefined;
-    if (include?.['quote'] === true) {
-      const quote = this.store.tables.quote.find((candidate) =>
-        valuesEqual(candidate['id'], row['quoteId']),
-      );
-      return { ...row, quote: quote === undefined ? null : { ...quote } };
-    }
-    return { ...row };
-  }
-
-  async findUnique(args: Record<string, unknown>): Promise<unknown> {
-    this.store.record(this.name, 'findUnique', args);
-    const row = this.rows.find((candidate) => matchesWhere(candidate, this.where(args)));
-    return row === undefined ? null : this.hydrate(row, args);
-  }
-
-  async findFirst(args: Record<string, unknown>): Promise<unknown> {
-    this.store.record(this.name, 'findFirst', args);
-    const row = this.rows.find((candidate) => matchesWhere(candidate, this.where(args)));
-    return row === undefined ? null : this.hydrate(row, args);
-  }
-
-  async create(args: Record<string, unknown>): Promise<unknown> {
-    this.store.record(this.name, 'create', args);
-    const data = (args['data'] as Row | undefined) ?? {};
-    const row: Row = {
-      id: (data['id'] as string | undefined) ?? this.store.nextId(this.name),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      ...Object.fromEntries(NULLABLE_DEFAULTS[this.name].map((column) => [column, null])),
-      ...data,
-    };
-    this.store.assertUniqueOnInsert(this.name, row);
-    this.rows.push(row);
-    return { ...row };
-  }
-
-  async update(args: Record<string, unknown>): Promise<unknown> {
-    this.store.record(this.name, 'update', args);
-    const row = this.rows.find((candidate) => matchesWhere(candidate, this.where(args)));
-    if (row === undefined) throw new Error(`No ${this.name} row matched update`);
-    Object.assign(row, args['data'] as Row);
-    return { ...row };
-  }
-
-  async updateMany(args: Record<string, unknown>): Promise<{ count: number }> {
-    this.store.record(this.name, 'updateMany', args);
-    const matched = this.rows.filter((candidate) => matchesWhere(candidate, this.where(args)));
-    for (const row of matched) Object.assign(row, args['data'] as Row);
-    return { count: matched.length };
-  }
-
-  async count(args: Record<string, unknown>): Promise<number> {
-    this.store.record(this.name, 'count', args);
-    return this.rows.filter((candidate) => matchesWhere(candidate, this.where(args))).length;
-  }
-}
-
-export class FakePaymentDatabase implements PaymentDatabase {
-  readonly tables: Record<TableName, Row[]> = {
-    quote: [],
-    order: [],
-    payment: [],
-    paymentAttempt: [],
-    reconciliationIssue: [],
-  };
-
-  readonly calls: RecordedCall[] = [];
-
-  readonly quote: unknown;
-  readonly order: unknown;
-  readonly payment: unknown;
-  readonly paymentAttempt: unknown;
-  readonly reconciliationIssue: unknown;
-
-  private sequence = 0;
-
-  constructor(seed: Partial<Record<TableName, readonly Row[]>> = {}) {
-    for (const name of TABLE_NAMES) {
-      this.tables[name] = [...(seed[name] ?? [])].map((row) => ({ ...row }));
-    }
-    this.quote = new FakeTable(this, 'quote');
-    this.order = new FakeTable(this, 'order');
-    this.payment = new FakeTable(this, 'payment');
-    this.paymentAttempt = new FakeTable(this, 'paymentAttempt');
-    this.reconciliationIssue = new FakeTable(this, 'reconciliationIssue');
-  }
-
-  nextId(name: TableName): string {
-    this.sequence += 1;
-    return `${name}-${this.sequence}`;
-  }
-
-  record(table: TableName, operation: string, args: Record<string, unknown>): void {
-    this.calls.push({ table, operation, args });
-  }
-
-  callsFor(table: TableName, operation: string): readonly RecordedCall[] {
-    return this.calls.filter((call) => call.table === table && call.operation === operation);
-  }
-
-  /** Mirrors the two unique constraints the payment flow depends on. */
-  assertUniqueOnInsert(name: TableName, row: Row): void {
-    if (name !== 'payment') return;
-    for (const existing of this.tables.payment) {
-      if (
-        row['idempotencyKey'] !== undefined &&
-        valuesEqual(existing['idempotencyKey'], row['idempotencyKey'])
-      ) {
-        throw new Error('Unique constraint failed on Payment.idempotencyKey');
-      }
-      if (
-        row['providerAuthority'] !== undefined &&
-        row['providerAuthority'] !== null &&
-        valuesEqual(existing['provider'], row['provider']) &&
-        valuesEqual(existing['providerAuthority'], row['providerAuthority'])
-      ) {
-        throw new Error('Unique constraint failed on Payment(provider, providerAuthority)');
-      }
-    }
-  }
-
-  /** Rolls the whole store back when the callback throws, like a real transaction. */
-  async $transaction<T>(callback: (transaction: PaymentDatabase) => Promise<T>): Promise<T> {
-    const snapshot = structuredClone(this.tables);
-    try {
-      return await callback(this);
-    } catch (error) {
-      for (const name of TABLE_NAMES) this.tables[name] = snapshot[name];
-      throw error;
-    }
-  }
-
-  paymentById(id: string): Row {
-    const row = this.tables.payment.find((candidate) => candidate['id'] === id);
-    if (row === undefined) throw new Error(`No payment ${id}`);
-    return row;
-  }
-}
 
 /* ============================================================================
  * Security audit regressions (2026-10-20)
@@ -1041,23 +981,23 @@ describe('security audit: payment verification races and closed states', () => {
     expect(gateway.calls()).toBe(1);
   });
 
-  it('a gateway-verified payment whose row is CANCELLED raises a reconciliation issue instead of a 500', async () => {
-    const harness = makeHarness();
+  it('PAY-2: a gateway-verified payment whose row is CANCELLED completes and is delivered', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
     const { paymentId, authority } = await startPayment(harness);
+    provider.forceNextVerify('failure');
     await harness.service.callback({ Authority: authority, Status: 'NOK' });
     expect(harness.db.paymentById(paymentId)['status']).toBe('CANCELLED');
 
+    // The customer did pay after all; the gateway sends them back with OK.
     const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
 
-    expect(response.outcome).toBe('UNKNOWN');
-    expect(harness.db.paymentById(paymentId)['status']).toBe('CANCELLED');
-    expect(harness.trigger).not.toHaveBeenCalled();
-    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
-    expect(harness.db.tables.reconciliationIssue[0]?.['details']).toMatchObject({
-      reason: 'verified_provider_while_local_payment_closed',
-      localStatus: 'CANCELLED',
-    });
-    expect(auditActions(harness.audit)).toContain('PAYMENT_VERIFIED_LOCAL_STATE_NOT_PAYABLE');
+    expect(response.outcome).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(0);
+    expect(auditActions(harness.audit)).toContain('PAYMENT_VERIFIED_AFTER_LOCAL_CLOSE');
   });
 
   it('never reports PAID when the PAID compare-and-set lost to another writer', async () => {
@@ -1066,23 +1006,25 @@ describe('security audit: payment verification races and closed states', () => {
     const original = harness.provider.verifyPayment.bind(harness.provider);
     vi.spyOn(harness.provider, 'verifyPayment').mockImplementation(async (input) => {
       const result = await original(input);
-      // Another process closes the row while the gateway was answering.
-      harness.db.paymentById(paymentId)['status'] = 'FAILED';
+      // Another writer parks the row while the gateway was answering.
+      harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
       return result;
     });
 
     const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
 
     expect(response.outcome).toBe('UNKNOWN');
-    expect(harness.db.paymentById(paymentId)['status']).toBe('FAILED');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
     expect(harness.trigger).not.toHaveBeenCalled();
     expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
   });
 
   it('a late failure signal for an UNKNOWN payment changes nothing instead of throwing', async () => {
-    const harness = makeHarness();
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
     const { paymentId, authority } = await startPayment(harness);
     harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+    provider.forceNextVerify('failure');
 
     const response = await harness.service.callback({ Authority: authority, Status: 'NOK' });
 
@@ -1108,51 +1050,338 @@ describe('security audit: orders that may not be paid', () => {
     },
   );
 
-  it('still lets a customer retry on an order whose earlier payment failed', async () => {
+  it('PLT-5: a second capture for a paid order goes to the refund queue, never to fulfillment', async () => {
     const provider = new MockRialPaymentProvider();
     const harness = makeHarness({ provider });
-    provider.forceNextCreate('failure');
-    await startPayment(harness, 'idem-1');
-
-    const retry = await harness.service.createPayment(
-      { orderId: ORDER_ID, idempotencyKey: 'idem-2' },
-      CUSTOMER_ID,
-      CALLBACK_URL,
-    );
-    expect(retry.created).toBe(true);
-    expect(harness.db.paymentById(retry.payment.id)['status']).toBe('REDIRECTED');
-  });
-
-  it('a second paid session for one order is flagged as a duplicate and never re-fulfils or rewinds the order', async () => {
-    const harness = makeHarness();
+    // Session one is abandoned and closed; session two is opened and paid.
     const first = await startPayment(harness, 'idem-1');
+    provider.forceNextVerify('failure');
+    await harness.service.verifyPayment({ paymentId: first.paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
     const second = await startPayment(harness, 'idem-2');
-
-    await harness.service.callback({ Authority: first.authority, Status: 'OK' });
+    await harness.service.callback({ Authority: second.authority, Status: 'OK' });
     harness.db.tables.order[0]!['status'] = 'FULFILLED';
-    const response = await harness.service.callback({ Authority: second.authority, Status: 'OK' });
 
-    expect(response.outcome).toBe('PAID');
-    expect(harness.db.paymentById(second.paymentId)['status']).toBe('PAID');
+    // The first session turns out to have been paid as well.
+    const response = await harness.service.callback({ Authority: first.authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('FAILED');
+    expect(response.messageFa).toMatch(/بازگشت/u);
+    expect(harness.db.paymentById(first.paymentId)['status']).toBe('REFUND_PENDING');
+    expect(harness.db.paymentById(first.paymentId)['paidOrderKey']).toBeNull();
+    expect(harness.db.paymentById(second.paymentId)['paidOrderKey']).toBe(ORDER_ID);
     expect(harness.db.tables.order[0]?.['status']).toBe('FULFILLED');
     expect(harness.trigger).toHaveBeenCalledTimes(1);
+
     const duplicates = harness.db.tables.reconciliationIssue.filter((row) => row['type'] === 'duplicate_payment');
     expect(duplicates).toHaveLength(1);
-    expect(duplicates[0]?.['paymentId']).toBe(second.paymentId);
+    expect(duplicates[0]).toMatchObject({ paymentId: first.paymentId, severity: 'HIGH' });
+    expect(harness.db.tables.refund).toHaveLength(1);
+    expect(harness.db.tables.refund[0]).toMatchObject({
+      paymentId: first.paymentId,
+      amountIrr: AMOUNT_IRR,
+      status: 'REQUESTED',
+      reason: 'DUPLICATE_PAYMENT_FOR_ORDER',
+    });
+
+    // A replay changes nothing: one issue, one refund request.
+    await harness.service.callback({ Authority: first.authority, Status: 'OK' });
+    expect(harness.db.tables.refund).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue.filter((row) => row['type'] === 'duplicate_payment')).toHaveLength(1);
   });
 
-  it('a payment verified for an order cancelled underneath it is flagged for reconciliation', async () => {
+  it('PLT-5: the paid slot is a database guarantee, not only an application check', async () => {
     const harness = makeHarness();
-    const { authority } = await startPayment(harness);
+    const { paymentId, authority } = await startPayment(harness);
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+    expect(harness.db.paymentById(paymentId)['paidOrderKey']).toBe(ORDER_ID);
+
+    await expect(
+      (harness.db.payment as unknown as { create(args: Row): Promise<unknown> }).create({
+        data: { orderId: ORDER_ID, idempotencyKey: 'x', status: 'PAID', paidOrderKey: ORDER_ID },
+      }),
+    ).rejects.toThrow(/paidOrderKey/u);
+  });
+
+  it('PAY-2/PAY-5: a payment verified for an order cancelled underneath it reopens the order and delivers', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    harness.db.tables.order[0]!['status'] = 'CANCELLED';
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
+    expect(harness.db.tables.reconciliationIssue[0]).toMatchObject({
+      type: 'paid_not_fulfilled',
+      severity: 'LOW',
+      details: { reason: 'PAYMENT_VERIFIED_FOR_CLOSED_ORDER', orderStatus: 'CANCELLED', reopened: true },
+    });
+  });
+});
+
+/* ============================================================================
+ * Two-phase gateways (PAY-4)
+ * ==========================================================================*/
+
+describe('PAY-4: a two-phase gateway is never committed for a payment we will not keep', () => {
+  it('commits a normal payment after PAID is written, then fulfils', async () => {
+    const { provider, confirmPayment } = twoPhaseProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId, authority } = await startPayment(harness);
+
+    let statusAtCommit: unknown = null;
+    confirmPayment.mockImplementation(async () => {
+      statusAtCommit = harness.db.paymentById(paymentId)['status'];
+      return { confirmed: true };
+    });
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.outcome).toBe('PAID');
+    expect(statusAtCommit).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not commit a second capture: the gateway hands it back, no refund request is filed', async () => {
+    const { provider, base, confirmPayment } = twoPhaseProvider();
+    const harness = makeHarness({ provider });
+    const first = await startPayment(harness, 'idem-1');
+    base.forceNextVerify('failure');
+    await harness.service.verifyPayment({ paymentId: first.paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+    const second = await startPayment(harness, 'idem-2');
+    await harness.service.callback({ Authority: second.authority, Status: 'OK' });
+    expect(confirmPayment).toHaveBeenCalledTimes(1);
+
+    const response = await harness.service.callback({ Authority: first.authority, Status: 'OK' });
+
+    expect(confirmPayment).toHaveBeenCalledTimes(1);
+    expect(harness.db.paymentById(first.paymentId)['status']).toBe('REFUND_PENDING');
+    expect(harness.db.tables.refund).toHaveLength(0);
+    expect(harness.db.tables.reconciliationIssue[0]).toMatchObject({
+      type: 'duplicate_payment',
+      severity: 'MEDIUM',
+      details: { autoReturn: true },
+    });
+    expect(response.messageFa).toMatch(/خودکار/u);
+  });
+
+  it('does not commit a payment for a cancelled order', async () => {
+    const { provider, confirmPayment } = twoPhaseProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId, authority } = await startPayment(harness);
     harness.db.tables.order[0]!['status'] = 'CANCELLED';
 
     await harness.service.callback({ Authority: authority, Status: 'OK' });
 
-    expect(harness.db.tables.reconciliationIssue).toHaveLength(1);
-    expect(harness.db.tables.reconciliationIssue[0]?.['details']).toMatchObject({
-      reason: 'PAYMENT_VERIFIED_FOR_CLOSED_ORDER',
-      orderStatus: 'CANCELLED',
+    expect(confirmPayment).not.toHaveBeenCalled();
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REFUND_PENDING');
+    expect(harness.db.tables.order[0]?.['status']).toBe('CANCELLED');
+    expect(harness.trigger).not.toHaveBeenCalled();
+    expect(harness.db.tables.reconciliationIssue[0]).toMatchObject({
+      type: 'duplicate_payment',
+      details: { reason: 'PAYMENT_FOR_CLOSED_ORDER' },
     });
+  });
+
+  it('closes the uncommitted charge as REFUNDED once the gateway has handed it back', async () => {
+    const { provider, base } = twoPhaseProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId, authority } = await startPayment(harness);
+    harness.db.tables.order[0]!['status'] = 'CANCELLED';
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    base.forceNextVerify('failure');
+    const result = await harness.service.reconcilePayment(paymentId);
+
+    expect(result).toEqual({ status: 'REFUNDED', changed: true });
+  });
+});
+
+/* ============================================================================
+ * Reconciliation path (PAY-6)
+ * ==========================================================================*/
+
+describe('PAY-6: PaymentsService.reconcilePayment', () => {
+  it('settles an UNKNOWN payment the gateway verifies, and fulfils it', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+
+    const result = await harness.service.reconcilePayment(paymentId);
+
+    expect(result).toEqual({ status: 'PAID', changed: true });
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('settles an UNKNOWN payment the gateway already holds as paid for the exact amount (101)', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId } = await startPayment(harness);
+    harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+    provider.forceNextVerify('already-verified');
+
+    const result = await harness.service.reconcilePayment(paymentId);
+
+    expect(result.status).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['providerVerifyCode']).toBe(101);
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes an UNKNOWN payment the gateway definitely did not take', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId } = await startPayment(harness);
+    harness.db.paymentById(paymentId)['status'] = 'UNKNOWN';
+    provider.forceNextVerify('failure');
+
+    expect(await harness.service.reconcilePayment(paymentId)).toEqual({ status: 'FAILED', changed: true });
+    expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it('closes an abandoned session and frees the order for the payment-window sweep (ORD-10)', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId } = await startPayment(harness);
+    provider.forceNextVerify('failure');
+
+    expect(await harness.service.reconcilePayment(paymentId)).toEqual({ status: 'FAILED', changed: true });
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBeNull();
+  });
+
+  it('leaves a live session live when the gateway cannot answer', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { paymentId } = await startPayment(harness);
+    provider.forceNextVerify('timeout');
+
+    expect(await harness.service.reconcilePayment(paymentId)).toEqual({ status: 'REDIRECTED', changed: false });
+  });
+
+  it('closes a reservation the gateway never answered (no authority, nobody could have paid)', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    const row = harness.db.paymentById(paymentId);
+    row['status'] = 'CREATED';
+    row['providerAuthority'] = null;
+    const verifySpy = vi.spyOn(harness.provider, 'verifyPayment');
+
+    expect(await harness.service.reconcilePayment(paymentId)).toEqual({ status: 'FAILED', changed: true });
+    expect(verifySpy).not.toHaveBeenCalled();
+  });
+});
+
+/* ============================================================================
+ * Paid orders that never started (PAY-7)
+ * ==========================================================================*/
+
+describe('PAY-7: repairing a paid order with no fulfillment', () => {
+  it('a trigger that throws leaves the payment PAID, and the repair starts fulfillment later', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    harness.trigger.mockRejectedValueOnce(new Error('work item store down'));
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+    expect(response.outcome).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+
+    // A replay moments later does not race the first attempt.
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+
+    // Once the grace period has passed, the next replay (or the scanner) repairs it.
+    harness.db.paymentById(paymentId)['verifiedAt'] = new Date(Date.now() - FULFILLMENT_REPAIR_AFTER_MS - 1);
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+    expect(harness.trigger).toHaveBeenCalledTimes(2);
+    expect(harness.trigger).toHaveBeenLastCalledWith({
+      orderId: ORDER_ID,
+      customerId: CUSTOMER_ID,
+      payload: { paymentId, repaired: true },
+    });
+    expect(auditActions(harness.audit)).toContain('PAYMENT_FULFILLMENT_REPAIRED');
+  });
+
+  it('does nothing for an order that has its work item', async () => {
+    const harness = makeHarness();
+    const { paymentId, authority } = await startPayment(harness);
+    await harness.service.callback({ Authority: authority, Status: 'OK' });
+    harness.db.tables.workItem.push({ id: 'wi-1', orderId: ORDER_ID });
+    harness.db.paymentById(paymentId)['verifiedAt'] = new Date(Date.now() - FULFILLMENT_REPAIR_AFTER_MS - 1);
+
+    expect(await harness.service.repairFulfillmentIfMissing(harness.db.paymentById(paymentId) as never)).toBe(false);
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+});
+
+/* ============================================================================
+ * Cross-process verification lease (PAY-9)
+ * ==========================================================================*/
+
+describe('PAY-9: verification lease', () => {
+  it('waits for another process to release the lease, then sees its result', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    const row = harness.db.paymentById(paymentId);
+    row['verifyLeaseUntil'] = new Date(Date.now() + VERIFY_LEASE_TTL_MS);
+    row['verifyLeaseToken'] = 'other-process';
+    setTimeout(() => {
+      // The other process finishes: it committed PAID and released the lease.
+      row['status'] = 'PAID';
+      row['verifiedAt'] = new Date();
+      row['verifyLeaseUntil'] = null;
+      row['verifyLeaseToken'] = null;
+    }, 300);
+    const verifySpy = vi.spyOn(harness.provider, 'verifyPayment');
+
+    const response = await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+
+    expect(response.outcome).toBe('PAID');
+    expect(verifySpy).not.toHaveBeenCalled();
+  });
+
+  it('takes over an expired lease left by a crashed process, and releases its own', async () => {
+    const harness = makeHarness();
+    const { paymentId } = await startPayment(harness);
+    const row = harness.db.paymentById(paymentId);
+    row['verifyLeaseUntil'] = new Date(Date.now() - 1);
+    row['verifyLeaseToken'] = 'crashed-process';
+
+    const response = await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v' }, CUSTOMER_ID);
+
+    expect(response.outcome).toBe('PAID');
+    expect(row['verifyLeaseUntil']).toBeNull();
+    expect(row['verifyLeaseToken']).toBeNull();
+  });
+});
+
+/* ============================================================================
+ * Customer messages (PAY-10)
+ * ==========================================================================*/
+
+describe('PAY-10: the result-page sentence promises only what is true', () => {
+  it('promises the bank reversal for an unsettled single-phase failure', async () => {
+    const provider = new MockRialPaymentProvider();
+    const harness = makeHarness({ provider });
+    const { authority } = await startPayment(harness);
+    provider.forceNextVerify('failure');
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.messageFa).toMatch(/۷۲ ساعت/u);
+  });
+
+  it('points a two-phase failure at the wallet, not the bank', async () => {
+    const { provider, base } = twoPhaseProvider();
+    const harness = makeHarness({ provider });
+    const { authority } = await startPayment(harness);
+    base.forceNextVerify('failure');
+
+    const response = await harness.service.callback({ Authority: authority, Status: 'OK' });
+
+    expect(response.messageFa).toMatch(/کیف پول/u);
+    expect(response.messageFa).not.toMatch(/۷۲/u);
   });
 });
 
@@ -1178,7 +1407,7 @@ describe('security audit: idempotency and robustness', () => {
   it('retries a payment-attempt number collision instead of aborting the callback', async () => {
     const harness = makeHarness();
     const { paymentId, authority } = await startPayment(harness);
-    const attempts = harness.db.paymentAttempt as { create: (args: Row) => Promise<unknown> };
+    const attempts = harness.db.paymentAttempt as unknown as { create: (args: Row) => Promise<unknown> };
     const realCreate = attempts.create.bind(attempts);
     vi.spyOn(attempts, 'create')
       .mockImplementationOnce(async () => {

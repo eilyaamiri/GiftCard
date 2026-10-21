@@ -36,8 +36,10 @@ import type {
 } from './orders.schemas';
 import {
   ORDERS_DATABASE,
+  type OrderBridgeOptions,
   type OrderPaymentBridge,
   type OrdersDatabase,
+  type OrdersDatabaseCore,
   type OrderTransitionResult,
 } from './orders.tokens';
 
@@ -560,14 +562,38 @@ export class OrdersService implements OrderPaymentBridge {
 
   /* ======================================================= payments bridge */
 
-  async markPaymentPending(orderId: string, paymentId: string): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'PAYMENT_PENDING', 'payment session opened', {
-      paymentId,
+  async markPaymentPending(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(orderId, 'PAYMENT_PENDING', 'payment session opened', { paymentId }, {
+      db: options.db,
     });
   }
 
-  async markPaid(orderId: string, paymentId: string): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'PAID', 'payment verified server-side', { paymentId });
+  async markPaid(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(orderId, 'PAID', 'payment verified server-side', { paymentId }, {
+      db: options.db,
+    });
+  }
+
+  async markPaidAfterClosure(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(
+      orderId,
+      'PAID',
+      'payment verified server-side after the order was closed',
+      { paymentId },
+      { db: options.db, allowLatePayment: true },
+    );
   }
 
   async markPaymentFailed(
@@ -575,7 +601,7 @@ export class OrdersService implements OrderPaymentBridge {
     paymentId: string,
     reason: string,
   ): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'FAILED', reason, { paymentId }, reason);
+    return this.systemTransition(orderId, 'FAILED', reason, { paymentId }, { failureReason: reason });
   }
 
   /* ================================================================ helpers */
@@ -585,9 +611,13 @@ export class OrdersService implements OrderPaymentBridge {
     next: OrderStatus,
     reason: string,
     context: Readonly<Record<string, string>>,
-    failureReason?: string,
+    options: {
+      readonly db?: OrdersDatabaseCore | undefined;
+      readonly failureReason?: string;
+      readonly allowLatePayment?: boolean;
+    } = {},
   ): Promise<OrderTransitionResult> {
-    const order = await this.db.order.findUnique({
+    const order = await (options.db ?? this.db).order.findUnique({
       where: { id: orderId },
       select: { id: true, orderNumber: true, status: true, paidAt: true },
     });
@@ -614,7 +644,9 @@ export class OrdersService implements OrderPaymentBridge {
       reason,
       {
         context,
-        ...(failureReason === undefined ? {} : { failureReason }),
+        ...(options.failureReason === undefined ? {} : { failureReason: options.failureReason }),
+        ...(options.db === undefined ? {} : { db: options.db }),
+        ...(options.allowLatePayment === true ? { allowLatePayment: true } : {}),
       },
     );
   }

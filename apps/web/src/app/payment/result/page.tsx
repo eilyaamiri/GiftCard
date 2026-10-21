@@ -88,7 +88,11 @@ function ResultContent() {
 
   const settled = payment !== null && payment.status === "PAID";
   const failed = payment !== null && (payment.status === "FAILED" || payment.status === "CANCELLED");
-  const undecided = !settled && !failed;
+  /* A second payment for an order that was already paid (or closed) is not
+   * kept: it is on its way back. Neither "failed" (nothing to retry) nor
+   * "undecided" (there is nothing left to decide). */
+  const returning = payment !== null && (payment.status === "REFUND_PENDING" || payment.status === "REFUNDED");
+  const undecided = !settled && !failed && !returning;
 
   /* The stored ids exist to survive the trip through the gateway. Once the
    * outcome is settled they are stale, and a later visit to this page should
@@ -96,8 +100,8 @@ function ResultContent() {
    * payment keeps them, because that is exactly the case this page is asked
    * about again. */
   useEffect(() => {
-    if (settled || failed) clearPendingPayment();
-  }, [settled, failed]);
+    if (settled || failed || returning) clearPendingPayment();
+  }, [settled, failed, returning]);
 
   return (
     <main className="page container" style={{ maxWidth: 560 }}>
@@ -111,7 +115,7 @@ function ResultContent() {
         ) : (
           <>
             {settled ? <CheckCircle2 size={44} style={{ color: "var(--green)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : failed ? <XCircle size={44} style={{ color: "var(--danger)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : <HelpCircle size={44} style={{ color: "var(--amber)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />}
-            <h1 className="h2">{settled ? "پرداخت شما تأیید شد" : failed ? "پرداخت انجام نشد" : "نتیجهٔ پرداخت هنوز قطعی نشده است"}</h1>
+            <h1 className="h2">{settled ? "پرداخت شما تأیید شد" : failed ? "پرداخت انجام نشد" : returning ? "مبلغ این پرداخت بازگردانده می‌شود" : "نتیجهٔ پرداخت هنوز قطعی نشده است"}</h1>
             {payment !== null ? (
               <Badge tone={paymentStatusView(payment.status).tone} style={{ marginBlockEnd: 12 }}>
                 {paymentStatusView(payment.status).label}

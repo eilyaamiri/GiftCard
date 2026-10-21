@@ -55,7 +55,9 @@ DROP INDEX "Order_quoteId_idx";
 
 -- AlterTable
 ALTER TABLE "Payment" ADD COLUMN     "liveOrderKey" TEXT,
-ADD COLUMN     "paidOrderKey" TEXT;
+ADD COLUMN     "paidOrderKey" TEXT,
+ADD COLUMN     "verifyLeaseToken" TEXT,
+ADD COLUMN     "verifyLeaseUntil" TIMESTAMP(3);
 
 -- AlterTable
 ALTER TABLE "Fulfillment" ADD COLUMN     "activeOrderKey" TEXT;

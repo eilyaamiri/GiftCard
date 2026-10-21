@@ -6,4 +6,5 @@ export * from './catalog';
 export * from './topup';
 export * from './order';
 export * from './payment';
+export * from './refund';
 export * from './auth';

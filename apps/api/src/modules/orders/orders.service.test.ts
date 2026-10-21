@@ -348,6 +348,38 @@ describe('OrdersService payments bridge', () => {
     });
   });
 
+  it('reopens a cancelled order only through the late-payment method', async () => {
+    const { service, db } = harness(acceptedQuote);
+    db.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'BP-2026-000001',
+      status: 'CANCELLED',
+      paidAt: null,
+    });
+
+    const result = await service.markPaidAfterClosure('order-1', 'payment-1');
+
+    expect(result).toMatchObject({ status: 'PAID', changed: true });
+    expect(db.order.updateMany.mock.calls[0]?.[0].where).toEqual({ id: 'order-1', status: 'CANCELLED' });
+  });
+
+  it('runs inside the caller transaction when one is passed', async () => {
+    const { service, db } = harness(acceptedQuote);
+    const tx = {
+      order: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'order-1', orderNumber: 'BP-2026-000001', status: 'PAYMENT_PENDING' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+
+    await service.markPaid('order-1', 'payment-1', { db: tx as never });
+
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(db.order.updateMany).not.toHaveBeenCalled();
+  });
+
   it('ignores late pending and failed callbacks once verified payment exists', async () => {
     const { service, db } = harness(acceptedQuote);
     db.order.findUnique.mockResolvedValue({

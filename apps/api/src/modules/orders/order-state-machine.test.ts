@@ -254,3 +254,36 @@ describe('OrderStateMachine.transition', () => {
     expect(record).not.toHaveBeenCalled();
   });
 });
+
+describe('late verified payment (PAY-2 / PAY-5)', () => {
+  const closed = (status: OrderStatus) => ({ ...order, status });
+
+  it('reopens a CANCELLED or FAILED order to PAID only when the caller says it is applying one', async () => {
+    for (const status of ['CANCELLED', 'FAILED'] as const) {
+      const { stateMachine, updateMany } = machine();
+
+      await expect(stateMachine.transition(closed(status), 'PAID', actor)).rejects.toBeInstanceOf(
+        IllegalOrderTransition,
+      );
+      const result = await stateMachine.transition(closed(status), 'PAID', actor, 'late payment', {
+        allowLatePayment: true,
+      });
+
+      expect(result).toMatchObject({ status: 'PAID', changed: true });
+      expect(updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: order.id, status }, data: expect.objectContaining({ status: 'PAID' }) }),
+      );
+    }
+  });
+
+  it('opens nothing else: a late payment cannot move a closed order anywhere but PAID', async () => {
+    const { stateMachine } = machine();
+
+    await expect(
+      stateMachine.transition(closed('CANCELLED'), 'FULFILLED', actor, null, { allowLatePayment: true }),
+    ).rejects.toBeInstanceOf(IllegalOrderTransition);
+    await expect(
+      stateMachine.transition(closed('REFUNDED'), 'PAID', actor, null, { allowLatePayment: true }),
+    ).rejects.toBeInstanceOf(IllegalOrderTransition);
+  });
+});

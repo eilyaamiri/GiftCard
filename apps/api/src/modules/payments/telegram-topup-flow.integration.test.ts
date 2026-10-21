@@ -41,7 +41,7 @@ const CREATED_AT = new Date('2026-09-01T12:00:00Z');
 class MemoryDatabase {
   readonly rows: Record<string, Row[]> = {
     quote: [], quoteComponent: [], order: [], payment: [], paymentAttempt: [],
-    reconciliationIssue: [], auditLog: [],
+    reconciliationIssue: [], auditLog: [], refund: [],
   };
   private sequence = 0;
 
@@ -50,12 +50,18 @@ class MemoryDatabase {
       if (key === 'provider_providerAuthority') {
         return this.matches(row, value as Row);
       }
+      if (key === 'OR') {
+        return (value as Row[]).some((branch) => this.matches(row, branch));
+      }
       if (value && typeof value === 'object' && !(value instanceof Date)) {
         if (Array.isArray(value.in)) return value.in.includes(row[key]);
         if (value.gt instanceof Date) return row[key] instanceof Date && row[key] > value.gt;
         if (value.gte instanceof Date) return row[key] instanceof Date && row[key] >= value.gte;
-        if ('not' in value) return row[key] !== value.not;
+        if (value.lt instanceof Date) return row[key] instanceof Date && row[key] < value.lt;
+        if ('not' in value) return (row[key] ?? null) !== value.not;
       }
+      // A column never written reads as NULL, as it would from Postgres.
+      if (value === null) return (row[key] ?? null) === null;
       return row[key] === value;
     });
   }
@@ -139,6 +145,7 @@ class MemoryDatabase {
   readonly paymentAttempt = this.delegate('paymentAttempt');
   readonly reconciliationIssue = this.delegate('reconciliationIssue');
   readonly auditLog = this.delegate('auditLog');
+  readonly refund = this.delegate('refund');
   readonly commerceSession = { upsert: async () => ({ id: 'session-1' }) };
   async $transaction<T>(operation: (tx: this) => Promise<T>): Promise<T> {
     const backup = Object.fromEntries(Object.entries(this.rows).map(([name, rows]) =>
@@ -299,7 +306,7 @@ describe.each(['stars', 'premium'] as const)('Telegram %s paid top-up journey', 
     const gateway = new MockRialPaymentProvider();
     const verify = vi.spyOn(gateway, 'verifyPayment');
     const paymentService = new PaymentsService(gateway, db as unknown as PaymentDatabase,
-      audit, fulfillment);
+      audit, fulfillment, orders);
     const started = await paymentService.createPayment({ orderId: order.id,
       idempotencyKey: `pay-${kind}-123456789` }, CUSTOMER, CALLBACK_URL);
     const payment = db.rows.payment![0]!;
