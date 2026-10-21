@@ -277,6 +277,82 @@ describe('PaymentsService.createPayment', () => {
 });
 
 /* ============================================================================
+ * The customer's mobile for the gateway (BazaarPay auto-login)
+ * ==========================================================================*/
+
+describe('PaymentsService.createPayment customer mobile', () => {
+  /** Gives the fake store a customerIdentity table that honours the query's `where`. */
+  function withIdentities(harness: Harness, rows: readonly Row[] | 'broken'): void {
+    const customerIdentity = {
+      findFirst: async (args: Record<string, unknown>) => {
+        if (rows === 'broken') throw new Error('connection reset');
+        const where = (args['where'] as Record<string, unknown> | undefined) ?? {};
+        const matched = rows
+          .filter((row) => matchesWhere(row, where))
+          .sort((a, b) => Number(b['isPrimary'] === true) - Number(a['isPrimary'] === true));
+        return matched[0] === undefined ? null : { ...matched[0] };
+      },
+    };
+    Object.assign(harness.db, { customerIdentity });
+  }
+
+  function identity(overrides: Partial<Row>): Row {
+    return {
+      customerId: CUSTOMER_ID,
+      type: 'MOBILE',
+      valueNormalized: '09121234567',
+      isPrimary: true,
+      isVerified: true,
+      ...overrides,
+    };
+  }
+
+  async function mobileSentToGateway(harness: Harness): Promise<string | null | undefined> {
+    const createSpy = vi.spyOn(harness.provider, 'createPayment');
+    await harness.service.createPayment({ orderId: ORDER_ID, idempotencyKey: 'idem-1' }, CUSTOMER_ID, CALLBACK_URL);
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    return createSpy.mock.calls[0]?.[0].customerMobile;
+  }
+
+  it("passes the customer's verified mobile to the gateway", async () => {
+    const harness = makeHarness();
+    withIdentities(harness, [identity({})]);
+    expect(await mobileSentToGateway(harness)).toBe('09121234567');
+  });
+
+  it('never passes a mobile the customer has not verified, since it could log into a stranger\'s wallet', async () => {
+    const harness = makeHarness();
+    withIdentities(harness, [identity({ isVerified: false })]);
+    expect(await mobileSentToGateway(harness)).toBeNull();
+  });
+
+  it("never passes another customer's mobile, or an e-mail", async () => {
+    const harness = makeHarness();
+    withIdentities(harness, [
+      identity({ customerId: 'someone-else', valueNormalized: '09350000000' }),
+      identity({ type: 'EMAIL', valueNormalized: 'a@b.ir' }),
+    ]);
+    expect(await mobileSentToGateway(harness)).toBeNull();
+  });
+
+  it('prefers the verified mobile over an unverified primary one', async () => {
+    const harness = makeHarness();
+    withIdentities(harness, [
+      identity({ valueNormalized: '09350000000', isVerified: false, isPrimary: true }),
+      identity({ valueNormalized: '09121234567', isPrimary: false }),
+    ]);
+    expect(await mobileSentToGateway(harness)).toBe('09121234567');
+  });
+
+  it('still opens the payment, without a mobile, when the lookup fails', async () => {
+    const harness = makeHarness();
+    withIdentities(harness, 'broken');
+    expect(await mobileSentToGateway(harness)).toBeNull();
+    expect(harness.db.tables.payment[0]?.['status']).toBe('REDIRECTED');
+  });
+});
+
+/* ============================================================================
  * THE core idempotency requirement
  * ==========================================================================*/
 

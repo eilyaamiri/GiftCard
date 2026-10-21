@@ -50,6 +50,7 @@ export function createRialPaymentProvider(
       returnUrl: `${config.apiPublicUrl}/api/payments/bazaarpay/return`,
       amountUnit: bazaarPay.amountUnit,
       timeoutMs: bazaarPay.timeoutMs,
+      autoLogin: bazaarPay.autoLogin,
       ...(bazaarPay.baseUrl === undefined ? {} : { baseUrl: bazaarPay.baseUrl }),
     });
   }

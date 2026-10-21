@@ -29,6 +29,8 @@ export interface PaymentDatabase {
   readonly payment: unknown;
   readonly paymentAttempt: unknown;
   readonly reconciliationIssue: unknown;
+  /** Read-only: the customer's verified mobile for the gateway. Absent in some test doubles. */
+  readonly customerIdentity?: unknown;
   $transaction<T>(callback: (transaction: PaymentDatabase) => Promise<T>): Promise<T>;
 }
 
@@ -298,6 +300,7 @@ export class PaymentsService {
         orderNumber: await this.orderNumber(input.orderId),
         description: `CENTO order ${input.orderId}`,
         callbackUrl,
+        customerMobile: await this.verifiedMobile(reservation.customerId),
         idempotencyKey: input.idempotencyKey,
       });
     } catch {
@@ -1046,6 +1049,27 @@ export class PaymentsService {
   }): Promise<void> {
     if (!this.auditService) return;
     await this.auditService.record(input);
+  }
+
+  /**
+   * The customer's OTP-verified mobile, or null. A gateway may use it to sign
+   * the customer in on its own page (BazaarPay auto-login does), so a number we
+   * have not verified must never reach it: that would open someone else's
+   * wallet. A failed lookup only costs the convenience, never the payment.
+   */
+  private async verifiedMobile(customerId: string): Promise<string | null> {
+    if (this.db.customerIdentity === undefined) return null;
+    try {
+      const identity = await this.delegate(this.db.customerIdentity).findFirst({
+        where: { customerId, type: 'MOBILE', isVerified: true },
+        orderBy: [{ isPrimary: 'desc' }, { verifiedAt: 'desc' }],
+        select: { valueNormalized: true },
+      });
+      const value = (identity as { valueNormalized?: unknown } | null)?.valueNormalized;
+      return typeof value === 'string' && value !== '' ? value : null;
+    } catch {
+      return null;
+    }
   }
 
   private delegate(value: unknown): DbDelegate {
