@@ -74,15 +74,28 @@ function makeController() {
     }),
   );
 
-  const ruleService = { list, put, deactivate } as unknown as PricingRuleService;
+  /* The controller writes through `submit`, which applies a small change by
+   * calling `put`; the assertions below are about what reaches `put`. */
+  const submit = vi.fn(async (input: unknown, actor: PricingRuleActor) => ({
+    kind: 'APPLIED' as const,
+    rule: await put(input, actor),
+  }));
+
+  const ruleService = { list, put, submit, deactivate } as unknown as PricingRuleService;
   const simulatorService = new SimulatorService(new PricingService());
 
   return {
     controller: new PricingController(ruleService, simulatorService),
     list,
     put,
+    submit,
     deactivate,
   };
+}
+
+/** The passthrough response the controller sets a 202 on. */
+function response() {
+  return { status: vi.fn((_code: number) => undefined) };
 }
 
 function staffRequest(overrides: Partial<ActorRequest> = {}): ActorRequest {
@@ -110,6 +123,9 @@ describe('PricingController / authorisation', () => {
     ['listRules'],
     ['replaceRule'],
     ['deactivateRule'],
+    ['listProposals'],
+    ['approveProposal'],
+    ['rejectProposal'],
     ['simulate'],
   ])('restricts %s to ADMIN and FINANCE', (method) => {
     const roles = reflector.get<readonly string[]>(
@@ -207,7 +223,7 @@ describe('PricingController / rules', () => {
     const { controller, put } = makeController();
     const body = { name: 'Global default' } as never;
 
-    await controller.replaceRule(body, staffRequest());
+    await controller.replaceRule(body, staffRequest(), response());
 
     expect(put).toHaveBeenCalledWith(body, {
       staffId: 'staff_finance_1',
@@ -228,7 +244,7 @@ describe('PricingController / rules', () => {
       socket: { remoteAddress: '192.0.2.9' },
     });
 
-    await controller.replaceRule({} as never, request);
+    await controller.replaceRule({} as never, request, response());
 
     expect(put.mock.calls[0]?.[1]).toMatchObject({
       staffId: null,
@@ -246,7 +262,7 @@ describe('PricingController / rules', () => {
       headers: { 'user-agent': 'A'.repeat(5_000), 'x-request-id': 'B'.repeat(5_000) },
     });
 
-    await controller.replaceRule({} as never, request);
+    await controller.replaceRule({} as never, request, response());
 
     const actor = put.mock.calls[0]?.[1];
     expect(actor?.userAgent).toHaveLength(512);
@@ -261,7 +277,7 @@ describe('PricingController / rules', () => {
       socket: undefined,
     });
 
-    await controller.replaceRule({} as never, request);
+    await controller.replaceRule({} as never, request, response());
 
     expect(put.mock.calls[0]?.[1]).toMatchObject({
       userAgent: null,
@@ -286,6 +302,34 @@ describe('PricingController / rules', () => {
     );
     expect(response.isActive).toBe(false);
     expect(response.version).toBe(4);
+  });
+
+  it('answers 202 with the proposal when the change needs a second approver (ORD-7)', async () => {
+    const { controller, submit, put } = makeController();
+    submit.mockResolvedValueOnce({
+      kind: 'PENDING_APPROVAL',
+      proposalId: '11111111-2222-3333-4444-555555555555',
+      reasons: ['targetMarginBps 400 -> 5000 bps'],
+    } as never);
+    const reply = response();
+
+    const body = await controller.replaceRule({} as never, staffRequest(), reply);
+
+    expect(reply.status).toHaveBeenCalledWith(202);
+    expect(body).toEqual({
+      status: 'PENDING_APPROVAL',
+      proposalId: '11111111-2222-3333-4444-555555555555',
+      reasons: ['targetMarginBps 400 -> 5000 bps'],
+    });
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed proposal id before reaching the service', async () => {
+    const { controller } = makeController();
+
+    await expect(controller.approveProposal('../../etc', staffRequest())).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+    });
   });
 });
 

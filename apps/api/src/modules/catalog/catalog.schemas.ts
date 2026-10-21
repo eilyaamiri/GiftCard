@@ -6,6 +6,12 @@ import { deliveryAssetTypeSchema, deliveryMinutesInputSchema } from '@barat/cont
 const idSchema = z.string().min(1).max(64);
 const currencySchema = z.string().regex(/^[A-Z]{3}$/u);
 const decimalSchema = z.string().regex(/^\d+(?:\.\d{1,6})?$/u);
+/**
+ * A face value or a supplier cost of zero is never real (ORD-8): it is a broken
+ * sync row or a slip of the keyboard, and the cheapest-offer rule would pick
+ * it, inflating the recorded margin and selling the card for the fees alone.
+ */
+const positiveDecimalSchema = decimalSchema.refine((value) => /[1-9]/u.test(value), 'Must be greater than zero');
 const nonNegativeDecimalSchema = z.string().regex(/^\d+(?:\.\d{1,6})?$/u);
 
 /* ============================================================================
@@ -321,7 +327,7 @@ const skuMutableShape = {
   code: z.string().trim().min(1).max(120),
   region: z.string().trim().min(2).max(8),
   currency: currencySchema.default('USD'),
-  faceValue: decimalSchema,
+  faceValue: positiveDecimalSchema,
   denominationLabel: z.string().trim().min(1).max(120),
   deliveryAssetType: deliveryAssetTypeSchema.default('CODE'),
   isActive: z.boolean().default(true),
@@ -369,7 +375,7 @@ export const updateSupplierSchema = patchSchema(supplierShape);
 /** `supplierId` / `skuId` identify the offer; changing either is a new offer. */
 const supplierOfferMutableShape = {
   costCurrency: currencySchema.default('USD'),
-  costAmount: decimalSchema,
+  costAmount: positiveDecimalSchema,
   discountBps: z.number().int().min(0).max(10_000).default(0),
   availability: z.enum(['AVAILABLE', 'UNAVAILABLE']).default('AVAILABLE'),
   priority: z.number().int().min(0).default(100),

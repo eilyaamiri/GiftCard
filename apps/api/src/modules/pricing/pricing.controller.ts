@@ -1,7 +1,21 @@
-import { Body, Controller, Get, Inject, Param, Post, Put, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Param,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { z } from 'zod';
 import type { SimulateQuoteRequest } from '@barat/contracts';
 
+import { DomainErrors } from '../../common/errors/domain.exception';
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Roles } from '../identity/rbac/roles.decorator';
 import type { ActorRequest } from '../identity/identity.tokens';
@@ -71,14 +85,49 @@ export class PricingController {
     return rules.map(toWirePricingRule);
   }
 
+  /**
+   * Applies the change, or — when it is large enough to need a second
+   * approver (ORD-7) — records it as a proposal and answers 202 with its id.
+   */
   @Put('rules')
   @Roles('ADMIN', 'FINANCE')
   async replaceRule(
     @Body(zodPipe(putPricingRuleRequestSchema)) body: PutPricingRuleRequest,
     @Req() request: ActorRequest,
+    @Res({ passthrough: true }) response: { status(code: number): unknown },
   ) {
-    const rule = await this.pricingRuleService.put(body, actorFromRequest(request));
+    const outcome = await this.pricingRuleService.submit(body, actorFromRequest(request));
+    if (outcome.kind === 'APPLIED') return toWirePricingRule(outcome.rule);
+    response.status(HttpStatus.ACCEPTED);
+    return { status: 'PENDING_APPROVAL' as const, proposalId: outcome.proposalId, reasons: outcome.reasons };
+  }
+
+  @Get('rules/proposals')
+  @Roles('ADMIN', 'FINANCE')
+  async listProposals() {
+    const proposals = await this.pricingRuleService.listProposals();
+    return proposals.map((proposal) => ({
+      proposalId: proposal.proposalId,
+      proposedByStaffId: proposal.proposedByStaffId,
+      proposedBy: proposal.proposedBy,
+      createdAt: proposal.createdAt.toISOString(),
+      reasons: proposal.reasons,
+      request: proposal.request,
+    }));
+  }
+
+  @Post('rules/proposals/:id/approve')
+  @Roles('ADMIN', 'FINANCE')
+  async approveProposal(@Param('id') id: string, @Req() request: ActorRequest) {
+    const rule = await this.pricingRuleService.approveProposal(proposalId(id), actorFromRequest(request));
     return toWirePricingRule(rule);
+  }
+
+  @Post('rules/proposals/:id/reject')
+  @Roles('ADMIN', 'FINANCE')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async rejectProposal(@Param('id') id: string, @Req() request: ActorRequest): Promise<void> {
+    await this.pricingRuleService.rejectProposal(proposalId(id), actorFromRequest(request));
   }
 
   /**
@@ -125,4 +174,11 @@ function actorFromRequest(request: ActorRequest): PricingRuleActor {
     userAgent: typeof userAgent === 'string' ? userAgent.slice(0, 512) : null,
     requestId: typeof requestId === 'string' ? requestId.slice(0, 128) : null,
   };
+}
+
+function proposalId(raw: string): string {
+  if (!/^[0-9a-f-]{36}$/u.test(raw)) {
+    throw DomainErrors.validation([{ path: 'id', message: 'Invalid proposal id' }]);
+  }
+  return raw;
 }

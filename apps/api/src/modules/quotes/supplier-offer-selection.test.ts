@@ -49,6 +49,8 @@ describe('selectBestOffer', () => {
     ['inactive supplier', offer({ id: 'x', supplierIsActive: false, costAmount: '1' })],
     ['unavailable offer', offer({ id: 'x', availability: 'UNAVAILABLE', costAmount: '1' })],
     ['foreign currency', offer({ id: 'x', costCurrency: 'EUR', costAmount: '1' })],
+    ['zero-cost offer (ORD-8)', offer({ id: 'x', costAmount: '0' })],
+    ['fully discounted offer (ORD-8)', offer({ id: 'x', costAmount: '5', discountBps: 10_000 })],
   ])('never selects an %s even when it is cheapest', (_label, excluded) => {
     const selection = selectBestOffer([excluded, offer({ id: 'ok', costAmount: '99' })], 'USD');
     expect(selection?.offer.id).toBe('ok');

@@ -137,6 +137,9 @@ const POST_PAYMENT_STATUSES: ReadonlySet<OrderStatus> = new Set([
 /** How many expired orders one sweep closes. Bounded so a backlog is paced. */
 const EXPIRY_BATCH_SIZE = 100;
 
+/** Paid orders whose money is going, or has gone, back. Never counted as revenue. */
+const REFUNDED_ORDER_STATUSES: OrderStatus[] = ['REFUND_PENDING', 'REFUNDED'];
+
 /**
  * Everything the cancel guard needs, and nothing more.
  *
@@ -381,43 +384,44 @@ export class OrdersService implements OrderPaymentBridge {
     return this.paginate(where, query.page, query.pageSize);
   }
 
-  /** Staff-only contribution summary from paid order quote snapshots. */
+  /**
+   * Staff-only contribution summary from paid order quote snapshots: revenue,
+   * recorded margin and fees of paid orders (ORD-3).
+   *
+   * An order whose money is going back (REFUND_PENDING) or has gone back
+   * (REFUNDED) is not revenue: it is reported on its own line instead. The
+   * sums are computed by the database — every paid order used to be loaded
+   * into memory to be added up here.
+   */
   async adminFinancialSummary(): Promise<{
     readonly paidOrders: number;
     readonly revenueIrr: string;
     readonly marginIrr: string;
     readonly collectedFeesIrr: string;
+    readonly refundedOrders: number;
+    readonly refundedIrr: string;
   }> {
-    const rows = await this.db.order.findMany({
-      where: { paidAt: { not: null } },
-      select: {
-        totalAmountIrr: true,
-        quote: {
-          select: {
-            marginAmount: true,
-            paymentFee: true,
-            serviceFee: true,
-            operationalFee: true,
-          },
-        },
-      },
-    });
+    const kept = { paidAt: { not: null }, status: { notIn: REFUNDED_ORDER_STATUSES } } satisfies Prisma.OrderWhereInput;
+    const refunded = { paidAt: { not: null }, status: { in: REFUNDED_ORDER_STATUSES } } satisfies Prisma.OrderWhereInput;
 
-    let revenueIrr = 0n;
-    let marginIrr = 0n;
-    let collectedFeesIrr = 0n;
-    for (const row of rows) {
-      revenueIrr += row.totalAmountIrr;
-      marginIrr += row.quote.marginAmount;
-      collectedFeesIrr +=
-        row.quote.paymentFee + row.quote.serviceFee + row.quote.operationalFee;
-    }
+    const [orders, quotes, refunds] = await Promise.all([
+      this.db.order.aggregate({ where: kept, _count: { _all: true }, _sum: { totalAmountIrr: true } }),
+      this.db.quote.aggregate({
+        where: { order: { is: kept } },
+        _sum: { marginAmount: true, paymentFee: true, serviceFee: true, operationalFee: true },
+      }),
+      this.db.order.aggregate({ where: refunded, _count: { _all: true }, _sum: { totalAmountIrr: true } }),
+    ]);
 
+    const fees =
+      (quotes._sum.paymentFee ?? 0n) + (quotes._sum.serviceFee ?? 0n) + (quotes._sum.operationalFee ?? 0n);
     return {
-      paidOrders: rows.length,
-      revenueIrr: revenueIrr.toString(),
-      marginIrr: marginIrr.toString(),
-      collectedFeesIrr: collectedFeesIrr.toString(),
+      paidOrders: orders._count._all,
+      revenueIrr: (orders._sum.totalAmountIrr ?? 0n).toString(),
+      marginIrr: (quotes._sum.marginAmount ?? 0n).toString(),
+      collectedFeesIrr: fees.toString(),
+      refundedOrders: refunds._count._all,
+      refundedIrr: (refunds._sum.totalAmountIrr ?? 0n).toString(),
     };
   }
 

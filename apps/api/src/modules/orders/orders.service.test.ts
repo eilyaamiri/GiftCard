@@ -530,48 +530,56 @@ describe('uniqueViolationTargets', () => {
 });
 
 describe('OrdersService / financial summary', () => {
-  it('sums paid order revenue, recorded margins and fees without using JS numbers', async () => {
+  it('sums kept revenue, margins and fees in the database and reports refunds on their own line (ORD-3)', async () => {
     const rig = harness(null);
-    rig.db.order.findMany.mockResolvedValue([
-      {
-        totalAmountIrr: 100_000n,
-        quote: {
-          marginAmount: 8_000n,
-          paymentFee: 1_000n,
-          serviceFee: 2_000n,
-          operationalFee: 500n,
-        },
-      },
-      {
-        totalAmountIrr: 250_000n,
-        quote: {
-          marginAmount: 20_000n,
-          paymentFee: 2_500n,
-          serviceFee: 5_000n,
-          operationalFee: 500n,
-        },
-      },
-    ]);
+    const orderAggregate = vi
+      .fn()
+      .mockResolvedValueOnce({ _count: { _all: 2 }, _sum: { totalAmountIrr: 350_000n } })
+      .mockResolvedValueOnce({ _count: { _all: 1 }, _sum: { totalAmountIrr: 90_000n } });
+    const quoteAggregate = vi.fn().mockResolvedValue({
+      _sum: { marginAmount: 28_000n, paymentFee: 3_500n, serviceFee: 7_000n, operationalFee: 1_000n },
+    });
+    Object.assign(rig.db.order, { aggregate: orderAggregate });
+    Object.assign(rig.db.quote, { aggregate: quoteAggregate });
 
     await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
       paidOrders: 2,
       revenueIrr: '350000',
       marginIrr: '28000',
       collectedFeesIrr: '11500',
+      refundedOrders: 1,
+      refundedIrr: '90000',
     });
-    expect(rig.db.order.findMany).toHaveBeenCalledWith({
-      where: { paidAt: { not: null } },
-      select: {
-        totalAmountIrr: true,
-        quote: {
-          select: {
-            marginAmount: true,
-            paymentFee: true,
-            serviceFee: true,
-            operationalFee: true,
-          },
-        },
-      },
+
+    const kept = { paidAt: { not: null }, status: { notIn: ['REFUND_PENDING', 'REFUNDED'] } };
+    expect(orderAggregate).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: kept }));
+    expect(quoteAggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { order: { is: kept } } }));
+    expect(orderAggregate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: { paidAt: { not: null }, status: { in: ['REFUND_PENDING', 'REFUNDED'] } } }),
+    );
+    // Nothing is loaded row by row any more.
+    expect(rig.db.order.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reads an empty ledger as zeros, not as missing numbers', async () => {
+    const rig = harness(null);
+    Object.assign(rig.db.order, {
+      aggregate: vi.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { totalAmountIrr: null } }),
+    });
+    Object.assign(rig.db.quote, {
+      aggregate: vi.fn().mockResolvedValue({
+        _sum: { marginAmount: null, paymentFee: null, serviceFee: null, operationalFee: null },
+      }),
+    });
+
+    await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
+      paidOrders: 0,
+      revenueIrr: '0',
+      marginIrr: '0',
+      collectedFeesIrr: '0',
+      refundedOrders: 0,
+      refundedIrr: '0',
     });
   });
 });

@@ -6,17 +6,22 @@ import { requireRole } from "@/lib/session";
 import {
   deactivatePricingRuleRequestSchema,
   putPricingRuleRequestSchema,
+  putPricingRuleResponseSchema,
   wirePricingRuleSchema,
   type WirePricingRule,
 } from "./pricing-rule-schema";
 
 export type PricingRuleActionResult =
   | { readonly ok: true; readonly rule: WirePricingRule }
+  | { readonly ok: true; readonly pending: { readonly proposalId: string; readonly reasons: readonly string[] } }
   | { readonly ok: false; readonly message: string };
 
 /**
  * A server action is its own HTTP endpoint, so the role check is repeated here
  * rather than inherited from the page. The API re-decides it a third time.
+ *
+ * A large change comes back as a proposal (ORD-7): nothing is repriced until a
+ * second person approves it.
  */
 export async function savePricingRuleAction(input: unknown): Promise<PricingRuleActionResult> {
   await requireRole(FINANCIAL_WRITE_ROLES);
@@ -28,9 +33,26 @@ export async function savePricingRuleAction(input: unknown): Promise<PricingRule
   }
 
   try {
-    const rule = await api.put<WirePricingRule>("/api/pricing/rules", parsed.data, wirePricingRuleSchema);
+    const result = await api.put("/api/pricing/rules", parsed.data, putPricingRuleResponseSchema);
     revalidatePath("/pricing-rules");
-    return { ok: true, rule };
+    return "status" in result ? { ok: true, pending: result } : { ok: true, rule: result };
+  } catch (error) {
+    return { ok: false, message: toMessage(error) };
+  }
+}
+
+/** The second pair of eyes: apply or close someone else's proposal. */
+export async function decidePricingProposalAction(input: {
+  proposalId: string;
+  decision: "approve" | "reject";
+}): Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }> {
+  await requireRole(FINANCIAL_WRITE_ROLES);
+  if (!/^[0-9a-f-]{36}$/u.test(input.proposalId)) return { ok: false, message: "شناسهٔ پیشنهاد معتبر نیست." };
+
+  try {
+    await api.post(`/api/pricing/rules/proposals/${input.proposalId}/${input.decision}`, {});
+    revalidatePath("/pricing-rules");
+    return { ok: true };
   } catch (error) {
     return { ok: false, message: toMessage(error) };
   }
