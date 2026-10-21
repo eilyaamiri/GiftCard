@@ -61,7 +61,7 @@ export function AccountMobileDrawer({
           <div className="account-sidebar-footer">
             <div className="account-sidebar-user">
               <span className="account-avatar">{initial}</span>
-              <span><strong>{name}</strong><small>حساب فعال</small></span>
+              <span><strong><bdi>{name}</bdi></strong><small>حساب فعال</small></span>
             </div>
           </div>
         </div>
