@@ -1,6 +1,7 @@
 import type { CreateQuoteRequest, InternationalServiceDto, QuoteSnapshot } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString } from "@/lib/catalog";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import {
   filterGames,
@@ -410,6 +411,7 @@ export function createWebServices(): AssistantServices {
     },
 
     analytics: { track: (event, props) => trackAssistantEvent(event, props) },
+    features: { internationalPayment: INTERNATIONAL_PAYMENT_ENABLED },
     now: () => Date.now(),
   };
 }

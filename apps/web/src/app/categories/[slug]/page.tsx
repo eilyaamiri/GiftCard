@@ -6,6 +6,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { visibleBrandsQuery } from "@/lib/brand-art";
 import { categoryLinkHref, type Category } from "@/lib/catalog";
 import { CategoryIcon } from "@/components/category-icon";
+import { visibleCategoryLinks } from "@/lib/features";
 
 export const dynamic = "force-dynamic";
 
@@ -47,7 +48,8 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   }
 
   const category = categories.find((item) => item.slug === slug && item.kind === "SERVICES");
-  if (category === undefined || category.links.length === 0) notFound();
+  const links = category === undefined ? [] : visibleCategoryLinks(category.links);
+  if (category === undefined || links.length === 0) notFound();
 
   return (
     <main className="page container">
@@ -60,7 +62,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
       {category.descriptionFa ? <p className="muted catalog-lead">{category.descriptionFa}</p> : null}
 
       <ul className="grid catalog-grid" style={{ marginTop: 22, padding: 0, listStyle: "none" }}>
-        {category.links.map((link) => (
+        {links.map((link) => (
           <li key={link.id}>
             <Link href={categoryLinkHref(link)} className="card service-card">
               <div className="service-card-body">

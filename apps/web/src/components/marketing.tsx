@@ -12,6 +12,7 @@ import { FaqSection } from "@/components/faq";
 import { ServiceCard } from "@/components/service-card";
 import { SteamIcon } from "@/components/steam-icon";
 import { getFaqs } from "@/lib/faq";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { listTelegramGames, telegramProductOf } from "@/lib/telegram";
 import { gameImageUrl, gameMonogram, gameTitle, listGameTopUps, regionLabel } from "@/lib/game-topups";
 import { BRAND } from "@/lib/brand";
@@ -75,6 +76,7 @@ async function categoryProducts(categorySlug: string): Promise<readonly CatalogP
 
 /** The international-payment strip. Degrades like every other row here. */
 async function homeServices(): Promise<readonly InternationalServiceDto[]> {
+  if (!INTERNATIONAL_PAYMENT_ENABLED) return [];
   try {
     const { items } = await api.services();
     return items.filter((service) => service.isActive).slice(0, ROW_SIZE);
@@ -256,7 +258,9 @@ export async function HomePage() {
               <p className="hero-copy">{BRAND.hero.copy}</p>
               <div className="hero-actions">
                 <Link className="btn btn-accent" href="/gift-cards">{BRAND.hero.primaryCta} <ArrowLeft size={17} aria-hidden="true" /></Link>
-                <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> {BRAND.hero.secondaryCta}</Link>
+                {INTERNATIONAL_PAYMENT_ENABLED ? (
+                  <Link className="btn btn-outline" href="/services"><Globe2 size={17} aria-hidden="true" /> {BRAND.hero.secondaryCta}</Link>
+                ) : null}
                 <Link className="btn btn-outline" href="/telegram"><Send size={17} aria-hidden="true" /> استارز و پرمیوم تلگرام</Link>
                 <Link className="btn btn-outline" href="/games"><Gamepad2 size={17} aria-hidden="true" /> شارژ مستقیم بازی</Link>
                 <Link className="btn btn-outline" href="/steam"><SteamIcon size={17} /> شارژ استیم</Link>
@@ -296,7 +300,7 @@ export async function HomePage() {
               </div>
             </section>
           ))}
-          {services.length > 0 ? (
+          {INTERNATIONAL_PAYMENT_ENABLED && services.length > 0 ? (
             <section className="container section">
               <ShelfHead eyebrow="پرداخت بین‌المللی" title="هزینه سرویس‌های خارجی" href="/services" />
               <div className="grid product-grid">

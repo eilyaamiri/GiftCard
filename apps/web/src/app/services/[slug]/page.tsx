@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ErrorState } from "@barat/ui";
 import { api, ApiClientError } from "@/lib/api";
 import { ServiceForm } from "./service-form";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export const dynamic = "force-dynamic";
  * looks its slug up in that list rather than inventing an endpoint.
  */
 export default async function ServiceDetailPage({ params }: { params: Promise<{ slug: string }> }) {
+  /* Switched off for now; the code stays so the feature can come back. */
+  if (!INTERNATIONAL_PAYMENT_ENABLED) notFound();
+
   const { slug } = await params;
   /* Started alongside the catalogue read; a failure costs only the reviews/FAQs. */
   const reviewsPromise = api.reviews("SERVICE", slug).catch(() => null);

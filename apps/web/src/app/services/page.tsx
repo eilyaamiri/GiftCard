@@ -1,10 +1,12 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { EmptyState, ErrorState } from "@barat/ui";
 import { ChevronLeft, PackageSearch } from "lucide-react";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import { ServiceCard, ServiceCategoryCard } from "@/components/service-card";
 import { GENERIC_SERVICE_SLUGS, SERVICE_CATEGORIES } from "@/lib/service-categories";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,10 @@ export default async function ServicesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  /* The feature is switched off for now; the page stays in the code so it can
+   * come back with one flag, but nobody can reach it. */
+  if (!INTERNATIONAL_PAYMENT_ENABLED) notFound();
+
   const activeCategory = readCategory((await searchParams).category);
 
   let items;
