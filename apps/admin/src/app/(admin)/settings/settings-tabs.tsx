@@ -1,20 +1,26 @@
 "use client";
 
 import { useState } from "react";
+import { BackupPanel } from "./backup-panel";
 import { FaqPanel } from "./faq-panel";
 import { FeatureFlagsPanel } from "./feature-flags-panel";
 import { QueuesPanel } from "./queues-panel";
+import { SmtpPanel } from "./smtp-panel";
 import { StaffPanel } from "./staff-panel";
 import { SupportChannelsPanel } from "./support-channels-panel";
 import type {
+  SettingsBackup,
+  SettingsBackupRun,
   SettingsFaq,
+  SettingsLocalSnapshot,
+  SettingsSmtp,
   SettingsFeatureFlag,
   SettingsQueue,
   SettingsStaff,
   SettingsSupportChannel,
 } from "./settings-schema";
 
-type Tab = "flags" | "staff" | "queues" | "support" | "faq";
+type Tab = "flags" | "staff" | "queues" | "support" | "faq" | "smtp" | "backup";
 
 /**
  * Each tab writes through `/api/admin/settings/*`, which re-checks the ADMIN
@@ -27,6 +33,11 @@ export function SettingsTabs({
   queues,
   supportChannels,
   faqs,
+  smtp,
+  backup,
+  backupSnapshot,
+  backupSnapshotError,
+  backupRuns,
   currentStaffId,
   loadError,
 }: {
@@ -35,6 +46,11 @@ export function SettingsTabs({
   queues: readonly SettingsQueue[];
   supportChannels: readonly SettingsSupportChannel[];
   faqs: readonly SettingsFaq[];
+  smtp: SettingsSmtp | null;
+  backup: SettingsBackup | null;
+  backupSnapshot: SettingsLocalSnapshot | null;
+  backupSnapshotError: string | null;
+  backupRuns: readonly SettingsBackupRun[];
   currentStaffId: string;
   loadError: string | null;
 }) {
@@ -96,6 +112,24 @@ export function SettingsTabs({
         >
           سؤال‌های متداول
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "smtp"}
+          className={`tab-btn${tab === "smtp" ? " active" : ""}`}
+          onClick={() => setTab("smtp")}
+        >
+          ایمیل (SMTP)
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "backup"}
+          className={`tab-btn${tab === "backup" ? " active" : ""}`}
+          onClick={() => setTab("backup")}
+        >
+          پشتیبان‌گیری
+        </button>
       </div>
 
       <div className="card panel">
@@ -104,6 +138,24 @@ export function SettingsTabs({
         {tab === "queues" ? <QueuesPanel initialQueues={queues} staff={staff} /> : null}
         {tab === "support" ? <SupportChannelsPanel initialChannels={supportChannels} /> : null}
         {tab === "faq" ? <FaqPanel initialFaqs={faqs} /> : null}
+        {/* Kept mounted while hidden: their saved state (which secrets are set,
+          * the run history being polled) would otherwise snap back to the page
+          * load's copy on every tab switch. */}
+        {smtp !== null ? (
+          <div hidden={tab !== "smtp"}>
+            <SmtpPanel initial={smtp} />
+          </div>
+        ) : null}
+        {backup !== null ? (
+          <div hidden={tab !== "backup"}>
+            <BackupPanel
+              initial={backup}
+              initialSnapshot={backupSnapshot}
+              initialSnapshotError={backupSnapshotError}
+              initialRuns={backupRuns}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

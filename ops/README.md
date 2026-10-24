@@ -135,3 +135,52 @@ A restart within 30 minutes of `HEAD` moving is treated as a deploy and does
 not page (`DEPLOY_GRACE_SECONDS`). A deploy that leaves the API down still does.
 `HEALTH_URL`, `FAIL_THRESHOLD` and `TIMEOUT_SECONDS` can be overridden in the
 crontab line.
+
+## E-mail and off-host backups (Admin → Settings)
+
+Both are configured in the admin panel, under Settings → «ایمیل (SMTP)» and
+«پشتیبان‌گیری». The passwords and keys typed there are stored only as
+AES-256-GCM envelopes under `SETTINGS_ENCRYPTION_KEY`, which the panel refuses
+to work without. It is a separate key on purpose — never reuse the gift-card or
+bank-details key (the API refuses to boot if you do). Once per server:
+
+    key=$(openssl rand -base64 32); echo "SETTINGS_ENCRYPTION_KEY=$key" | sudo tee -a /opt/baratpay/secrets/.env.api >/dev/null; unset key
+    sudo systemctl restart barat-api
+
+Losing this key loses only what was typed into those two tabs (SMTP password,
+backup SSH key, archive passphrase); type them in again. Keep a copy with the
+other three keys anyway.
+
+**E-mail.** While the SMTP tab is switched off the API keeps its old behaviour
+(the mock transport: nothing is sent). Use «آزمایش اتصال» and «ارسال ایمیل
+آزمایشی» before switching it on; both use the unsaved form. Only the usual
+submission ports (25, 465, 587, 2465, 2525, 2587) are accepted.
+
+**Off-host backups.** The API does not take the dump. `barat-backup.timer`
+keeps doing that at 03:20 Tehran into `/var/backups/baratpay/snapshot-*/database.dump`
+(`BACKUP_SOURCE_DIR`); the API copies the newest one, encrypted, to the backup
+server over SFTP at the time set in the panel (default 04:00 Tehran). It needs
+the OpenSSH client (`sftp`, `ssh-keyscan`; Ubuntu's `openssh-client`) and read
+access to that directory — true today because the API runs as root; if the API
+ever runs as its own user (PLT-8), give that user read access.
+
+On the backup server, once: create a login, its target directory, and install
+the public key the panel shows after «ساخت کلید SSH»:
+
+    sudo adduser --disabled-password --gecos '' barat-backup
+    sudo -u barat-backup mkdir -p ~barat-backup/.ssh ~barat-backup/backups
+    echo 'ssh-ed25519 AAAA… barat-backup-…' | sudo -u barat-backup tee -a ~barat-backup/.ssh/authorized_keys
+    sudo chmod 700 ~barat-backup/.ssh; sudo chmod 600 ~barat-backup/.ssh/authorized_keys
+    sudo ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub   # compare with «دریافت کلید سرور»
+
+Then in the panel: host, user, directory (`backups`), «دریافت کلید سرور» and
+compare the fingerprint, «ساخت رمز تصادفی» for the archive passphrase — **write
+it down somewhere off this server; no archive can be restored without it** —
+save, «آزمایش اتصال», switch on, save, and «ارسال همین حالا». Every run is in the
+table below the form, and a failed one pages Telegram (ERROR). Only files named
+`barat-db-*.bkp` are ever pruned on the backup server.
+
+Restore, on any machine with Node 18+:
+
+    BACKUP_PASSPHRASE='…' node ops/backup-decrypt.mjs barat-db-20261021T235012Z.bkp database.dump
+    pg_restore --list database.dump | head    # then restore into an EMPTY database, never the live one
