@@ -8,11 +8,13 @@ export const menuStates: Record<string, StateDef> = {
     track: "menu_viewed",
     nav: { back: false, home: false },
     on: {
-      SELECT: async (_ctx, value) => {
+      SELECT: async (ctx, value) => {
         switch (value) {
           case "giftCard":
             return go("gc.search", { patch: { serviceType: "giftCard" } });
           case "international":
+            /* Not offered while it is switched off, so a stale button is refused too. */
+            if (!ctx.services.features.internationalPayment) return stay("این گزینه معتبر نیست.");
             return go("intl.categories", { patch: { serviceType: "international" } });
           case "telegram":
             return go("tg.choose");
@@ -29,11 +31,11 @@ export const menuStates: Record<string, StateDef> = {
         }
       },
     },
-    render: async () => ({
+    render: async (ctx) => ({
       message: "سلام 👋 من دستیار خرید شما هستم. چطور می‌تونم کمکتون کنم؟",
       options: [
         opt("giftCard", "🎁 خرید گیفت کارت", "SELECT", "giftCard"),
-        opt("international", "🌍 پرداخت یک سرویس", "SELECT", "international"),
+        ...(ctx.services.features.internationalPayment ? [opt("international", "🌍 پرداخت یک سرویس", "SELECT", "international")] : []),
         opt("telegram", "✈️ تلگرام", "SELECT", "telegram"),
         opt("steam", "🕹️ شارژ استیم", "SELECT", "steam"),
         opt("game", "🎮 تاپ‌آپ بازی", "SELECT", "game"),

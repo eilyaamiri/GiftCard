@@ -16,8 +16,9 @@ export interface Driver {
   giftCardToQuote(): Promise<AssistantResponse>;
 }
 
-export async function startDriver(sessionId = "s1"): Promise<Driver> {
+export async function startDriver(sessionId = "s1", configure?: (fake: Fake) => void): Promise<Driver> {
   const fake = createFake();
+  configure?.(fake);
   const store = createMemoryStore();
   const engine = createEngine({ services: fake.services, store });
   const driver: Driver = {

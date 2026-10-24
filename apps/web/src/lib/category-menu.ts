@@ -4,6 +4,7 @@ import {
   type Category,
   type CategoryIconKey,
 } from "./catalog";
+import { visibleCategoryLinks } from "./features";
 
 /** One entry under a top-level section of the categories menu. */
 export interface CategoryMenuEntry {
@@ -54,13 +55,15 @@ export function buildCategoryMenu(categories: readonly Category[]): readonly Cat
   }
 
   for (const category of categories) {
-    if (category.kind !== "SERVICES" || category.links.length === 0) continue;
+    if (category.kind !== "SERVICES") continue;
+    const links = visibleCategoryLinks(category.links);
+    if (links.length === 0) continue;
     sections.push({
       key: category.id,
       label: category.nameFa,
       href: categoryHref(category),
       iconKey: category.iconKey,
-      entries: category.links.map((link) => ({
+      entries: links.map((link) => ({
         key: link.id,
         label: link.title,
         href: categoryLinkHref(link),
