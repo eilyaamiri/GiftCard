@@ -8,7 +8,7 @@ import type {
 } from '@barat/contracts';
 import type { PaymentAmountUnit, PaymentFailureReason } from '@barat/contracts';
 import type { RialPaymentProvider, VerifyResult } from '@barat/payments';
-import { RIAL_PAYMENT_PROVIDER } from '@barat/payments';
+import { AMIN_ORDER_ID_PATTERN, RIAL_PAYMENT_PROVIDER } from '@barat/payments';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { type AuditActorType, AuditService } from '../audit/audit.service';
@@ -462,20 +462,44 @@ export class PaymentsService {
     return this.asPayment(current);
   }
 
-  private async verifyStoredPayment(payment: PaymentRecord): Promise<VerifyResult> {
+  private async verifyStoredPayment(
+    payment: PaymentRecord,
+    evidence?: Readonly<Record<string, string>>,
+  ): Promise<VerifyResult> {
     if (!payment.providerAuthority) {
       return { outcome: 'UNKNOWN', providerCode: null, failureReason: 'INVALID_AUTHORITY' };
     }
     await this.recordAttempt(payment.id, 'VERIFY', 'PENDING', null);
     try {
+      const callbackEvidence = evidence ?? (await this.storedCallbackEvidence(payment));
       return await this.provider.verifyPayment({
         authority: payment.providerAuthority,
         amountIrr: payment.amountIrr,
+        ...(callbackEvidence === undefined ? {} : { evidence: callbackEvidence }),
       });
     } catch {
       return { outcome: 'UNKNOWN', providerCode: null, failureReason: 'PROVIDER_NETWORK_ERROR' };
     }
   }
+
+  /**
+   * The identifiers the gateway last handed the browser for this payment, for a
+   * gateway that cannot be asked about a payment without them (Amin). They are
+   * kept on the CALLBACK attempt so the customer's later "check again" works
+   * after a verify that failed on the network, without the browser having to
+   * come back. Only the provider that needs them is ever given any.
+   */
+  private async storedCallbackEvidence(
+    payment: PaymentRecord,
+  ): Promise<Readonly<Record<string, string>> | undefined> {
+    if (payment.provider !== 'amin') return undefined;
+    const attempt = await this.delegate(this.db.paymentAttempt).findFirst({
+      where: { paymentId: payment.id, action: 'CALLBACK', status: AMIN_EVIDENCE_STATUS },
+      orderBy: { createdAt: 'desc' },
+    });
+    return readEvidence((attempt as { responsePayload?: unknown } | null)?.responsePayload);
+  }
+
 
   private async applyVerificationResult(
     payment: PaymentRecord,
@@ -702,6 +726,83 @@ export class PaymentsService {
     return { paymentId: payment.id, orderNumber: await this.orderNumber(payment.orderId) };
   }
 
+  /**
+   * The customer's browser coming back from Amin's hosted page.
+   *
+   * Amin returns `order_id`, `ref_num` and `tracking_code` and cannot be asked
+   * about a payment without the last two, so they travel to the adapter as
+   * evidence. Like every return, nothing here is believed: `order_id` only finds
+   * a payment we stored (it is our own unguessable value), `status` is ignored,
+   * and the outcome is the gateway's answer to a server-to-server verify against
+   * OUR stored amount.
+   *
+   * One deliberate difference from `handleReturn`: an UNKNOWN answer changes
+   * nothing. Anyone holding the `order_id` could otherwise send a made-up
+   * `ref_num`, get a refusal back, and push a payment the customer is about to
+   * complete into UNKNOWN — a state a later callback may not promote to PAID.
+   * The payment simply stays open, and the customer's next return or "check
+   * again" asks the gateway with the real identifiers.
+   */
+  async handleAminReturn(
+    query: {
+      readonly order_id?: unknown;
+      readonly ref_num?: unknown;
+      readonly tracking_code?: unknown;
+    },
+    context: { readonly ip?: string | null; readonly userAgent?: string | null } = {},
+  ): Promise<{ readonly paymentId: string | null; readonly orderNumber: string | null }> {
+    const orderId = typeof query.order_id === 'string' ? query.order_id : undefined;
+    if (orderId === undefined || !AMIN_ORDER_ID_PATTERN.test(orderId)) {
+      await this.recordAudit({
+        actor: 'system:payments',
+        actorType: 'SYSTEM',
+        action: 'PAYMENT_CALLBACK_INVALID',
+        entity: 'Payment',
+        entityId: 'unknown',
+        after: { reason: 'missing_or_malformed_order_id' },
+        ...context,
+      });
+      return { paymentId: null, orderNumber: null };
+    }
+
+    const raw = await this.delegate(this.db.payment).findUnique({
+      where: {
+        provider_providerAuthority: { provider: this.provider.name, providerAuthority: orderId },
+      },
+    });
+    if (raw === null) {
+      await this.recordAudit({
+        actor: 'system:payments',
+        actorType: 'SYSTEM',
+        action: 'PAYMENT_CALLBACK_UNKNOWN_AUTHORITY',
+        entity: 'Payment',
+        entityId: 'unknown',
+        after: { reason: 'unknown_authority', authorityHash: shortHash(orderId) },
+        ...context,
+      });
+      return { paymentId: null, orderNumber: null };
+    }
+
+    const payment = this.asPayment(raw);
+    const evidence = aminEvidence(query.ref_num, query.tracking_code);
+    await this.recordAttempt(
+      payment.id,
+      'CALLBACK',
+      evidence === undefined ? 'RETURNED' : AMIN_EVIDENCE_STATUS,
+      null,
+      context,
+      evidence,
+    );
+    await this.withPaymentLock(payment.id, async () => {
+      const current = await this.reload(payment);
+      if (current.status === 'PAID' || evidence === undefined) return;
+      const result = await this.verifyStoredPayment(current, evidence);
+      if (result.outcome === 'UNKNOWN') return;
+      await this.applyVerificationResult(current, result, context);
+    });
+    return { paymentId: payment.id, orderNumber: await this.orderNumber(payment.orderId) };
+  }
+
   private async commitSuccessfulPayment(
     payment: PaymentRecord,
     result: Extract<VerifyResult, { outcome: 'VERIFIED' }>,
@@ -910,6 +1011,7 @@ export class PaymentsService {
     status: string,
     providerCode: number | null,
     context: { readonly ip?: string | null; readonly userAgent?: string | null } = {},
+    responsePayload?: Readonly<Record<string, string>>,
   ): Promise<void> {
     const delegate = this.delegate(this.db.paymentAttempt);
     /* `attemptNumber` is derived from a count, so two requests touching the same
@@ -929,6 +1031,7 @@ export class PaymentsService {
             providerCode,
             ip: context.ip ?? null,
             userAgent: context.userAgent ?? null,
+            ...(responsePayload === undefined ? {} : { responsePayload }),
           },
         });
         return;
@@ -1019,10 +1122,11 @@ export class PaymentsService {
     if (payment.provider === 'mock') {
       return `https://mock-gateway.invalid/start/${payment.providerAuthority}`;
     }
-    /* BazaarPay's hosted page carries our return URL, which only the adapter
-     * knows, so it cannot be rebuilt here. A replayed request in a process that
-     * has since restarted returns no destination and the customer is sent to the
-     * result page, which asks the gateway for the real state. */
+    /* BazaarPay's and Amin's hosted pages are addressed by a token only the
+     * adapter knows (BazaarPay also carries our return URL), so neither can be
+     * rebuilt here. A replayed request in a process that has since restarted
+     * returns no destination and the customer is sent to the result page, which
+     * asks the gateway for the real state. */
     return '';
   }
 
@@ -1190,4 +1294,26 @@ function shortHash(value: string): string {
   let hash = 2166136261;
   for (const character of value) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   return (hash >>> 0).toString(16).padStart(8, '0');
+}
+
+const AMIN_REFERENCE = /^[A-Za-z0-9._-]{1,128}$/u;
+/** Status of the CALLBACK attempt that carries Amin's `ref_num` / `tracking_code`. */
+const AMIN_EVIDENCE_STATUS = 'EVIDENCE';
+
+/**
+ * The two identifiers Amin's verify needs, from an untrusted return query.
+ * Anything that is not a plain bounded string is dropped, so a malformed or
+ * repeated parameter can neither reach the gateway nor be stored.
+ */
+function aminEvidence(refNum: unknown, trackingCode: unknown): Readonly<Record<string, string>> | undefined {
+  if (typeof refNum !== 'string' || typeof trackingCode !== 'string') return undefined;
+  if (!AMIN_REFERENCE.test(refNum) || !AMIN_REFERENCE.test(trackingCode)) return undefined;
+  return { ref_num: refNum, tracking_code: trackingCode };
+}
+
+/** Evidence as stored on a CALLBACK attempt, re-validated on the way back out. */
+function readEvidence(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (typeof value !== 'object' || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  return aminEvidence(record['ref_num'], record['tracking_code']);
 }
