@@ -1567,10 +1567,31 @@ a { color:inherit; text-decoration:none; }
  * The Telegram frame, reused: same hero, same order form. What is its own is
  * the searchable grid, and a card that draws a monogram when a game published
  * no artwork, so a missing image never leaves a broken-image hole. */
-.gt-section { padding-top:34px; }
-.gt-toolbar { display:flex; align-items:center; gap:16px; margin-bottom:20px; }
-.gt-search { flex:1; max-width:520px; }
-.gt-count { margin:0; font-size:13px; white-space:nowrap; }
+.gt-section { padding-top:22px; }
+
+/* The shelf is what the page is for, so its hero is a short band rather than a
+ * full-height poster: the title and three chips over the artwork, and the foot
+ * of the band melting into the page so the first row of games starts right
+ * under it instead of below the fold. The wash and the art are the shared
+ * Telegram hero's own (`--tg-hero-wash`, `--tg-hero-art`), so the dark theme
+ * needs nothing here beyond the chip icon colour: the tokens swap the art. */
+.gt-hero {
+  padding:44px 0 36px;
+  background:
+    linear-gradient(to top,var(--background-body) 0%,transparent 26%),
+    var(--tg-hero-wash),
+    var(--tg-hero-art,none) left center / auto 100% no-repeat,
+    var(--hero-bg);
+}
+.gt-hero .tg-hero-title { margin:8px 0 16px; }
+.gt-hero-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.gt-hero-chips span { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border:1px solid var(--border-primary); border-radius:999px; background:color-mix(in srgb,var(--background-primary) 80%,transparent); color:var(--text-primary); font-size:12.5px; }
+.gt-hero-chips svg { color:var(--interactive-accent); }
+[data-theme="dark"] .gt-hero-chips svg { color:var(--accent-on-deep); }
+
+.gt-shelf-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.gt-shelf-title { margin:0; font-size:17px; }
+.gt-shelf-count { color:var(--text-secondary); font-size:13px; }
 .gt-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:0; padding:0; list-style:none; }
 .gt-card { display:flex; align-items:center; gap:14px; height:100%; padding:14px; transition:border-color .18s ease; }
 .gt-card:hover { border-color:var(--interactive-primary); }
@@ -1593,18 +1614,37 @@ a { color:inherit; text-decoration:none; }
 .gt-empty > svg { color:var(--text-secondary); }
 .gt-empty h2 { margin:6px 0 0; }
 .gt-empty p { margin:0; }
-.gt-no-match { margin:0; color:var(--text-secondary); }
 
 @media (max-width:1024px) {
   .gt-grid { grid-template-columns:repeat(3,minmax(0,1fr)); }
   .gt-home-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
 }
 @media (max-width:700px) {
-  .gt-toolbar { flex-direction:column; align-items:stretch; gap:8px; }
-  .gt-search { max-width:none; }
-  .gt-grid { grid-template-columns:1fr; gap:10px; }
+  /* A banner, not a poster: the portrait art is cropped to the soldiers
+   * (`cover`, anchored low) and the copy side stays flat ground, so the title
+   * never sits on busy pixels. The foot fades into the page. */
+  .gt-hero {
+    padding:24px 0 44px;
+    background:
+      linear-gradient(to top,var(--background-body) 0%,transparent 34%),
+      linear-gradient(to bottom,var(--hero-bg) 0%,var(--hero-bg) 28%,color-mix(in srgb,var(--hero-bg) 55%,transparent) 62%,transparent 86%),
+      var(--tg-hero-art-mobile,none) center 62% / cover no-repeat,
+      var(--hero-bg);
+  }
+  .gt-hero .tg-hero-title { margin:4px 0 12px; font-size:23px; line-height:1.45; }
+  .gt-hero-chips { gap:6px; }
+  .gt-hero-chips span { padding:4px 9px; font-size:11px; }
+  .gt-section { padding-top:14px; }
+  /* Two tiles per row: the art on top, the name under it. More games fit
+   * above the fold, and a tile reads as something to pick rather than a row
+   * in a list. */
+  .gt-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+  .gt-grid .gt-card { flex-direction:column; align-items:flex-start; gap:10px; padding:12px; }
+  .gt-grid .gt-card-art { width:56px; height:56px; }
   .gt-home-grid { grid-template-columns:1fr; }
-  .gt-card-art { width:52px; height:52px; }
+}
+@media (max-width:340px) {
+  .gt-grid { grid-template-columns:1fr; }
 }
 
 /* ============================================================================
