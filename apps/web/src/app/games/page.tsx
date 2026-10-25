@@ -32,19 +32,19 @@ export default async function GamesPage() {
         <div className="container tg-hero-inner">
           <div className="eyebrow">شارژ مستقیم</div>
           <h1 className="h1 tg-hero-title">شارژ بازی، مستقیم روی حساب خودتان</h1>
-          <p className="tg-hero-copy">
-            شناسهٔ بازیکن را وارد کنید و بسته را انتخاب کنید. کدی تحویل نمی‌گیرید که وارد کنید؛
-            شارژ مستقیم به همان حساب بازی می‌نشیند.
-          </p>
-          <div className="tg-hero-facts">
-            <span><BadgeCheck size={15} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
-            <span><ShieldCheck size={15} aria-hidden="true" /> بدون رمز عبور حساب بازی</span>
-            <span><Zap size={15} aria-hidden="true" /> تحویل خودکار روی حساب</span>
+          {/* The shelf is the point of this page, so the hero is kept short: the
+              three facts that used to sit under a four-line paragraph are chips
+              now, and the paragraph's "no code, credited straight to the
+              account" is what the title and the second chip already say. */}
+          <div className="gt-hero-chips">
+            <span><BadgeCheck size={14} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
+            <span><ShieldCheck size={14} aria-hidden="true" /> بدون رمز عبور حساب بازی</span>
+            <span><Zap size={14} aria-hidden="true" /> تحویل خودکار روی حساب</span>
           </div>
         </div>
       </section>
 
-      <section className="container section gt-section">
+      <section className="container section gt-section" aria-labelledby="gt-shelf-title">
         {games.length === 0 ? (
           <div className="card pad gt-empty">
             <Gamepad2 size={28} aria-hidden="true" />
@@ -59,7 +59,13 @@ export default async function GamesPage() {
             </div>
           </div>
         ) : (
-          <GameGrid games={games} />
+          <>
+            <div className="gt-shelf-head">
+              <h2 id="gt-shelf-title" className="gt-shelf-title">همهٔ بازی‌ها</h2>
+              <span className="gt-shelf-count">{games.length.toLocaleString("fa-IR")} بازی</span>
+            </div>
+            <GameGrid games={games} />
+          </>
         )}
       </section>
     </main>
