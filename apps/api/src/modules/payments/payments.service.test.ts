@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { MockRialPaymentProvider } from '@barat/payments';
-import type { RialPaymentProvider, VerifyResult } from '@barat/payments';
+import { AminPaymentProvider, MockRialPaymentProvider } from '@barat/payments';
+import type { PaymentHttpClient, PaymentHttpResponse, RialPaymentProvider, VerifyResult } from '@barat/payments';
 
 import type { AuditService } from '../audit/audit.service';
 /* The real port, from the module that owns it. Payments used to declare its own
@@ -806,6 +806,194 @@ describe('payment DTO safety', () => {
 });
 
 /* ============================================================================
+ * Amin: the whole return flow, with the real adapter behind a scripted gateway
+ * ==========================================================================*/
+
+describe('PaymentsService with the Amin gateway', () => {
+  type GatewayReply = PaymentHttpResponse | Error;
+
+  function reply(payload: unknown, status = 200): PaymentHttpResponse {
+    return { ok: status >= 200 && status < 300, status, json: async () => payload };
+  }
+
+  const CONFIRMED = reply({
+    status: 'CONFIRMED',
+    data: { amount: 5_000_000, ref_num: 'REF1', card_number: '6037991234567890' },
+  });
+
+  /** Answers /withdraw/ with a token and every /verify/ from a queue, recording what we sent. */
+  class AminGateway implements PaymentHttpClient {
+    readonly verifyBodies: Record<string, unknown>[] = [];
+    withdrawCalls = 0;
+
+    constructor(private readonly verifyReplies: GatewayReply[]) {}
+
+    async postJson(url: string, body: Readonly<Record<string, unknown>>): Promise<PaymentHttpResponse> {
+      if (url.endsWith('/api/v1/withdraw/')) {
+        this.withdrawCalls += 1;
+        return reply({ token: 'tok-1', ref_num: 'REF1', pgw_amount: '5000000' });
+      }
+      this.verifyBodies.push({ ...body });
+      const next = this.verifyReplies.shift();
+      if (next === undefined) throw new Error('unexpected verify call');
+      if (next instanceof Error) throw next;
+      return next;
+    }
+  }
+
+  const GENUINE = { ref_num: 'REF1', tracking_code: 'TRK1' };
+
+  async function aminHarness(verifyReplies: GatewayReply[]) {
+    const gateway = new AminGateway(verifyReplies);
+    const provider = new AminPaymentProvider(
+      { merchantId: 'merchant-1234', returnUrl: 'https://api.barat.test/api/payments/amin/return' },
+      gateway,
+    );
+    const harness = makeHarness({ provider });
+    const created = await harness.service.createPayment(
+      { orderId: ORDER_ID, idempotencyKey: 'idem-1' },
+      CUSTOMER_ID,
+      CALLBACK_URL,
+    );
+    const paymentId = created.payment.id;
+    const orderId = harness.db.paymentById(paymentId)['providerAuthority'] as string;
+    return { harness, gateway, created, paymentId, orderId };
+  }
+
+  it('opens the hosted page and stores our own order_id as the authority', async () => {
+    const { harness, created, paymentId, orderId } = await aminHarness([]);
+
+    expect(created.redirectUrl).toBe('https://api.aminremit.com/pgw/pay/tok-1');
+    const row = harness.db.paymentById(paymentId);
+    expect(row['provider']).toBe('amin');
+    expect(row['status']).toBe('REDIRECTED');
+    expect(row['providerAmountUnit']).toBe('IRR');
+    expect(orderId).toMatch(/^BP-1001-[0-9a-f]{24}$/u);
+    expect(JSON.stringify(created)).not.toContain(orderId);
+  });
+
+  it('settles the payment from a genuine return and starts fulfillment once', async () => {
+    const { harness, gateway, paymentId, orderId } = await aminHarness([CONFIRMED, CONFIRMED]);
+
+    const result = await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    expect(result).toEqual({ paymentId, orderNumber: 'BP-1001' });
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['providerRefId']).toBe('TRK1');
+    expect(harness.db.paymentById(paymentId)['maskedCard']).toBe('6037********7890');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    /* The amount sent to the gateway is OUR stored amount, never a request value. */
+    expect(gateway.verifyBodies[0]).toMatchObject({
+      order_id: orderId,
+      amount: '5000000',
+      ref_num: 'REF1',
+      tracking_code: 'TRK1',
+    });
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    expect(gateway.verifyBodies).toHaveLength(1);
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers a return for an unknown or malformed order_id without calling the gateway', async () => {
+    const { harness, gateway } = await aminHarness([]);
+    const none = { paymentId: null, orderNumber: null };
+
+    for (const order_id of ['BP-1001-' + 'f'.repeat(24), 'bad id!', '', undefined, ['a', 'b'], { x: 1 }]) {
+      expect(await harness.service.handleAminReturn({ order_id, ...GENUINE })).toEqual(none);
+    }
+    expect(gateway.verifyBodies).toHaveLength(0);
+    expect(auditActions(harness.audit)).toContain('PAYMENT_CALLBACK_UNKNOWN_AUTHORITY');
+    expect(auditActions(harness.audit)).toContain('PAYMENT_CALLBACK_INVALID');
+  });
+
+  it('does not ask the gateway when the return carries no usable identifiers', async () => {
+    const { harness, gateway, paymentId, orderId } = await aminHarness([]);
+
+    for (const query of [
+      { order_id: orderId },
+      { order_id: orderId, ref_num: 'REF1' },
+      { order_id: orderId, ref_num: 'bad ref', tracking_code: 'TRK1' },
+      { order_id: orderId, ref_num: ['REF1'], tracking_code: 'TRK1' },
+    ]) {
+      await harness.service.handleAminReturn(query);
+    }
+
+    expect(gateway.verifyBodies).toHaveLength(0);
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+    expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it('a forged return is refused without closing a payment the customer can still complete', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([
+      reply({ status: 'INVALID_REF_NUM' }, 400),
+      CONFIRMED,
+    ]);
+
+    await harness.service.handleAminReturn({ order_id: orderId, ref_num: 'MADE-UP', tracking_code: 'MADE-UP' });
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('a gateway outage during the return leaves the payment open and the customer can re-check', async () => {
+    const { harness, gateway, paymentId, orderId } = await aminHarness([new Error('connect ETIMEDOUT'), CONFIRMED]);
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+
+    /* The identifiers were kept with the return, so the re-check needs no browser. */
+    const response = await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v1' }, CUSTOMER_ID);
+    expect(response.outcome).toBe('PAID');
+    expect(gateway.verifyBodies[1]).toMatchObject({ ref_num: 'REF1', tracking_code: 'TRK1' });
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('a confirmation for a different amount is never PAID and starts no fulfillment', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([
+      reply({ status: 'CONFIRMED', data: { amount: 4_000_000, ref_num: 'REF1' } }),
+    ]);
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    const row = harness.db.paymentById(paymentId);
+    expect(row['status']).toBe('FAILED');
+    expect(row['failureReason']).toBe('AMOUNT_MISMATCH');
+    expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it("the gateway's own failure verdict closes the payment", async () => {
+    const { harness, paymentId, orderId } = await aminHarness([reply({ status: 'TRX_FAILED' }, 400)]);
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('FAILED');
+    expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it('a re-check before any return has identifiers to send is UNKNOWN and never calls the gateway', async () => {
+    const { harness, gateway, paymentId } = await aminHarness([]);
+
+    const response = await harness.service.verifyPayment({ paymentId, idempotencyKey: 'v1' }, CUSTOMER_ID);
+
+    expect(response.outcome).toBe('UNKNOWN');
+    expect(gateway.verifyBodies).toHaveLength(0);
+    expect(harness.trigger).not.toHaveBeenCalled();
+  });
+
+  it('never keeps the merchant identifier or a full card number in what it stores', async () => {
+    const { harness, orderId } = await aminHarness([CONFIRMED]);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    const stored = JSON.stringify(harness.db.tables, (_k, v) => (typeof v === 'bigint' ? v.toString() : v));
+    expect(stored).not.toContain('merchant-1234');
+    expect(stored).not.toContain('6037991234567890');
+  });
+});
+
+/* ============================================================================
  * In-memory stand-in for the Prisma delegates the payments service uses.
  *
  * Unit tests must never touch PostgreSQL or a payment gateway, but they must
@@ -942,7 +1130,10 @@ class FakeTable {
 
   async findFirst(args: Record<string, unknown>): Promise<unknown> {
     this.store.record(this.name, 'findFirst', args);
-    const row = this.rows.find((candidate) => matchesWhere(candidate, this.where(args)));
+    const matches = this.rows.filter((candidate) => matchesWhere(candidate, this.where(args)));
+    /* Rows are appended in creation order, so "newest first" is the last match. */
+    const orderBy = args['orderBy'] as { createdAt?: string } | undefined;
+    const row = orderBy?.createdAt === 'desc' ? matches[matches.length - 1] : matches[0];
     return row === undefined ? null : this.hydrate(row, args);
   }
 

@@ -1,4 +1,5 @@
 import {
+  AminPaymentProvider,
   BazaarPayPaymentProvider,
   MockRialPaymentProvider,
   ZarinPalPaymentProvider,
@@ -6,6 +7,7 @@ import {
 } from '@barat/payments';
 
 import type { AppConfigService } from '../../common/config';
+import { readAminEnv, type AminEnv } from './amin.env';
 import { readBazaarPayEnv, type BazaarPayEnv } from './bazaarpay.env';
 
 /**
@@ -14,10 +16,10 @@ import { readBazaarPayEnv, type BazaarPayEnv } from './bazaarpay.env';
  * Kept out of the module file so it can be unit-tested without pulling in the
  * Prisma singleton, and so the selection rule lives in one readable place.
  *
- * Exactly one live gateway may take payments. ZarinPal and BazaarPay both being
- * enabled is refused at boot rather than resolved by a silent precedence rule:
- * which gateway a customer is sent to must never depend on an ordering nobody
- * wrote down.
+ * Exactly one live gateway may take payments. Any two of ZarinPal, BazaarPay and
+ * Amin being enabled is refused at boot rather than resolved by a silent
+ * precedence rule: which gateway a customer is sent to must never depend on an
+ * ordering nobody wrote down.
  *
  * When a gateway is enabled its adapter validates every setting in its
  * constructor, so a half-configured production deployment fails at boot rather
@@ -26,7 +28,37 @@ import { readBazaarPayEnv, type BazaarPayEnv } from './bazaarpay.env';
 export function createRialPaymentProvider(
   config: AppConfigService,
   bazaarPay: BazaarPayEnv = readBazaarPayEnv(),
+  amin: AminEnv = readAminEnv(),
 ): RialPaymentProvider {
+  if (amin.enabled) {
+    if (config.zarinpalEnabled) {
+      throw new Error(
+        'ZARINPAL_ENABLED and AMIN_ENABLED are both true: exactly one rial gateway may take payments',
+      );
+    }
+    if (bazaarPay.enabled) {
+      throw new Error(
+        'BAZAARPAY_ENABLED and AMIN_ENABLED are both true: exactly one rial gateway may take payments',
+      );
+    }
+    /* Same interlock as the other live gateways: taking real money is the signal
+     * that a deployment is not a demo. */
+    if (config.otpDevFixedCode) {
+      throw new Error(
+        'OTP_DEV_FIXED_CODE must not be set while AMIN_ENABLED is true — a fixed login code ' +
+          'lets anyone sign in as any mobile number, which is not survivable on a deployment ' +
+          'that accepts payments',
+      );
+    }
+
+    return new AminPaymentProvider({
+      merchantId: amin.merchantId,
+      returnUrl: `${config.apiPublicUrl}/api/payments/amin/return`,
+      timeoutMs: amin.timeoutMs,
+      ...(amin.baseUrl === undefined ? {} : { baseUrl: amin.baseUrl }),
+    });
+  }
+
   if (bazaarPay.enabled) {
     if (config.zarinpalEnabled) {
       throw new Error(
