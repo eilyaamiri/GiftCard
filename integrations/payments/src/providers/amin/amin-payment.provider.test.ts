@@ -5,6 +5,7 @@ import {
   AMIN_ORDER_ID_PATTERN,
   AminPaymentProvider,
   buildAminOrderId,
+  toAminMobile,
   type AminPaymentProviderConfig,
 } from './amin-payment.provider';
 
@@ -128,6 +129,39 @@ describe('buildAminOrderId', () => {
 
   it('does not contain the idempotency key', () => {
     expect(ORDER_ID).not.toContain(createInput.idempotencyKey);
+  });
+});
+
+describe('toAminMobile', () => {
+  it.each([
+    ['+989123456789', '09123456789'],
+    ['989123456789', '09123456789'],
+    ['09123456789', '09123456789'],
+    ['  +989123456789 ', '09123456789'],
+  ])('turns %s into the 11-digit form Amin accepts', (input, expected) => {
+    expect(toAminMobile(input)).toBe(expected);
+  });
+
+  it.each([null, undefined, '', '12345', '+98912345678', '+9891234567890', '0912345678a', '+441234567890', '09123 456789'])(
+    'leaves %s out instead of failing the payment',
+    (input) => {
+      expect(toAminMobile(input)).toBeNull();
+    },
+  );
+});
+
+describe('AminPaymentProvider customer mobile on the wire', () => {
+  it('sends the canonical +98 number as 11 digits', async () => {
+    const client = new ScriptedHttpClient([json({ token: 'tok1', ref_num: 'R1' })]);
+    await provider(client).createPayment({ ...createInput, customerMobile: '+989123456789' });
+    expect(client.requests[0]?.body.mobile).toBe('09123456789');
+  });
+
+  it('omits a mobile it cannot express rather than sending one Amin would reject', async () => {
+    const client = new ScriptedHttpClient([json({ token: 'tok1', ref_num: 'R1' })]);
+    const result = await provider(client).createPayment({ ...createInput, customerMobile: '+441234567890' });
+    expect(client.requests[0]?.body).not.toHaveProperty('mobile');
+    expect(result.ok).toBe(true);
   });
 });
 

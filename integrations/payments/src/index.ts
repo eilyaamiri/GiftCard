@@ -44,6 +44,7 @@ export {
   AMIN_ORDER_ID_PATTERN,
   AminPaymentProvider,
   buildAminOrderId,
+  toAminMobile,
   DEFAULT_AMIN_BASE_URL,
   DEFAULT_AMIN_TIMEOUT_MS,
   type AminPaymentProviderConfig,
