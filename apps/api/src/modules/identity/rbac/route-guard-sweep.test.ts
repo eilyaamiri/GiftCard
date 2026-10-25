@@ -39,6 +39,10 @@ import { PaymentsController } from '../../payments/payments.controller';
 import { PricingController } from '../../pricing/pricing.controller';
 import { QuotesController } from '../../quotes/quotes.controller';
 import { SuppliersController } from '../../suppliers/suppliers.controller';
+import {
+  AdminBackupSettingsController,
+  AdminSmtpSettingsController,
+} from '../../system-settings/admin-system-settings.controller';
 import { StaffNotificationsController } from '../../workitems/staff-notifications.controller';
 import { WorkItemsController } from '../../workitems/workitems.controller';
 import { AdminSettingsController } from '../admin-settings.controller';
@@ -86,6 +90,8 @@ const CONTROLLERS: readonly AnyController[] = [
   AdminKbController,
   KbController,
   MonitoringController,
+  AdminSmtpSettingsController,
+  AdminBackupSettingsController,
   OrdersAdminController,
   OrdersController,
   PaymentsController,

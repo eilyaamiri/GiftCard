@@ -103,8 +103,23 @@ export const envSchema = z
      * gift-card key rotation never has to move bank data with it.
      */
     BANK_DETAILS_ENCRYPTION_KEY: blankAsUndefined(base64Key32),
+    /**
+     * Encrypts the secrets an admin enters in the panel's settings: the SMTP
+     * password, the backup server's SSH private key and the backup archive
+     * passphrase. Optional so an existing deployment still boots; until it is
+     * set the panel refuses to store any of them, and no fallback to another
+     * key exists on purpose.
+     */
+    SETTINGS_ENCRYPTION_KEY: blankAsUndefined(base64Key32),
     /** Persistent local storage for catalog product images. */
     PRODUCT_IMAGE_DIR: z.string().trim().min(1).default('/var/lib/baratpay/product-images'),
+    /**
+     * Where the host's backup timer leaves its `snapshot-*` directories, each
+     * holding one completed `database.dump`. The API only reads from here; it
+     * is an environment setting, not a panel one, so an admin account cannot
+     * point the off-host copy at an arbitrary file on the server.
+     */
+    BACKUP_SOURCE_DIR: z.string().trim().min(1).default('/var/backups/baratpay'),
 
     /* ------------------------------------------------------------ OTP policy */
     OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
@@ -227,6 +242,18 @@ export const envSchema = z
           code: 'custom',
           path: ['GIFT_CARD_ENCRYPTION_KEY'],
           message: 'GIFT_CARD_ENCRYPTION_KEY is the all-zero example key',
+        });
+      }
+      /* Reusing a key would let one domain's leak open the other's columns. */
+      if (
+        env.SETTINGS_ENCRYPTION_KEY !== undefined &&
+        (env.SETTINGS_ENCRYPTION_KEY === env.GIFT_CARD_ENCRYPTION_KEY ||
+          env.SETTINGS_ENCRYPTION_KEY === env.BANK_DETAILS_ENCRYPTION_KEY)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SETTINGS_ENCRYPTION_KEY'],
+          message: 'SETTINGS_ENCRYPTION_KEY must differ from the gift-card and bank-details keys',
         });
       }
     }
