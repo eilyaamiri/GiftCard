@@ -128,7 +128,8 @@ export class AminPaymentProvider implements RialPaymentProvider {
       callback_method: 'GET',
       description: input.description.slice(0, DESCRIPTION_MAX),
     };
-    if (input.customerMobile) body.mobile = input.customerMobile;
+    const mobile = toAminMobile(input.customerMobile);
+    if (mobile !== null) body.mobile = mobile;
     if (input.customerEmail) body.email = input.customerEmail;
 
     const call = await this.post('/api/v1/withdraw/', body);
@@ -287,6 +288,19 @@ export function buildAminOrderId(orderNumber: string, idempotencyKey: string): s
   const prefix = orderNumber.replace(/[^A-Za-z0-9-]/gu, '').slice(0, 40);
   const digest = createHash('sha256').update(idempotencyKey).digest('hex').slice(0, 24);
   return prefix === '' ? digest : `${prefix}-${digest}`;
+}
+
+/**
+ * Amin accepts a mobile only as 11 digits, `09123456789`. Our canonical form is
+ * `+989123456789`, which Amin refuses with a 400 ("at most 11 characters") — a
+ * rejected payment for exactly the customers who have a verified number. The
+ * field is optional, so anything that is not an Iranian mobile is left out
+ * rather than allowed to fail the payment.
+ */
+export function toAminMobile(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const match = /^(?:\+98|98|0)(9\d{9})$/u.exec(value.trim());
+  return match === null ? null : `0${match[1] as string}`;
 }
 
 function validateHttpUrl(value: string, label: string): string {
