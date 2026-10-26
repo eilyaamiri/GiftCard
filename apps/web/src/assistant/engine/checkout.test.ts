@@ -134,7 +134,8 @@ describe("product availability", () => {
     await d.pick("🎁 خرید گیفت کارت");
     await d.send("SEARCH", "itunes");
     await d.pick("iTunes");
-    expect(d.last.options.map((o) => o.label).sort()).toEqual(["EU", "US"].sort());
+    expect(d.last.options.map((o) => o.label).sort()).toEqual(["آمریکا", "اروپا"].sort());
+    expect(d.last.options.map((o) => o.value).sort()).toEqual(["EU", "US"]);
     await d.send("SELECT", "JP");
     expect(d.last.tone).toBe("error");
     expect(d.last.state).toBe("gc.region");

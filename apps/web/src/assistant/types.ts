@@ -152,6 +152,8 @@ export interface SessionData {
   product?: { slug: string; title: string };
   brand?: string;
   region?: string;
+  /** What the person reads for `region` (the code is what the catalogue is keyed by). */
+  regionName?: string;
   variant?: { skuId: string; label: string };
   game?: { slug: string; title: string };
   package?: { offerId: string; label: string };

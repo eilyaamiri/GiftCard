@@ -75,7 +75,7 @@ describe("navigation", () => {
     await d.send("BACK");
     await d.send("BACK");
     expect(d.last.state).toBe("gc.region");
-    await d.pick("EU");
+    await d.pick("اروپا");
     expect(d.last.state).toBe("gc.variant");
     expect(d.last.options.map((o) => o.label)).toEqual(expect.arrayContaining(["۲۵ یورو"]));
     expect(d.last.blocks).toEqual([]);
@@ -128,7 +128,7 @@ describe("gift card flow", () => {
     await d.pick(GIFT);
     await d.send("SEARCH", "itunes");
     await d.pick("iTunes");
-    await d.pick("US");
+    await d.pick("آمریکا");
     await d.pick("۲۵ دلار");
     expect(d.last.message).toContain("فعلاً امکان دریافت قیمت وجود نداره.");
     d.fake.state.quoteFails = false;

@@ -1,11 +1,18 @@
 import { checkSearch } from "../validators";
 import { go, opt, stay, type Context, type StateDef } from "../engine/machine";
+import type { ProductChoices } from "../services";
 import { TEXT } from "./common";
 
 const choicesOf = (ctx: Context) =>
   ctx.memo(`product:${ctx.data.product?.slug ?? ""}`, () =>
     ctx.data.product === undefined ? Promise.resolve(null) : ctx.services.catalog.productChoices(ctx.data.product.slug),
   );
+
+/** The region is kept as its code; its name rides along for the summary. */
+const regionPatch = (choices: ProductChoices | null, region: string | undefined) => ({
+  region,
+  regionName: region === undefined ? undefined : choices?.regionNames?.[region],
+});
 
 const searchInput = {
   type: "search",
@@ -67,16 +74,19 @@ export const giftCardStates: Record<string, StateDef> = {
       if (choices === null || choices.regions.length === 0) {
         return go("gc.results", { patch: { product: undefined }, notice: { text: "این گیفت کارت فعلاً موجود نیست.", tone: "error" } });
       }
-      return choices.regions.length === 1 ? go("gc.variant", { patch: { region: choices.regions[0] } }) : null;
+      return choices.regions.length === 1 ? go("gc.variant", { patch: regionPatch(choices, choices.regions[0]) }) : null;
     },
     on: {
-      SELECT: async (_ctx, region) => (region === undefined ? stay("منطقه معتبر نیست.") : go("gc.variant", { patch: { region } })),
+      SELECT: async (ctx, region) => {
+        if (region === undefined) return stay("منطقه معتبر نیست.");
+        return go("gc.variant", { patch: regionPatch(await choicesOf(ctx), region) });
+      },
     },
     render: async (ctx) => {
       const choices = await choicesOf(ctx);
       return {
         message: "کارت برای کدوم منطقه باشه؟",
-        options: (choices?.regions ?? []).map((r) => opt(r, r, "SELECT", r)),
+        options: (choices?.regions ?? []).map((r) => opt(r, choices?.regionNames?.[r] ?? r, "SELECT", r)),
       };
     },
   },

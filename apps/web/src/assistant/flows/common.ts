@@ -17,7 +17,7 @@ export const TEXT = {
 export function summaryLines(data: SessionData): { label: string; value: string }[] {
   const lines: { label: string; value: string }[] = [];
   if (data.product !== undefined) lines.push({ label: "محصول", value: data.product.title });
-  if (data.region !== undefined && data.serviceType === "giftCard") lines.push({ label: "منطقه", value: data.region });
+  if (data.region !== undefined && data.serviceType === "giftCard") lines.push({ label: "منطقه", value: data.regionName ?? data.region });
   if (data.variant !== undefined) lines.push({ label: "مبلغ کارت", value: data.variant.label });
   if (data.game !== undefined) lines.push({ label: "بازی", value: data.game.title });
   if (data.package !== undefined && data.serviceType !== "steam") {
