@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { clientIpHeaders } from "./client-ip";
 import {
   listFaqsResponseSchema,
   type FaqItemType,
@@ -70,17 +71,21 @@ const isServer = typeof window === "undefined";
 /**
  * A server component's fetch carries no cookies of its own, so the incoming
  * request's cookie header has to be replayed by hand or every RSC call is 401.
+ * The visitor's address is replayed for the same reason: see `clientIpHeaders`.
  */
-async function forwardedCookieHeader(): Promise<Record<string, string>> {
+async function forwardedRequestHeaders(): Promise<Record<string, string>> {
   if (!isServer) return {};
-  const { cookies } = await import("next/headers");
+  const { cookies, headers } = await import("next/headers");
   const header = (await cookies()).toString();
-  return header ? { cookie: header } : {};
+  /* The visitor's address too: the API rate-limits per IP, and from here every
+   * visitor would otherwise arrive as this server. */
+  const incoming = await headers();
+  return { ...(header ? { cookie: header } : {}), ...clientIpHeaders((name) => incoming.get(name)) };
 }
 
 async function request<T>(path: string, init?: RequestInit, schema?: z.ZodType<T>): Promise<T> {
   const base = (isServer ? SERVER_API_URL : API_URL).replace(/\/$/, "");
-  const response = await fetch(`${base}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(await forwardedCookieHeader()), ...init?.headers }, credentials: "include", cache: "no-store" });
+  const response = await fetch(`${base}${path}`, { ...init, headers: { "Content-Type": "application/json", ...(await forwardedRequestHeaders()), ...init?.headers }, credentials: "include", cache: "no-store" });
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {
     const envelope = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
