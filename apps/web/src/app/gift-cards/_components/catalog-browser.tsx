@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, MapPin, Search, Store, Tag, X } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import type { Brand, Category } from "@/lib/catalog";
+import { regionMatches } from "@/lib/regions";
 import type { CatalogFilters } from "../_lib/catalog-url";
 import { BrandFacets, CategoryFacets, RegionFacets } from "./catalog-facets";
 
@@ -64,7 +65,7 @@ export function CatalogBrowser({
     matches([category.nameFa, category.name, category.slug]),
   );
   const shownBrands = brands.filter((brand) => matches([brand.nameFa, brand.name, brand.slug]));
-  const shownRegions = regions.filter((region) => matches([region]));
+  const shownRegions = regions.filter((region) => regionMatches(region, term));
 
   const title =
     level === "categories"

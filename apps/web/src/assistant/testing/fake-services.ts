@@ -33,7 +33,13 @@ const SKUS = [
   { skuId: "sku-eu-25", region: "EU", label: "۲۵ یورو", priceLabel: null },
 ];
 
-const ITUNES: ProductChoices = { title: "iTunes", brand: "Apple", regions: ["US", "EU"], skus: SKUS };
+const ITUNES: ProductChoices = {
+  title: "iTunes",
+  brand: "Apple",
+  regions: ["US", "EU"],
+  regionNames: { US: "آمریکا", EU: "اروپا" },
+  skus: SKUS,
+};
 
 const PUBG: TopUpChoices = {
   title: "PUBG Mobile",

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { toPersianDigits } from "@barat/ui";
 import type { Brand, Category } from "@/lib/catalog";
+import { regionLabel } from "@/lib/regions";
 import { catalogHref, type CatalogFilters } from "../_lib/catalog-url";
 import { BrandFacets, CategoryFacets } from "./catalog-facets";
 
@@ -101,7 +102,7 @@ export function RegionPicker({
         <option value="">همهٔ منطقه‌ها ({toPersianDigits(regions.length)})</option>
         {regions.map((region) => (
           <option key={region} value={region}>
-            {region}
+            {regionLabel(region)}
           </option>
         ))}
       </select>

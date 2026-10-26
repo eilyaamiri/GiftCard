@@ -7,6 +7,7 @@ import type { CreateQuoteResponse } from "@barat/contracts";
 import { createQuoteResponseSchema } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
 import type { CatalogProductDetail } from "@/lib/catalog";
+import { regionLabel, sortRegions } from "@/lib/regions";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
 import { revealStep } from "@/lib/reveal-step";
 import { ProductArtwork } from "@/components/catalog-artwork";
@@ -146,9 +147,9 @@ export function ProductDetail({
               <>
                 <h3 style={{ marginTop: 0 }}>منطقه</h3>
                 <div className="filterbar" role="radiogroup" aria-label="انتخاب منطقه">
-                  {product.regions.map((r) => (
+                  {sortRegions(product.regions).map((r) => (
                     <button key={r} type="button" role="radio" aria-checked={region === r} className={`chip ${region === r ? "active" : ""}`} onClick={() => selectRegion(r)}>
-                      <Ltr>{r}</Ltr>
+                      {regionLabel(r)}
                     </button>
                   ))}
                 </div>
@@ -170,7 +171,7 @@ export function ProductDetail({
         </div>
         <aside className="card pad product-price-step" style={{ position: "sticky", top: 96 }} ref={priceStepRef}>
           <div className="summary-line"><span>محصول</span><strong>{product.titleFa}</strong></div>
-          <div className="summary-line"><span>منطقه</span><strong><Ltr>{region}</Ltr></strong></div>
+          <div className="summary-line"><span>منطقه</span><strong>{regionLabel(region)}</strong></div>
           <div className="summary-line"><span>مبلغ</span><strong><Ltr>{selected.denominationLabel}</Ltr></strong></div>
           <div className="summary-total product-summary-total">
             <span>قیمت نهایی</span>

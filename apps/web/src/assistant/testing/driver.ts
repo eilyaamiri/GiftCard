@@ -45,7 +45,7 @@ export async function startDriver(sessionId = "s1", configure?: (fake: Fake) => 
       await driver.pick("🎁 خرید گیفت کارت");
       await driver.send("SEARCH", "itunes");
       await driver.pick("iTunes");
-      await driver.pick("US");
+      await driver.pick("آمریکا");
       return driver.pick("۲۵ دلار");
     },
   };

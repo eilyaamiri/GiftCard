@@ -3,6 +3,7 @@ import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString } from "@/lib/catalog";
 import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { getCommerceSessionToken } from "@/lib/commerce-session";
+import { regionLabel } from "@/lib/regions";
 import {
   filterGames,
   gameImageUrl,
@@ -194,6 +195,7 @@ export function createWebServices(): AssistantServices {
             title: product.titleFa || product.title,
             brand: product.brand,
             regions: [...new Set(purchasable.map((sku) => sku.region))],
+            regionNames: Object.fromEntries(purchasable.map((sku) => [sku.region, regionLabel(sku.region) ?? sku.region])),
             skus: purchasable.map((sku) => ({ skuId: sku.id, region: sku.region, label: sku.denominationLabel, priceLabel: priceLabel(sku.indicativePriceIrr) })),
           };
         } catch (error) {

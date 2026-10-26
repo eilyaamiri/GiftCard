@@ -160,31 +160,8 @@ export function gameTitle(game: Pick<TopUpGameSummary, "name" | "nameFa">): stri
   return fa !== undefined && fa !== "" ? fa : game.name;
 }
 
-const REGION_LABELS: Readonly<Record<string, string>> = {
-  GLOBAL: "جهانی",
-  WORLDWIDE: "جهانی",
-  WW: "جهانی",
-  EU: "اروپا",
-  EUROPE: "اروپا",
-  US: "آمریکا",
-  USA: "آمریکا",
-  TR: "ترکیه",
-  TURKEY: "ترکیه",
-  ASIA: "آسیا",
-  MENA: "خاورمیانه",
-  ME: "خاورمیانه",
-};
-
-/**
- * A region label a customer can read, or the venue's own code when we have no
- * translation. Never dropped: the region decides whether a top-up works on the
- * customer's account, so an untranslated code is better than silence.
- */
-export function regionLabel(region: string | null | undefined): string | null {
-  const code = region?.trim();
-  if (code === undefined || code === "") return null;
-  return REGION_LABELS[code.toUpperCase()] ?? code;
-}
+/* The region table lives in `./regions`; games and gift cards share it. */
+export { regionLabel } from "./regions";
 
 /** The first letter of the venue's name, for a card without artwork. */
 export function gameMonogram(game: Pick<TopUpGameSummary, "name">): string {

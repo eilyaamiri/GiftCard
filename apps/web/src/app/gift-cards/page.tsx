@@ -4,6 +4,7 @@ import { ChevronLeft, Gamepad2, PackageSearch, Search, SearchX } from "lucide-re
 import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString, type Brand, type Category } from "@/lib/catalog";
 import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
+import { regionLabel, sortRegions } from "@/lib/regions";
 import { CATALOG_PAGE_SIZE, catalogHref, hasActiveFilter, readCatalogFilters } from "./_lib/catalog-url";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CatalogBrowser } from "./_components/catalog-browser";
@@ -79,7 +80,9 @@ export default async function GiftCardsPage({
     );
   }
 
-  const { items, meta, regions } = products;
+  const { items, meta } = products;
+  /* The API orders regions by code; a customer reads them by name. */
+  const regions = sortRegions(products.regions);
   /* After the list, because it needs the page's ids; fail-open by design, so a
    * pricing hiccup costs the cards their «از ...» label and nothing more. */
   const fromPrices = await api.fromPrices(items.map((product) => product.id));
@@ -194,7 +197,7 @@ export default async function GiftCardsPage({
               ) : null}
               {filters.region ? (
                 <FilterChip
-                  label={`منطقهٔ ${filters.region}`}
+                  label={`منطقهٔ ${regionLabel(filters.region)}`}
                   href={catalogHref(filters, { region: undefined })}
                 />
               ) : null}
