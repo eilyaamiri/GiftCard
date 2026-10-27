@@ -28,7 +28,7 @@ export default async function GamesPage() {
 
   return (
     <main>
-      <section className="tg-hero gt-hero">
+      <section className="tg-hero tg-hero--compact gt-hero">
         <div className="container tg-hero-inner">
           <div className="eyebrow">شارژ مستقیم</div>
           <h1 className="h1 tg-hero-title">شارژ بازی، مستقیم روی حساب خودتان</h1>
@@ -36,7 +36,7 @@ export default async function GamesPage() {
               three facts that used to sit under a four-line paragraph are chips
               now, and the paragraph's "no code, credited straight to the
               account" is what the title and the second chip already say. */}
-          <div className="gt-hero-chips">
+          <div className="tg-hero-chips">
             <span><BadgeCheck size={14} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
             <span><ShieldCheck size={14} aria-hidden="true" /> بدون رمز عبور حساب بازی</span>
             <span><Zap size={14} aria-hidden="true" /> تحویل خودکار روی حساب</span>

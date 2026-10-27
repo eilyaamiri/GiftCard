@@ -1569,13 +1569,16 @@ a { color:inherit; text-decoration:none; }
  * no artwork, so a missing image never leaves a broken-image hole. */
 .gt-section { padding-top:22px; }
 
-/* The shelf is what the page is for, so its hero is a short band rather than a
- * full-height poster: the title and three chips over the artwork, and the foot
- * of the band melting into the page so the first row of games starts right
- * under it instead of below the fold. The wash and the art are the shared
- * Telegram hero's own (`--tg-hero-wash`, `--tg-hero-art`), so the dark theme
- * needs nothing here beyond the chip icon colour: the tokens swap the art. */
-.gt-hero {
+/* The compact hero, shared by every top-up page (games, Telegram, Steam).
+ *
+ * What the page is for is the thing under the hero — the shelf, the products,
+ * the order form — so the hero is a short band rather than a full-height
+ * poster: the title and three chips over the artwork, and the foot of the band
+ * melting into the page so the first row starts right under it instead of
+ * below the fold. The wash and the art are the shared hero's own
+ * (`--tg-hero-wash`, `--tg-hero-art`), so the dark theme needs nothing here
+ * beyond the chip icon colour: the tokens swap the art. */
+.tg-hero--compact {
   padding:44px 0 36px;
   background:
     linear-gradient(to top,var(--background-body) 0%,transparent 26%),
@@ -1583,11 +1586,13 @@ a { color:inherit; text-decoration:none; }
     var(--tg-hero-art,none) left center / auto 100% no-repeat,
     var(--hero-bg);
 }
-.gt-hero .tg-hero-title { margin:8px 0 16px; }
-.gt-hero-chips { display:flex; flex-wrap:wrap; gap:8px; }
-.gt-hero-chips span { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border:1px solid var(--border-primary); border-radius:999px; background:color-mix(in srgb,var(--background-primary) 80%,transparent); color:var(--text-primary); font-size:12.5px; }
-.gt-hero-chips svg { color:var(--interactive-accent); }
-[data-theme="dark"] .gt-hero-chips svg { color:var(--accent-on-deep); }
+.tg-hero--compact .tg-hero-title { margin:8px 0 16px; }
+/* The section right under a compact hero starts close to it. */
+.tg-hero--compact + .tg-products-section, .tg-hero--compact + .steam-section { padding-top:22px; }
+.tg-hero-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.tg-hero-chips span { display:inline-flex; align-items:center; gap:6px; padding:5px 12px; border:1px solid var(--border-primary); border-radius:999px; background:color-mix(in srgb,var(--background-primary) 80%,transparent); color:var(--text-primary); font-size:12.5px; }
+.tg-hero-chips svg { color:var(--interactive-accent); }
+[data-theme="dark"] .tg-hero-chips svg { color:var(--accent-on-deep); }
 
 .gt-shelf-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:14px; }
 .gt-shelf-title { margin:0; font-size:17px; }
@@ -1623,7 +1628,7 @@ a { color:inherit; text-decoration:none; }
   /* A banner, not a poster: the portrait art is cropped to the soldiers
    * (`cover`, anchored low) and the copy side stays flat ground, so the title
    * never sits on busy pixels. The foot fades into the page. */
-  .gt-hero {
+  .tg-hero--compact {
     padding:24px 0 44px;
     background:
       linear-gradient(to top,var(--background-body) 0%,transparent 34%),
@@ -1631,10 +1636,10 @@ a { color:inherit; text-decoration:none; }
       var(--tg-hero-art-mobile,none) center 62% / cover no-repeat,
       var(--hero-bg);
   }
-  .gt-hero .tg-hero-title { margin:4px 0 12px; font-size:23px; line-height:1.45; }
-  .gt-hero-chips { gap:6px; }
-  .gt-hero-chips span { padding:4px 9px; font-size:11px; }
-  .gt-section { padding-top:14px; }
+  .tg-hero--compact .tg-hero-title { margin:4px 0 12px; font-size:23px; line-height:1.45; }
+  .tg-hero-chips { gap:6px; }
+  .tg-hero-chips span { padding:4px 9px; font-size:11px; }
+  .gt-section, .tg-hero--compact + .tg-products-section, .tg-hero--compact + .steam-section { padding-top:14px; }
   /* Two tiles per row: the art on top, the name under it. More games fit
    * above the fold, and a tile reads as something to pick rather than a row
    * in a list. */
