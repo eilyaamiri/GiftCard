@@ -12,6 +12,7 @@ import {
   FULFILLMENT_REPAIR_AFTER_MS,
   PAYMENTS_DATABASE,
   PaymentsService,
+  RETURN_UNSETTLED_AFTER_MS,
   type PaymentDatabase,
 } from './payments.service';
 
@@ -137,6 +138,13 @@ export class PaymentReconciliationScanner implements OnApplicationBootstrap, OnA
       take: BATCH_SIZE,
     });
 
+    /* A gateway that has to be told the browser's return identifiers (Amin):
+     * a customer who cancelled comes back with them, verify never settles it,
+     * and the session would hold the order's live slot until it is old enough
+     * to be "abandoned". The order's payment window is shorter than that, so
+     * such a session is asked about as soon as its return is unsettled. */
+    const unsettled = await this.unsettledReturns(payment, now);
+
     const undecided = await payment.findMany({
       where: {
         provider,
@@ -180,13 +188,42 @@ export class PaymentReconciliationScanner implements OnApplicationBootstrap, OnA
     });
 
     const due: string[] = [];
-    for (const row of [...abandoned, ...undecided, ...autoReturns]) {
+    for (const row of [...abandoned, ...unsettled, ...undecided, ...autoReturns]) {
       const id = (row as { id: string }).id;
       if (await this.recentlyChecked(id, now)) continue;
       due.push(id);
     }
     for (const row of unstarted) due.push((row as { id: string }).id);
     return [...new Set(due)];
+  }
+
+  /** Live sessions whose browser return carried identifiers that verify has not settled. */
+  private async unsettledReturns(payment: Delegate, now: Date): Promise<unknown[]> {
+    if (this.provider.name !== 'amin') return [];
+    const cutoff = new Date(now.getTime() - RETURN_UNSETTLED_AFTER_MS);
+    const live = await payment.findMany({
+      where: {
+        provider: this.provider.name,
+        status: { in: ['CREATED', 'REDIRECTED', 'PENDING'] },
+        createdAt: { lt: cutoff },
+      },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+      take: BATCH_SIZE,
+    });
+    const unsettled: unknown[] = [];
+    for (const row of live) {
+      const returned = await (this.db.paymentAttempt as Delegate).findFirst({
+        where: {
+          paymentId: (row as { id: string }).id,
+          action: 'CALLBACK',
+          status: 'EVIDENCE',
+          createdAt: { lt: cutoff },
+        },
+      });
+      if (returned !== null) unsettled.push(row);
+    }
+    return unsettled;
   }
 
   /** Whether the gateway was asked about this payment within `RECHECK_INTERVAL_MS`. */
