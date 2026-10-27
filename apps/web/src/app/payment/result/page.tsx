@@ -9,6 +9,7 @@ import { api, ApiClientError } from "@/lib/api";
 import {
   clearPendingPayment,
   recallPendingPayment,
+  resetPaymentAttempt,
   tomanFromIrr,
   verifyPayment,
   type PendingPayment,
@@ -164,6 +165,12 @@ function ResultContent() {
           </p>
         ) : null}
 
+        {undecided && payment !== null && !checking ? (
+          <p className="muted" style={{ fontSize: 12, marginBlockStart: 14 }}>
+            اگر مبلغ از حساب شما کسر شده است دوباره پرداخت نکنید؛ نتیجه پس از بررسی بانک اعلام می‌شود. اگر پرداخت را کامل نکرده یا از آن انصراف داده‌اید، پس از حدود دو دقیقه می‌توانید دوباره پرداخت کنید.
+          </p>
+        ) : null}
+
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBlockStart: 20 }}>
           {/* Offered only when there is a payment to ask about. Without one the
             * button would call an endpoint with nothing and leave the screen
@@ -173,9 +180,20 @@ function ResultContent() {
               <RefreshCw size={16} aria-hidden="true" /> بررسی دوباره
             </button>
           ) : null}
-          {failed && orderNumber !== null ? (
-            <Link className="btn btn-primary" href={`/checkout/${orderNumber}`}>
-              تلاش دوباره برای پرداخت
+          {(failed || undecided) && !checking && orderNumber !== null ? (
+            /* A new attempt needs a new idempotency key. The stored token is
+             * stable for the order, so without clearing it the API would replay
+             * this very payment and the customer would land back on this page.
+             * For an undecided payment the API decides whether a new session may
+             * open yet, and says so in words if it may not. */
+            <Link
+              className="btn btn-primary"
+              href={`/checkout/${orderNumber}`}
+              onClick={() => {
+                if (order !== null) resetPaymentAttempt(order.id);
+              }}
+            >
+              {failed ? "تلاش دوباره برای پرداخت" : "پرداخت دوباره"}
             </Link>
           ) : null}
           {orderNumber !== null ? (
