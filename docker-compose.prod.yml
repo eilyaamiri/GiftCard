@@ -96,6 +96,8 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-barat}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-barat}?schema=public
       REDIS_URL: redis://redis:6379
+      # INTERNAL_SERVICE_TOKEN comes from .env.production, the same value the API has.
+      INTERNAL_API_URL: http://api:4000/api
     networks: [internal]
     mem_limit: 256m
     memswap_limit: 512m
@@ -103,17 +105,13 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       api: { condition: service_healthy }
+    # The worker's own heartbeat: a sweep completed within the last 5 minutes.
+    # Probing the API instead passed even when the worker had lost Redis.
     healthcheck:
-      test:
-        [
-          CMD,
-          node,
-          -e,
-          "fetch('http://api:4000/api/health/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
-        ]
-      interval: 30s
-      timeout: 5s
-      retries: 5
+      test: [CMD, node, dist/healthcheck.js]
+      interval: 60s
+      timeout: 10s
+      retries: 3
       start_period: 30s
 
   web:

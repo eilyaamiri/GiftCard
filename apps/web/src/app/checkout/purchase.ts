@@ -29,7 +29,11 @@ import { ApiClientError, api } from "@/lib/api";
  * go through `api.post`'s header argument rather than a second HTTP client.
  */
 
-/** Mirrors `IDEMPOTENCY_KEY_PATTERN` in the API's interceptor. */
+/**
+ * A subset of `IDEMPOTENCY_KEY_PATTERN` in the API's interceptor (16 to 128).
+ * Kept at 64 on purpose: derived keys are cut at 64, and lengthening the cut
+ * would change the key of a checkout already in flight.
+ */
 const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{16,64}$/u;
 
 /**

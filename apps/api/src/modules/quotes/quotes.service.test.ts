@@ -711,6 +711,33 @@ describe('QuotesService.createQuote', () => {
     expect(context.db.rows.size).toBe(0);
   });
 
+  it('ORD-1: applies the service maximum to amount times quantity', async () => {
+    context.getServiceForQuote.mockResolvedValue(serviceForQuote());
+
+    const error = await context.service
+      .createQuote(
+        createRequest({
+          skuId: undefined,
+          serviceId: 'service-1',
+          requestedAmountForeign: '500' as DecimalString,
+          quantity: 3,
+          serviceFields: { siteUrl: 'https://openai.com/pricing' },
+        }),
+        ACTOR,
+      )
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ status: 400 });
+    expect(JSON.stringify(error)).toContain('quantity');
+    expect(context.computeQuote).not.toHaveBeenCalled();
+  });
+
+  it('ORD-11: never stores a client-supplied cart id', async () => {
+    await context.service.createQuote(createRequest({ cartId: 'someone-elses-cart' }), ACTOR);
+
+    expect(context.db.only()['cartId']).toBeNull();
+  });
+
   it('rejects a site address that is not an http(s) URL', async () => {
     context.getServiceForQuote.mockResolvedValue(serviceForQuote());
 

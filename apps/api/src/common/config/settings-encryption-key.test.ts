@@ -12,6 +12,9 @@ const BASE = {
   REDIS_URL: 'redis://localhost:6379',
   SESSION_JWT_SECRET: 'x'.repeat(48),
   GIFT_CARD_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
+  /* Production refuses to boot on the mock gateway unless told to, and these
+   * tests are about the settings key, not about payments. */
+  PAYMENTS_ALLOW_MOCK: 'true',
 };
 
 function parse(overrides: Record<string, unknown>) {

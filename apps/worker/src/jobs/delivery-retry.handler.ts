@@ -2,6 +2,7 @@ import type { PrismaClient } from '@barat/database';
 
 import {
   DeliveryRetryClientError,
+  type DeliveryProblem,
   type DeliveryRetryClient,
 } from '../clients/delivery-retry.client';
 import { QUEUE_NAMES } from '../queues';
@@ -12,7 +13,38 @@ const DEFAULT_MIN_RETRY_DELAY_MINUTES = 15;
 const DEFAULT_MAX_ATTEMPTS = 5;
 const DEFAULT_BATCH_SIZE = 50;
 
-type PrismaSlice = Pick<PrismaClient, 'giftCardAsset' | 'deliveryAttempt'>;
+/**
+ * How long an asset may sit in SENDING before a human is told. A dispatch holds
+ * SENDING for one transport call (seconds); a quarter of an hour means the API
+ * died between claiming the asset and recording the outcome.
+ */
+export const STUCK_SENDING_MINUTES = 15;
+
+/**
+ * The reconciliation issue the API opens for each reported problem. Mirrors
+ * `DELIVERY_PROBLEM_ISSUE_TYPES` in the API; read here only to avoid asking the
+ * API again, every two minutes, about an asset it has already reported.
+ */
+const PROBLEM_ISSUE_TYPES = {
+  SENDING_STUCK: 'gift_card_entered_not_sent',
+  RETRIES_EXHAUSTED: 'delivery_failed',
+} as const satisfies Record<DeliveryProblem, string>;
+
+/**
+ * Orders whose card may still be delivered. Mirrors `DELIVERABLE_ORDER_STATUSES`
+ * in the API's send gate: a retry for any other order (refunded, cancelled,
+ * already fulfilled) is refused there anyway, and asking every two minutes
+ * would only write a refusal to the audit log each time.
+ */
+const DELIVERABLE_ORDER_STATUSES = ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'] as const;
+
+type PrismaSlice = Pick<PrismaClient, 'giftCardAsset' | 'deliveryAttempt' | 'reconciliationIssue'>;
+
+interface ReportCounts {
+  reported: number;
+  conflicts: number;
+  failed: number;
+}
 
 /**
  * Re-sends assets whose last delivery attempt failed.
@@ -29,10 +61,15 @@ type PrismaSlice = Pick<PrismaClient, 'giftCardAsset' | 'deliveryAttempt'>;
  * and the API's compare-and-set into `SENDING` rejects a second concurrent
  * dispatch of the same asset. A re-run therefore reports `changed: 0`.
  *
- * Assets past `maxAttempts` are left alone rather than escalated from here: the
- * order is still unfulfilled, so its fulfillment work item is still open in the
- * operator queue, and a human already sees it. Inventing a second work item from
- * the worker would only duplicate that.
+ * Two cases are handed to a human instead of retried, each reported to the API
+ * once per asset (it opens a reconciliation issue and pages Telegram):
+ *   - an asset past the automatic attempt cap. Only the worker's own attempts
+ *     count towards the cap; an operator pressing "resend" does not use it up.
+ *   - an asset stuck in SENDING. Re-sending it could mail the code twice, since
+ *     the stuck dispatch may well have reached the customer.
+ *
+ * A superseded asset (replaced by a manager) is never retried: the customer
+ * must not receive the card that was swapped out.
  */
 export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
   readonly queueName = QUEUE_NAMES.DELIVERY_DISPATCH;
@@ -58,8 +95,20 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
       now.getTime() - (data.minRetryDelayMinutes ?? DEFAULT_MIN_RETRY_DELAY_MINUTES) * 60_000,
     );
 
+    /* Assets already at the cap are excluded from the batch up front. Without
+     * this they never leave DELIVERY_FAILED, keep the oldest `updatedAt`, and
+     * after enough of them every batch would be full of assets it may not touch
+     * while newer failures wait forever. */
+    const exhaustedIds = await this.findExhausted(maxAttempts);
+
     const candidates = await this.db.giftCardAsset.findMany({
-      where: { status: 'DELIVERY_FAILED', updatedAt: { lte: cutoff } },
+      where: {
+        status: 'DELIVERY_FAILED',
+        supersededAt: null,
+        updatedAt: { lte: cutoff },
+        order: { status: { in: [...DELIVERABLE_ORDER_STATUSES] } },
+        ...(exhaustedIds.length === 0 ? {} : { id: { notIn: exhaustedIds } }),
+      },
       orderBy: { updatedAt: 'asc' },
       take: batchSize,
       select: { id: true },
@@ -68,10 +117,10 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
     let delivered = 0;
     let skipped = 0;
     let failed = 0;
-    let exhausted = 0;
     let superseded = 0;
     let conflicts = 0;
     let mismatched = 0;
+    const newlyExhausted: string[] = [];
 
     for (const candidate of candidates) {
       /* Re-check right before acting. The batch was read up to minutes ago (each
@@ -81,7 +130,12 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
        * without this re-read the sweep would mail the customer a second time
        * seconds after the operator's attempt. */
       const stillDue = await this.db.giftCardAsset.findFirst({
-        where: { id: candidate.id, status: 'DELIVERY_FAILED', updatedAt: { lte: cutoff } },
+        where: {
+          id: candidate.id,
+          status: 'DELIVERY_FAILED',
+          supersededAt: null,
+          updatedAt: { lte: cutoff },
+        },
         select: { id: true },
       });
       if (stillDue === null) {
@@ -91,11 +145,11 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
       }
 
       const attempts = await this.db.deliveryAttempt.count({
-        where: { giftCardAssetId: candidate.id },
+        where: { giftCardAssetId: candidate.id, initiatedByStaffId: null },
       });
 
       if (attempts >= maxAttempts) {
-        exhausted += 1;
+        newlyExhausted.push(candidate.id);
         skipped += 1;
         continue;
       }
@@ -115,18 +169,7 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
           failed += 1;
         }
       } catch (error: unknown) {
-        if (isCredentialRejection(error)) {
-          /* Every remaining call would be refused the same way, so continuing
-           * only hides the outage behind a "successful" sweep. Failing the job
-           * puts it in the failed set and the logs, where someone will see it.
-           * Nothing was dispatched by a refused call, so a re-run is harmless. */
-          throw new Error(
-            `${this.queueName}: API refused the internal service credentials (HTTP ${String(
-              error.statusCode,
-            )}); sweep aborted`,
-            { cause: error },
-          );
-        }
+        this.rethrowIfCredentialsRefused(error);
         if (error instanceof DeliveryRetryClientError && error.statusCode === 409) {
           // Another dispatch holds the asset, or the send gate blocks it now.
           conflicts += 1;
@@ -141,6 +184,24 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
       }
     }
 
+    const exhausted = [...exhaustedIds, ...newlyExhausted];
+    const exhaustedReports = await this.reportOnce(exhausted, 'RETRIES_EXHAUSTED');
+
+    const stuck = await this.db.giftCardAsset.findMany({
+      where: {
+        status: 'SENDING',
+        supersededAt: null,
+        updatedAt: { lte: new Date(now.getTime() - STUCK_SENDING_MINUTES * 60_000) },
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: batchSize,
+      select: { id: true },
+    });
+    const stuckReports = await this.reportOnce(
+      stuck.map((row) => row.id),
+      'SENDING_STUCK',
+    );
+
     return {
       changed: delivered,
       skipped,
@@ -149,12 +210,96 @@ export class DeliveryRetryHandler implements JobHandler<DeliveryRetryJobData> {
         scannedAt: now.toISOString(),
         examined: candidates.length,
         stillFailing: failed,
-        exhausted,
+        exhausted: exhausted.length,
         superseded,
         conflicts,
         mismatched,
+        stuckSending: stuck.length,
+        problemsReported: exhaustedReports.reported + stuckReports.reported,
+        problemReportConflicts: exhaustedReports.conflicts + stuckReports.conflicts,
+        problemReportsFailed: exhaustedReports.failed + stuckReports.failed,
       },
     };
+  }
+
+  /** Live, still-failed assets whose automatic attempts reached the cap. */
+  private async findExhausted(maxAttempts: number): Promise<string[]> {
+    const groups = await this.db.deliveryAttempt.groupBy({
+      by: ['giftCardAssetId'],
+      where: {
+        initiatedByStaffId: null,
+        giftCardAsset: {
+          status: 'DELIVERY_FAILED',
+          supersededAt: null,
+          order: { status: { in: [...DELIVERABLE_ORDER_STATUSES] } },
+        },
+      },
+      having: { giftCardAssetId: { _count: { gte: maxAttempts } } },
+    });
+    return groups
+      .map((group) => group.giftCardAssetId)
+      .filter((id): id is string => typeof id === 'string');
+  }
+
+  /**
+   * Hands each asset's problem to the API, once. Assets with an issue of that
+   * kind on record (open or closed) are skipped without a call; the API also
+   * refuses a duplicate itself, so a race between two reads costs nothing.
+   */
+  private async reportOnce(
+    ids: readonly string[],
+    problem: DeliveryProblem,
+  ): Promise<ReportCounts> {
+    const counts: ReportCounts = { reported: 0, conflicts: 0, failed: 0 };
+    if (ids.length === 0) {
+      return counts;
+    }
+
+    const known = await this.db.reconciliationIssue.findMany({
+      where: { giftCardAssetId: { in: [...ids] }, type: PROBLEM_ISSUE_TYPES[problem] },
+      select: { giftCardAssetId: true },
+    });
+    const alreadyReported = new Set(known.map((issue) => issue.giftCardAssetId));
+
+    for (const id of ids) {
+      if (alreadyReported.has(id)) {
+        continue;
+      }
+      try {
+        const report = await this.client.reportProblem(id, problem);
+        if (report.reported) {
+          counts.reported += 1;
+        }
+      } catch (error: unknown) {
+        this.rethrowIfCredentialsRefused(error);
+        if (
+          error instanceof DeliveryRetryClientError &&
+          (error.statusCode === 404 || error.statusCode === 409)
+        ) {
+          // The asset moved on (sent, retried, replaced) since it was read.
+          counts.conflicts += 1;
+          continue;
+        }
+        // Not reported this time; the next sweep asks again.
+        counts.failed += 1;
+      }
+    }
+    return counts;
+  }
+
+  private rethrowIfCredentialsRefused(error: unknown): void {
+    if (isCredentialRejection(error)) {
+      /* Every remaining call would be refused the same way, so continuing
+       * only hides the outage behind a "successful" sweep. Failing the job
+       * puts it in the failed set and the logs, where someone will see it.
+       * Nothing was dispatched by a refused call, so a re-run is harmless. */
+      throw new Error(
+        `${this.queueName}: API refused the internal service credentials (HTTP ${String(
+          error.statusCode,
+        )}); sweep aborted`,
+        { cause: error },
+      );
+    }
   }
 }
 

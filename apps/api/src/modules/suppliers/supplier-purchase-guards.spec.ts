@@ -143,8 +143,6 @@ function staffPurchase(overrides: Record<string, unknown> = {}) {
     orderId: ORDER_ID,
     workItemId: WORK_ITEM_ID,
     offerId: OFFER_ID,
-    quantity: 1,
-    idempotencyKey: 'operator-key-0001',
     ...overrides,
   } as Parameters<SuppliersService['purchaseForStaff']>[0];
 }
@@ -186,10 +184,15 @@ describe('staff-initiated purchase is bound to the order it names', () => {
     expect(h.provider.getPurchaseInvocationCount()).toBe(0);
   });
 
-  it('refuses a quantity other than the one the customer paid for', async () => {
-    const h = harness();
-    await expect(h.service.purchaseForStaff(staffPurchase({ quantity: 5 }))).rejects.toThrow();
-    expect(h.provider.getPurchaseInvocationCount()).toBe(0);
+  it('buys the quantity the customer paid for, with a key derived from the order (FUL-2)', async () => {
+    const h = harness({ target: { quantity: 2 } });
+
+    await h.service.purchaseForStaff(staffPurchase());
+
+    expect(h.provider.getLastPurchaseRequest()).toMatchObject({
+      quantity: 2,
+      idempotencyKey: 'auto-fulfillment:order-1',
+    });
   });
 
   it('refuses a work item that belongs to a different order', async () => {
@@ -206,10 +209,7 @@ describe('staff-initiated purchase is bound to the order it names', () => {
 
   it('refuses while an earlier purchase for the order is still UNKNOWN or PENDING', async () => {
     const h = harness({ ambiguousOrderIds: [ORDER_ID] });
-    // A fresh idempotency key would sail past the supplier's own dedupe.
-    await expect(
-      h.service.purchaseForStaff(staffPurchase({ idempotencyKey: 'a-brand-new-key-123' })),
-    ).rejects.toThrow();
+    await expect(h.service.purchaseForStaff(staffPurchase())).rejects.toThrow();
     expect(h.provider.getPurchaseInvocationCount()).toBe(0);
   });
 
@@ -217,16 +217,14 @@ describe('staff-initiated purchase is bound to the order it names', () => {
     const h = harness();
     await h.service.purchaseForStaff(staffPurchase());
 
-    await expect(
-      h.service.purchaseForStaff(staffPurchase({ idempotencyKey: 'operator-key-0002' })),
-    ).rejects.toThrow();
+    await expect(h.service.purchaseForStaff(staffPurchase())).rejects.toThrow();
     expect(h.provider.getPurchaseInvocationCount()).toBe(1);
     expect(h.fulfillmentStore.rawAssets()).toHaveLength(1);
   });
 });
 
 describe('concurrent purchases for one order', () => {
-  it('buys once when two purchases race, whatever keys they carry', async () => {
+  it('buys once when two purchases race', async () => {
     const h = harness();
     // Slow the supplier down so both calls are genuinely in flight together.
     const original = h.provider.purchase.bind(h.provider);
@@ -241,14 +239,12 @@ describe('concurrent purchases for one order', () => {
         workItemId: WORK_ITEM_ID,
         offerId: OFFER_ID,
         quantity: 1,
-        idempotencyKey: 'auto-fulfillment:order-1',
       }),
       h.service.purchase({
         orderId: ORDER_ID,
         workItemId: WORK_ITEM_ID,
         offerId: OFFER_ID,
         quantity: 1,
-        idempotencyKey: 'a-different-key-0001',
       }),
     ]);
 
@@ -272,12 +268,90 @@ describe('concurrent purchases for one order', () => {
     };
 
     const results = await Promise.allSettled([
-      h.service.purchaseForStaff(staffPurchase({ idempotencyKey: 'operator-key-a-001' })),
-      h.service.purchaseForStaff(staffPurchase({ idempotencyKey: 'operator-key-b-002' })),
+      h.service.purchaseForStaff(staffPurchase()),
+      h.service.purchaseForStaff(staffPurchase()),
     ]);
 
     expect(results[0]).toMatchObject({ status: 'fulfilled', value: { status: 'UNKNOWN' } });
     expect(results[1]?.status).toBe('rejected');
     expect(h.provider.getPurchaseInvocationCount()).toBe(1);
+  });
+});
+
+describe('FUL-2: the durable purchase attempt', () => {
+  const automated = { orderId: ORDER_ID, workItemId: WORK_ITEM_ID, offerId: OFFER_ID, quantity: 1 };
+
+  it('a purchase left IN_FLIGHT by a crashed process blocks every later one, in any process', async () => {
+    const h = harness();
+    await h.supplierStore.openPurchaseAttempt({
+      orderId: ORDER_ID,
+      supplierId: 'sup-1',
+      offerId: OFFER_ID,
+      idempotencyKey: 'auto-fulfillment:order-1',
+      generation: 1,
+      requestedByStaffId: null,
+    });
+
+    await expect(h.service.purchase(automated)).rejects.toMatchObject({ code: 'CONFLICT' });
+    await expect(h.service.purchaseForStaff(staffPurchase())).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(h.provider.getPurchaseInvocationCount()).toBe(0);
+  });
+
+  it('records the attempt before the supplier call and settles it with the answer', async () => {
+    const h = harness();
+    let seenDuringCall: unknown = null;
+    const original = h.provider.purchase.bind(h.provider);
+    h.provider.purchase = async (request) => {
+      seenDuringCall = (await h.supplierStore.latestPurchaseAttempt(ORDER_ID))?.status;
+      return original(request);
+    };
+
+    await h.service.purchase(automated);
+
+    expect(seenDuringCall).toBe('IN_FLIGHT');
+    expect(await h.supplierStore.latestPurchaseAttempt(ORDER_ID)).toMatchObject({
+      status: 'SUCCEEDED',
+      generation: 1,
+      providerReference: 'REF-1',
+    });
+  });
+
+  it('after a definite failure, buys again only on an explicit retry, under the next key', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({ status: 'FAILED', failureCode: 'OUT_OF_STOCK' });
+    await h.service.purchaseForStaff(staffPurchase());
+
+    await expect(h.service.purchaseForStaff(staffPurchase())).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(h.provider.getPurchaseInvocationCount()).toBe(1);
+
+    h.provider.setNextPurchaseResult({
+      status: 'SUCCEEDED',
+      providerReference: 'REF-2',
+      cost: { amount: '100.00', currency: 'USD' },
+      asset: { assetType: 'CODE', code: 'MOCK-5555-6666-7777-8888' },
+    });
+    await expect(h.service.purchaseForStaff(staffPurchase({ retry: true }))).resolves.toMatchObject({
+      status: 'SUCCEEDED',
+    });
+    expect(h.provider.getLastPurchaseRequest()?.idempotencyKey).toBe('auto-fulfillment:order-1:2');
+  });
+
+  it('only a manager may settle an unknown purchase, and settling it as FAILED allows a retry', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({ status: 'UNKNOWN', failureCode: 'GATEWAY_TIMEOUT' });
+    await h.service.purchase(automated);
+
+    const close = { orderId: ORDER_ID, outcome: 'FAILED' as const, reason: 'Supplier confirms no order was placed' };
+    await expect(h.service.closePurchaseAttempt({ ...close, staff: OPERATOR })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    });
+    await expect(h.service.closePurchaseAttempt({ ...close, staff: MANAGER })).resolves.toEqual({
+      generation: 1,
+      status: 'FAILED',
+    });
+    expect(await h.supplierStore.latestPurchaseAttempt(ORDER_ID)).toMatchObject({ status: 'FAILED' });
+    await expect(h.service.closePurchaseAttempt({ ...close, staff: MANAGER })).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
   });
 });

@@ -314,15 +314,16 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
       };
     }
 
+    /* The supplier idempotency key is derived inside `purchase` from the order
+     * and its purchase generation, so a second attempt for the same order
+     * reaches the supplier as the same request rather than as a second
+     * purchase — and a previous attempt that is still unsettled refuses it. */
     const outcome = await this.suppliers.purchase({
       orderId: target.orderId,
       customerId: target.customerId,
       workItemId: target.workItemId,
       offerId,
       quantity: target.quantity,
-      // Derived from the order, so a second attempt for the same order reaches
-      // the supplier as the same request rather than as a second purchase.
-      idempotencyKey: `auto-fulfillment:${target.orderId}`,
     });
 
     if (outcome.status !== 'SUCCEEDED') {

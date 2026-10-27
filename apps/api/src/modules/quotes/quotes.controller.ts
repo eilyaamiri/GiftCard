@@ -76,7 +76,7 @@ export class QuotesController {
     @Param(zodPipe(quoteIdParamSchema)) params: QuoteIdParam,
     @Req() request: ActorRequest,
   ): Promise<GetQuoteResponse> {
-    const actor = await this.actor(request, sessionTokenHeader(request));
+    const actor = await this.actor(request, sessionTokenHeader(request), { readOnly: true });
     return this.quotes.getQuote(params.id, actor);
   }
 
@@ -105,8 +105,15 @@ export class QuotesController {
   /**
    * A customer session wins over a commerce-session token: once signed in, the
    * customer id is the identity, and the anonymous token merely follows along.
+   *
+   * A read (`readOnly`) only looks the token up. Opening a session and binding
+   * it to the signed-in customer happen on writes alone (ORD-5).
    */
-  private async actor(request: ActorRequest, token: string | undefined): Promise<QuoteActor> {
+  private async actor(
+    request: ActorRequest,
+    token: string | undefined,
+    options: { readonly readOnly?: boolean } = {},
+  ): Promise<QuoteActor> {
     /* The route is `@Public()`, so no guard has resolved the actor. Resolving it
      * here upgrades a signed-in caller from anonymous to their customer id. A
      * credential that is present but invalid (expired, revoked, forged) must
@@ -114,6 +121,9 @@ export class QuotesController {
      * `.catch(() => null)` fallback AuthController uses for optional identity. */
     const sessionActor = await this.auth.resolve(request).catch(() => null);
     const customerId = sessionActor?.type === 'CUSTOMER' ? sessionActor.customerId : null;
+    if (options.readOnly === true) {
+      return { customerId, commerceSessionId: await this.quotes.findCommerceSession(token) };
+    }
     const metadata = actorMetadata(request);
     const commerceSessionId = await this.quotes.resolveCommerceSession(token, customerId, metadata);
     return { customerId, commerceSessionId };

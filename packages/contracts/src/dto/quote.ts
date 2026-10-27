@@ -5,6 +5,7 @@ import {
   positiveDecimalStringSchema,
   positiveIrrStringSchema,
   irrStringSchema,
+  strictlyPositiveDecimalStringSchema,
 } from '../money/schemas';
 import { commerceSessionTokenSchema, idSchema, idempotencyKeySchema, isoDateTimeSchema } from './common';
 import { fxRateSnapshotSchema } from './fx';
@@ -85,6 +86,26 @@ export type QuoteSnapshot = z.infer<typeof quoteSnapshotSchema>;
  * POST /api/quotes  — createQuote
  * ==========================================================================*/
 
+/**
+ * Caps on the free-form maps a public, unauthenticated endpoint accepts. They
+ * end up in the quote snapshot and the order, so an unbounded map is unbounded
+ * storage paid for by nobody. The field definitions validate the content; this
+ * only bounds the shape.
+ */
+export const QUOTE_FIELD_MAP_MAX_KEYS = 20;
+export const QUOTE_FIELD_KEY_MAX_LENGTH = 64;
+export const QUOTE_FIELD_VALUE_MAX_LENGTH = 512;
+
+const quoteFieldMapSchema = z
+  .record(
+    z.string().min(1).max(QUOTE_FIELD_KEY_MAX_LENGTH),
+    z.string().max(QUOTE_FIELD_VALUE_MAX_LENGTH),
+  )
+  .refine(
+    (fields) => Object.keys(fields).length <= QUOTE_FIELD_MAP_MAX_KEYS,
+    `At most ${QUOTE_FIELD_MAP_MAX_KEYS} fields are accepted`,
+  );
+
 export const createQuoteRequestSchema = z
   .object({
     skuId: idSchema.optional(),
@@ -101,11 +122,17 @@ export const createQuoteRequestSchema = z
      * For international payments the customer states the foreign amount they
      * need to pay. For gift cards the amount comes from the SKU face value.
      */
-    requestedAmountForeign: positiveDecimalStringSchema.optional(),
-    currency: z.string().regex(/^[A-Z]{3}$/u).default('USD'),
+    requestedAmountForeign: strictlyPositiveDecimalStringSchema.optional(),
+    /**
+     * Optional. When absent the currency is read from the catalog item being
+     * bought; when present it must match it. There is deliberately no default:
+     * a default of USD made every pound or euro card fail for a client that
+     * simply left the field out.
+     */
+    currency: z.string().regex(/^[A-Z]{3}$/u).optional(),
 
     /** Free-form service inputs, validated against `ServiceFieldDefinition`. */
-    serviceFields: z.record(z.string(), z.string()).optional(),
+    serviceFields: quoteFieldMapSchema.optional(),
 
     /**
      * The game-account identifiers the supplier needs, e.g.
@@ -116,7 +143,7 @@ export const createQuoteRequestSchema = z
      * login are refused before they reach this schema, so no password is ever
      * accepted here or stored in the quote snapshot.
      */
-    topUpAccountFields: z.record(z.string(), z.string()).optional(),
+    topUpAccountFields: quoteFieldMapSchema.optional(),
 
     cartId: idSchema.optional(),
     commerceSessionToken: commerceSessionTokenSchema.optional(),

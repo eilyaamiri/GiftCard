@@ -21,6 +21,9 @@ const financialSummarySchema = z.object({
   revenueIrr: z.string().regex(/^\d+$/u),
   marginIrr: z.string().regex(/^\d+$/u),
   collectedFeesIrr: z.string().regex(/^\d+$/u),
+  /* Paid orders whose money went back, reported apart from revenue. */
+  refundedOrders: z.number().int().min(0).default(0),
+  refundedIrr: z.string().regex(/^\d+$/u).default("0"),
 });
 
 const MAX_PAGES = 25; // 100/page cap × 25 = 2,500 orders — well past today's 80-row seed.
@@ -61,6 +64,8 @@ export interface DashboardData {
     revenueIrr: string;
     marginIrr: string;
     collectedFeesIrr: string;
+    refundedOrders: number;
+    refundedIrr: string;
   } | null;
 }
 

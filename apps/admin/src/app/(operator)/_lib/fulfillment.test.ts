@@ -41,7 +41,7 @@ function asset(overrides: Partial<GiftCardAssetView> = {}): GiftCardAssetView {
     maskedCode: "XXXX-XXXX-4821",
     hasPin: true,
     serialNumber: null,
-    deliveryUrl: null,
+    hasDeliveryUrl: false,
     recipientEmailMasked: null,
     expiryDate: null,
     supplierReference: null,

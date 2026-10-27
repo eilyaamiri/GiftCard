@@ -376,6 +376,26 @@ describe('convertToRefund', () => {
     ).rejects.toThrow();
   });
 
+  it('FUL-4: explains why a sent card blocks the refund and a bought one needs a manager', async () => {
+    const h = harnessWithOrder();
+    const item = await h.service.onOrderPaid({ orderId: 'order-1' });
+    await h.service.claim(item.id, 'op-1');
+    await h.service.start(item.id, 'op-1');
+
+    h.store.assetStatuses.set('order-1', 'SENT');
+    await expect(h.service.convertToRefund(item.id, 'op-1', 'test', 500_000n)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      internalDetail: expect.stringContaining('was sent'),
+    });
+
+    h.store.assetStatuses.set('order-1', 'READY');
+    await expect(h.service.convertToRefund(item.id, 'op-1', 'test', 500_000n, 'VOIDED')).rejects.toMatchObject({
+      code: 'CONFLICT',
+      internalDetail: expect.stringContaining('needs a manager'),
+    });
+    expect(h.store.orders.get('order-1')!.status).toBe('REVIEW_REQUIRED');
+  });
+
   it('refuses convert on an order no longer in REVIEW_REQUIRED', async () => {
     const h = harnessWithOrder();
     h.store.orders.set('order-1', { status: 'FULFILLED', totalAmountIrr: 2_000_000n });

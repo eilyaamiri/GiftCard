@@ -310,7 +310,11 @@ export class QuotesService {
           quoteNumber,
           customerId: actor.customerId ?? null,
           commerceSessionId: actor.commerceSessionId ?? null,
-          cartId: input.cartId ?? null,
+          /* Ignored until carts exist (ORD-11). Nothing creates a Cart row, so
+           * a client-sent id could only be someone else's or nobody's: the
+           * first misattributes funnel reports, the second fails the foreign
+           * key with a 500. */
+          cartId: null,
           skuId: target.kind === 'sku' ? target.id : null,
           serviceId: target.kind === 'service' ? target.id : null,
           /*
@@ -438,6 +442,22 @@ export class QuotesService {
       select: { id: true },
     });
     return session.id;
+  }
+
+  /**
+   * The existing session for a token, or null. Never creates or re-binds one
+   * (ORD-5): a read must not let any caller mint a row per made-up token, nor
+   * attach an anonymous session to whoever happens to be signed in.
+   */
+  async findCommerceSession(token: string | undefined): Promise<string | null> {
+    if (token === undefined) {
+      return null;
+    }
+    const session = await this.db.commerceSession.findUnique({
+      where: { sessionToken: token },
+      select: { id: true },
+    });
+    return session?.id ?? null;
   }
 
   /**
@@ -729,9 +749,10 @@ export class QuotesService {
     }
     const amount = new Decimal(input.requestedAmountForeign);
     if (amount.lte(0)) {
-      /* The wire schema admits "0" (it only forbids a sign). A zero-dollar
-       * payment is not a purchase: it would charge the customer the fee and
-       * margin floor for nothing, and hand an operator a task to pay $0. */
+      /* The wire schema refuses zero too; this stays as the engine-side guard.
+       * A zero-dollar payment is not a purchase: it would charge the customer
+       * the fee and margin floor for nothing, and hand an operator a task to
+       * pay $0. */
       throw DomainErrors.validation([
         { path: 'requestedAmountForeign', message: 'Amount must be greater than zero' },
       ]);
@@ -741,9 +762,17 @@ export class QuotesService {
         { path: 'requestedAmountForeign', message: 'Amount is below the service minimum' },
       ]);
     }
-    if (service.maxAmount && amount.gt(service.maxAmount.toString())) {
+    /* The maximum is a limit on what one quote moves (ORD-1). The engine
+     * multiplies the amount by the quantity, so checking one unit let
+     * quantity=100 turn a $500 cap into a $50,000 payment. */
+    const quantity = input.quantity ?? 1;
+    const total = amount.mul(quantity);
+    if (service.maxAmount && total.gt(service.maxAmount.toString())) {
       throw DomainErrors.validation([
-        { path: 'requestedAmountForeign', message: 'Amount exceeds the service maximum' },
+        {
+          path: quantity > 1 ? 'quantity' : 'requestedAmountForeign',
+          message: 'Amount times quantity exceeds the service maximum',
+        },
       ]);
     }
     if (input.currency !== undefined && input.currency !== service.currency) {
@@ -1237,7 +1266,7 @@ function makeSnapshot(params: {
     quoteNumber,
     customerId: actor.customerId ?? null,
     commerceSessionId: actor.commerceSessionId ?? null,
-    cartId: input.cartId ?? null,
+    cartId: null,
     skuId: target.kind === 'sku' ? target.id : null,
     serviceId: target.kind === 'service' ? target.id : null,
     topUpOfferId: target.kind === 'topup' ? target.id : null,

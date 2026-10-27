@@ -36,6 +36,7 @@ import { MonitoringController } from '../../monitoring/monitoring.controller';
 import { OrdersAdminController } from '../../orders/orders-admin.controller';
 import { OrdersController } from '../../orders/orders.controller';
 import { PaymentsController } from '../../payments/payments.controller';
+import { RefundsController } from '../../payments/refunds.controller';
 import { PricingController } from '../../pricing/pricing.controller';
 import { QuotesController } from '../../quotes/quotes.controller';
 import { SuppliersController } from '../../suppliers/suppliers.controller';
@@ -95,6 +96,7 @@ const CONTROLLERS: readonly AnyController[] = [
   OrdersAdminController,
   OrdersController,
   PaymentsController,
+  RefundsController,
   PricingController,
   QuotesController,
   SuppliersController,
@@ -110,6 +112,8 @@ const UNDECORATED_BY_DESIGN: Readonly<Record<string, string>> = {
   'HealthController.ready': 'load-balancer readiness probe',
   'HealthController.live': 'load-balancer liveness probe',
   'InternalFulfillmentController.retryDelivery':
+    'machine-to-machine; authenticated in-handler by INTERNAL_SERVICE_TOKEN',
+  'InternalFulfillmentController.reportDeliveryProblem':
     'machine-to-machine; authenticated in-handler by INTERNAL_SERVICE_TOKEN',
 };
 

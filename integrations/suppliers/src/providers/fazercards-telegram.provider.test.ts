@@ -468,6 +468,17 @@ describe('purchase', () => {
     });
   });
 
+  it('FUL-7: does not remember a rate-limit refusal, so a later retry reaches the venue', async () => {
+    const shared = provider();
+    stubFetch({ 'POST /telegram/stars/buy': { status: 429, body: { ok: false, error: 'slow down' } } });
+    await shared.purchase(purchaseRequest());
+
+    const calls = stubFetch({ 'POST /telegram/stars/buy': buyRoute });
+    await shared.purchase(purchaseRequest());
+
+    expect(calls.calls).toHaveLength(1);
+  });
+
   it('maps a stated 4xx to a normalised provider code', async () => {
     stubFetch({
       'POST /telegram/stars/buy': { status: 400, body: { ok: false, error: 'bad username', code: 'invalid recipient' } },

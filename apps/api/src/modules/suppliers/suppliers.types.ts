@@ -239,6 +239,53 @@ export interface SupplierStore {
     availability: SupplierAvailability;
     checkedAt: Date;
   }): Promise<void>;
+
+  /* ------------------------------------------- durable purchase lock (FUL-2) */
+
+  /** The order's most recent purchase attempt (highest generation), or null. */
+  latestPurchaseAttempt(orderId: string): Promise<SupplierPurchaseAttemptRecord | null>;
+  /**
+   * Record an attempt as IN_FLIGHT before the supplier is called. Returns null
+   * when the order already has an unsettled attempt or this generation exists:
+   * another process got there first, and the caller must not buy.
+   */
+  openPurchaseAttempt(input: {
+    orderId: string;
+    supplierId: string;
+    offerId: string;
+    idempotencyKey: string;
+    generation: number;
+    requestedByStaffId: string | null;
+  }): Promise<SupplierPurchaseAttemptRecord | null>;
+  /**
+   * Record what the supplier answered. SUCCEEDED and FAILED settle the attempt
+   * and free the order's slot; UNKNOWN and IN_FLIGHT (a pending purchase) keep
+   * it held until a person closes it.
+   */
+  settlePurchaseAttempt(input: {
+    id: string;
+    status: SupplierPurchaseAttemptStatus;
+    providerReference?: string | null;
+    errorCode?: string | null;
+  }): Promise<void>;
+}
+
+export type SupplierPurchaseAttemptStatus = 'IN_FLIGHT' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
+
+/** One request sent to a supplier for an order. Never carries a code. */
+export interface SupplierPurchaseAttemptRecord {
+  readonly id: string;
+  readonly orderId: string;
+  readonly supplierId: string;
+  readonly offerId: string | null;
+  readonly idempotencyKey: string;
+  readonly generation: number;
+  readonly status: SupplierPurchaseAttemptStatus;
+  readonly providerReference: string | null;
+  readonly errorCode: string | null;
+  readonly requestedByStaffId: string | null;
+  readonly startedAt: Date;
+  readonly settledAt: Date | null;
 }
 
 /** One step of a top-up's append-only trace. */

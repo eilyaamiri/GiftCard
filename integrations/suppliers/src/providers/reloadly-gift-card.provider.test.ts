@@ -418,6 +418,23 @@ describe('ReloadlyGiftCardSupplierProvider', () => {
       expect(calls.some((c) => c.url.includes('/orders') && c.method === 'POST')).toBe(false);
     });
 
+    it('FUL-11: two concurrent calls with one key place one order', async () => {
+      const { calls } = stubFetch({
+        'POST /oauth/token': TOKEN_ROUTE,
+        // Both calls would see "no order yet" if they each searched.
+        'GET /reports/transactions': page([]),
+        'GET /products/5': rangeProduct(),
+        'POST /orders': { status: 200, body: transaction() },
+        'GET /orders/transactions/4242/cards': { body: [{ cardNumber: 'ABC-123' }] },
+      });
+      const shared = provider();
+
+      const [first, second] = await Promise.all([shared.purchase(REQUEST), shared.purchase(REQUEST)]);
+
+      expect(first).toEqual(second);
+      expect(calls.filter((c) => c.method === 'POST' && new URL(c.url).pathname === '/orders')).toHaveLength(1);
+    });
+
     it('ignores a ledger row that does not carry our identifier', async () => {
       const { find } = stubFetch({
         'POST /oauth/token': TOKEN_ROUTE,

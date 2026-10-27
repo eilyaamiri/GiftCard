@@ -97,10 +97,15 @@ export const workItems = {
    * The note is required — it records what the operator tried before deciding on a refund.
    * The amountIrr is a string representation of a BigInt (JSON has no native BigInt).
    */
-  convertToRefund: async (id: string, note: string, amountIrr: string) =>
+  convertToRefund: async (
+    id: string,
+    note: string,
+    amountIrr: string,
+    cardDisposition?: "VOIDED" | "RESELLABLE",
+  ) =>
     await api.post(
       `/api/operator/work-items/${encodeURIComponent(id)}/convert-to-refund`,
-      { note, amountIrr },
+      { note, amountIrr, ...(cardDisposition === undefined ? {} : { cardDisposition }) },
       workItemEnvelopeSchema
     ),
 };

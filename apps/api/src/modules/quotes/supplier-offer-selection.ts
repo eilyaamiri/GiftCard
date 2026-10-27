@@ -43,7 +43,9 @@ export function effectiveOfferCost(offer: SelectableOffer): Decimal {
  *   1. Only active offers, marked AVAILABLE, from an active supplier.
  *   2. Only offers priced in the requested currency — the pricing engine takes a
  *      single FX pair, so silently mixing currencies would misprice the quote.
- *   3. Lowest effective cost wins.
+ *   3. Lowest effective cost wins — among offers that cost something. A zero
+ *      cost (a broken sync row, a 100% discount) is never a real offer and
+ *      would otherwise always win (ORD-8).
  *   4. Ties break on `priority` (lower first), then on `id` so the choice is
  *      deterministic and a replay of the same inputs yields the same supplier.
  */
@@ -56,7 +58,8 @@ export function selectBestOffer<T extends SelectableOffer>(
       offer.isActive &&
       offer.supplierIsActive &&
       offer.availability === 'AVAILABLE' &&
-      offer.costCurrency === currency,
+      offer.costCurrency === currency &&
+      effectiveOfferCost(offer).gt(0),
   );
   if (candidates.length === 0) {
     return null;

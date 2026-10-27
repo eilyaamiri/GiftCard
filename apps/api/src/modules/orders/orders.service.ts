@@ -36,8 +36,10 @@ import type {
 } from './orders.schemas';
 import {
   ORDERS_DATABASE,
+  type OrderBridgeOptions,
   type OrderPaymentBridge,
   type OrdersDatabase,
+  type OrdersDatabaseCore,
   type OrderTransitionResult,
 } from './orders.tokens';
 
@@ -69,6 +71,9 @@ const ORDER_INCLUDE = {
     },
   },
   giftCardAssets: {
+    /* The live card only: one superseded by a replacement stays on record but
+     * is never shown to the customer again (FUL-10). */
+    where: { liveOrderKey: { not: null } },
     select: {
       assetType: true,
       status: true,
@@ -134,6 +139,9 @@ const POST_PAYMENT_STATUSES: ReadonlySet<OrderStatus> = new Set([
 
 /** How many expired orders one sweep closes. Bounded so a backlog is paced. */
 const EXPIRY_BATCH_SIZE = 100;
+
+/** Paid orders whose money is going, or has gone, back. Never counted as revenue. */
+const REFUNDED_ORDER_STATUSES: OrderStatus[] = ['REFUND_PENDING', 'REFUNDED'];
 
 /**
  * Everything the cancel guard needs, and nothing more.
@@ -278,9 +286,10 @@ export class OrdersService implements OrderPaymentBridge {
    *
    *   1. the order is looked up by `orderNumber` AND the session `customerId`,
    *      so another customer's order is simply not found;
-   *   2. only the newest asset on the order is readable, and only once its
-   *      status is `SENT` — that is the same flag the operator workspace and
-   *      the self-service delivery both set, so "delivered" has one meaning;
+   *   2. only the order's live asset is readable (never one superseded by a
+   *      replacement), only once its status is `SENT` — that is the same flag
+   *      the operator workspace and the self-service delivery both set, so
+   *      "delivered" has one meaning — and never for a refunded order;
    *   3. the decryption itself goes through `GiftCardAssetService.readSecret`,
    *      which writes `GIFT_CARD_CODE_VIEWED` before it decrypts. Every reveal
    *      is on record with the customer as the actor.
@@ -296,7 +305,9 @@ export class OrdersService implements OrderPaymentBridge {
       where: { orderNumber, customerId },
       select: {
         id: true,
+        status: true,
         giftCardAssets: {
+          where: { liveOrderKey: { not: null } },
           select: { id: true, status: true },
           orderBy: { createdAt: 'desc' },
           take: 1,
@@ -305,6 +316,14 @@ export class OrdersService implements OrderPaymentBridge {
     });
     if (!order) {
       throw DomainErrors.notFound('order');
+    }
+    /* FUL-12: once the money is going back, the card is no longer the
+     * customer's to read. */
+    if (REFUNDED_ORDER_STATUSES.includes(order.status)) {
+      throw DomainErrors.conflict(
+        'مبلغ این سفارش به شما بازگردانده شده یا در حال بازگشت است و کد آن دیگر نمایش داده نمی‌شود.',
+        `order ${order.id} is ${order.status}; delivery is withdrawn`,
+      );
     }
 
     const asset = order.giftCardAssets[0];
@@ -335,7 +354,7 @@ export class OrdersService implements OrderPaymentBridge {
       assetType: revealed.assetType,
       code: revealed.code ?? null,
       pin: revealed.pin ?? null,
-      deliveryUrl: revealed.deliveryUrl ?? null,
+      deliveryUrl: httpDeliveryUrl(revealed.deliveryUrl),
       expiryDate: revealed.expiryDate?.toISOString() ?? null,
     };
   }
@@ -379,43 +398,44 @@ export class OrdersService implements OrderPaymentBridge {
     return this.paginate(where, query.page, query.pageSize);
   }
 
-  /** Staff-only contribution summary from paid order quote snapshots. */
+  /**
+   * Staff-only contribution summary from paid order quote snapshots: revenue,
+   * recorded margin and fees of paid orders (ORD-3).
+   *
+   * An order whose money is going back (REFUND_PENDING) or has gone back
+   * (REFUNDED) is not revenue: it is reported on its own line instead. The
+   * sums are computed by the database — every paid order used to be loaded
+   * into memory to be added up here.
+   */
   async adminFinancialSummary(): Promise<{
     readonly paidOrders: number;
     readonly revenueIrr: string;
     readonly marginIrr: string;
     readonly collectedFeesIrr: string;
+    readonly refundedOrders: number;
+    readonly refundedIrr: string;
   }> {
-    const rows = await this.db.order.findMany({
-      where: { paidAt: { not: null } },
-      select: {
-        totalAmountIrr: true,
-        quote: {
-          select: {
-            marginAmount: true,
-            paymentFee: true,
-            serviceFee: true,
-            operationalFee: true,
-          },
-        },
-      },
-    });
+    const kept = { paidAt: { not: null }, status: { notIn: REFUNDED_ORDER_STATUSES } } satisfies Prisma.OrderWhereInput;
+    const refunded = { paidAt: { not: null }, status: { in: REFUNDED_ORDER_STATUSES } } satisfies Prisma.OrderWhereInput;
 
-    let revenueIrr = 0n;
-    let marginIrr = 0n;
-    let collectedFeesIrr = 0n;
-    for (const row of rows) {
-      revenueIrr += row.totalAmountIrr;
-      marginIrr += row.quote.marginAmount;
-      collectedFeesIrr +=
-        row.quote.paymentFee + row.quote.serviceFee + row.quote.operationalFee;
-    }
+    const [orders, quotes, refunds] = await Promise.all([
+      this.db.order.aggregate({ where: kept, _count: { _all: true }, _sum: { totalAmountIrr: true } }),
+      this.db.quote.aggregate({
+        where: { order: { is: kept } },
+        _sum: { marginAmount: true, paymentFee: true, serviceFee: true, operationalFee: true },
+      }),
+      this.db.order.aggregate({ where: refunded, _count: { _all: true }, _sum: { totalAmountIrr: true } }),
+    ]);
 
+    const fees =
+      (quotes._sum.paymentFee ?? 0n) + (quotes._sum.serviceFee ?? 0n) + (quotes._sum.operationalFee ?? 0n);
     return {
-      paidOrders: rows.length,
-      revenueIrr: revenueIrr.toString(),
-      marginIrr: marginIrr.toString(),
-      collectedFeesIrr: collectedFeesIrr.toString(),
+      paidOrders: orders._count._all,
+      revenueIrr: (orders._sum.totalAmountIrr ?? 0n).toString(),
+      marginIrr: (quotes._sum.marginAmount ?? 0n).toString(),
+      collectedFeesIrr: fees.toString(),
+      refundedOrders: refunds._count._all,
+      refundedIrr: (refunds._sum.totalAmountIrr ?? 0n).toString(),
     };
   }
 
@@ -560,14 +580,38 @@ export class OrdersService implements OrderPaymentBridge {
 
   /* ======================================================= payments bridge */
 
-  async markPaymentPending(orderId: string, paymentId: string): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'PAYMENT_PENDING', 'payment session opened', {
-      paymentId,
+  async markPaymentPending(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(orderId, 'PAYMENT_PENDING', 'payment session opened', { paymentId }, {
+      db: options.db,
     });
   }
 
-  async markPaid(orderId: string, paymentId: string): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'PAID', 'payment verified server-side', { paymentId });
+  async markPaid(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(orderId, 'PAID', 'payment verified server-side', { paymentId }, {
+      db: options.db,
+    });
+  }
+
+  async markPaidAfterClosure(
+    orderId: string,
+    paymentId: string,
+    options: OrderBridgeOptions = {},
+  ): Promise<OrderTransitionResult> {
+    return this.systemTransition(
+      orderId,
+      'PAID',
+      'payment verified server-side after the order was closed',
+      { paymentId },
+      { db: options.db, allowLatePayment: true },
+    );
   }
 
   async markPaymentFailed(
@@ -575,7 +619,7 @@ export class OrdersService implements OrderPaymentBridge {
     paymentId: string,
     reason: string,
   ): Promise<OrderTransitionResult> {
-    return this.systemTransition(orderId, 'FAILED', reason, { paymentId }, reason);
+    return this.systemTransition(orderId, 'FAILED', reason, { paymentId }, { failureReason: reason });
   }
 
   /* ================================================================ helpers */
@@ -585,9 +629,13 @@ export class OrdersService implements OrderPaymentBridge {
     next: OrderStatus,
     reason: string,
     context: Readonly<Record<string, string>>,
-    failureReason?: string,
+    options: {
+      readonly db?: OrdersDatabaseCore | undefined;
+      readonly failureReason?: string;
+      readonly allowLatePayment?: boolean;
+    } = {},
   ): Promise<OrderTransitionResult> {
-    const order = await this.db.order.findUnique({
+    const order = await (options.db ?? this.db).order.findUnique({
       where: { id: orderId },
       select: { id: true, orderNumber: true, status: true, paidAt: true },
     });
@@ -614,7 +662,9 @@ export class OrdersService implements OrderPaymentBridge {
       reason,
       {
         context,
-        ...(failureReason === undefined ? {} : { failureReason }),
+        ...(options.failureReason === undefined ? {} : { failureReason: options.failureReason }),
+        ...(options.db === undefined ? {} : { db: options.db }),
+        ...(options.allowLatePayment === true ? { allowLatePayment: true } : {}),
       },
     );
   }
@@ -926,6 +976,26 @@ function itemTitleFa(row: OrderRow): string {
   return row.quote.service?.nameFa ?? 'سفارش';
 }
 
+/**
+ * A stored delivery link, or null unless it is http(s) (WEB-3).
+ *
+ * New links are checked on the way in; rows written before that check may hold
+ * anything, and a `javascript:` link rendered as the customer's redemption
+ * button would run in our origin. Such a row shows no link instead; the card
+ * can be replaced through the manager's replacement path.
+ */
+export function httpDeliveryUrl(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'https:' || protocol === 'http:' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 function toDeliveryDto(
   asset: OrderRow['giftCardAssets'][number] | undefined,
 ): OrderDeliveryDto | null {
@@ -936,7 +1006,7 @@ function toDeliveryDto(
     assetType: asset.assetType,
     status: asset.status,
     maskedCode: asset.maskedCode,
-    deliveryUrl: asset.deliveryUrl,
+    deliveryUrl: httpDeliveryUrl(asset.deliveryUrl),
     recipientEmailMasked: asset.recipientEmail ? maskEmail(asset.recipientEmail) : null,
     expiryDate: asset.expiryDate?.toISOString() ?? null,
     sentAt: asset.sentAt?.toISOString() ?? null,

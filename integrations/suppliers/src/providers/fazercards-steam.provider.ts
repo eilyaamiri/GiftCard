@@ -147,6 +147,8 @@ function mapOrderStatus(status: string | null): SupplierPurchaseResult['status']
  */
 export class FazerCardsSteamSupplierProvider implements SupplierProvider {
   readonly key = 'fazercards-steam';
+  /** The venue honours `Idempotency-Key` on order creation (see class doc). */
+  readonly idempotentPurchases = true;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;

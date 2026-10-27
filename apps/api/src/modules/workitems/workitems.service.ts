@@ -16,6 +16,7 @@ import {
   type FulfillmentTrigger,
   type FulfillmentTriggerInput,
   type OrderQuoteTarget,
+  type RefundCardDisposition,
   type WorkItemEscalator,
   type WorkItemStore,
   type WorkItemSummary,
@@ -414,6 +415,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
     staffId: string,
     note: string,
     amountIrr: bigint,
+    cardDisposition?: RefundCardDisposition,
   ): Promise<{ item: WorkItemSummary; refundId: string }> {
     if (amountIrr <= 0n) {
       throw DomainErrors.validation([{ path: 'amountIrr', message: 'مبلغ بازگشت وجه باید بیشتر از صفر باشد.' }]);
@@ -432,9 +434,22 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       allowedTypes: ['SUPPLIER_FOLLOWUP', 'MANUAL_GIFT_CARD_FULFILLMENT'],
       note,
       amountIrr,
+      ...(cardDisposition === undefined ? {} : { cardDisposition }),
       at: new Date(),
     });
 
+    if (result.blockedBy === 'ASSET_SENT') {
+      throw DomainErrors.conflict(
+        'کارت این سفارش برای مشتری ارسال شده است؛ بازگشت وجه هم‌زمان با تحویل کارت ممکن نیست.',
+        `Cannot convert work item ${workItemId} to refund: the order's card was sent`,
+      );
+    }
+    if (result.blockedBy === 'ASSET_NEEDS_MANAGER') {
+      throw DomainErrors.conflict(
+        'برای این سفارش کارت خریداری شده است. بازگشت وجه را فقط مدیر، با تعیین وضعیت کارت (باطل یا قابل فروش مجدد)، ثبت می‌کند.',
+        `Cannot convert work item ${workItemId} to refund: a bought card needs a manager and a disposition`,
+      );
+    }
     if (!result.changed || !result.refundId) {
       throw DomainErrors.conflict(
         'سفارش یا تسک در وضعیتی نیست که بتوان به بازگشت وجه تغییر داد.',
@@ -455,6 +470,7 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
         amountIrr: amountIrr.toString(),
         orderId: result.orderId,
         refundId: result.refundId,
+        ...(cardDisposition === undefined ? {} : { cardDisposition }),
       },
     });
 

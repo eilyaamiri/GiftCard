@@ -1,0 +1,30 @@
+# Barat Pay background worker: quote expiry, abandonment scan and automatic
+# delivery retries (apps/worker). Installed to
+# /etc/systemd/system/barat-worker.service; see ops/README.md "Background worker".
+#
+# Same model as barat-api: root, the app checkout, and the API's own env file,
+# which already carries DATABASE_URL, REDIS_URL and INTERNAL_SERVICE_TOKEN.
+# INTERNAL_API_URL defaults to http://127.0.0.1:4000/api in the worker itself.
+[Unit]
+Description=Barat Pay worker
+After=network-online.target docker.service barat-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/baratpay/app/apps/worker
+EnvironmentFile=/opt/baratpay/secrets/.env.api
+Environment=NODE_OPTIONS=--max-old-space-size=192
+ExecStart=/usr/bin/env node dist/main.js
+Restart=always
+RestartSec=10
+# Long enough for a delivery retry in flight (20 s HTTP timeout) to finish.
+TimeoutStopSec=60
+MemoryMax=300M
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=barat-worker
+
+[Install]
+WantedBy=multi-user.target

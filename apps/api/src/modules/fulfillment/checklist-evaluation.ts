@@ -26,7 +26,7 @@ export const DELIVERABLE_ORDER_STATUSES: readonly OrderStatus[] = [
 ];
 
 /**
- * Note what is NOT here: a cost variance.
+ * An ordinary cost variance is NOT here.
  *
  * An out-of-tolerance supplier cost is a question about our own spend, not about
  * the customer's entitlement — they paid, and the card is bought and sitting in
@@ -34,6 +34,13 @@ export const DELIVERABLE_ORDER_STATUSES: readonly OrderStatus[] = [
  * for our accounting, and the money has already left either way. So the variance
  * is assessed, audited and routed to a manager for review (see
  * `FulfillmentService.flagCostVariance`), and the send goes ahead regardless.
+ *
+ * The exception is a variance too large to be accounting (FUL-9): more than
+ * `EXTREME_VARIANCE_MULTIPLE` times the tolerance, or a cost in another
+ * currency than the quote. That is far more often the wrong card, the wrong
+ * denomination or a mistyped price than a supplier's surcharge, and handing it
+ * over cannot be undone — so it waits for the manager's approval
+ * (`COST_VARIANCE_UNAPPROVED`).
  */
 export const SEND_BLOCKERS = {
   CHECKLIST_LOCKED: 'CHECKLIST_LOCKED',
@@ -43,7 +50,25 @@ export const SEND_BLOCKERS = {
   ACTUAL_COST_MISSING: 'ACTUAL_COST_MISSING',
   CHECKLIST_INCOMPLETE: 'CHECKLIST_INCOMPLETE',
   DELIVERY_EMAIL_MISSING: 'DELIVERY_EMAIL_MISSING',
+  COST_VARIANCE_UNAPPROVED: 'COST_VARIANCE_UNAPPROVED',
 } as const;
+
+/** A variance past this many times the rule's tolerance holds the send for a manager. */
+export const EXTREME_VARIANCE_MULTIPLE = 2;
+
+/** Whether the recorded cost is too far off the quote to deliver without a manager. */
+export function hasExtremeCostVariance(context: FulfillmentContext): boolean {
+  const fulfillment = context.fulfillment;
+  if (fulfillment === null || !isNonEmpty(fulfillment.actualSupplierCost) || fulfillment.approvedByStaffId !== null) {
+    return false;
+  }
+  const currency = fulfillment.actualSupplierCurrency ?? context.quotedSupplierCurrency;
+  if (currency.toUpperCase() !== context.quotedSupplierCurrency.toUpperCase()) {
+    return true;
+  }
+  const variance = fulfillment.costVarianceBps;
+  return variance !== null && variance > EXTREME_VARIANCE_MULTIPLE * Math.max(0, context.maxSupplierCostToleranceBps);
+}
 
 export type SendBlocker = (typeof SEND_BLOCKERS)[keyof typeof SEND_BLOCKERS];
 
@@ -253,6 +278,10 @@ export function computeSendBlockers(input: {
 
   if (evaluation.unsatisfiedKeys.length > 0) {
     blockers.push(SEND_BLOCKERS.CHECKLIST_INCOMPLETE);
+  }
+
+  if (hasExtremeCostVariance(context)) {
+    blockers.push(SEND_BLOCKERS.COST_VARIANCE_UNAPPROVED);
   }
 
   return blockers;

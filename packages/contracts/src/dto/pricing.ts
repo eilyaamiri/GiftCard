@@ -6,6 +6,7 @@ import {
   positiveDecimalStringSchema,
   positiveIrrStringSchema,
   signedBpsSchema,
+  strictlyPositiveDecimalStringSchema,
 } from '../money/schemas';
 import { idSchema, isoDateTimeSchema } from './common';
 import { fxRateSnapshotSchema } from './fx';
@@ -49,6 +50,72 @@ export const pricingRuleSnapshotSchema = z.object({
   maxSupplierCostToleranceBps: bpsSchema,
 });
 export type PricingRuleSnapshot = z.infer<typeof pricingRuleSnapshotSchema>;
+
+/* ============================================================================
+ * Pricing rule limits (ORD-7)
+ *
+ * A rule change applies to every quote from the next second. These ceilings
+ * stop a typo (50000 for 500) from repricing the shop; a change big enough to
+ * matter but under them needs a second person's approval instead.
+ * ==========================================================================*/
+
+/** No spread, buffer, fee, margin or tolerance may exceed 50%. */
+export const PRICING_RULE_MAX_BPS = 5_000;
+/** A fixed fee or margin floor above 10,000,000 Toman per quote is a typo. */
+export const PRICING_RULE_MAX_FIXED_IRR = 100_000_000n;
+/** Rounding to more than 100,000 Toman would swamp the price. */
+export const PRICING_RULE_MAX_ROUNDING_STEP_IRR = 1_000_000n;
+
+/**
+ * A change that moves any basis-point field by more than this (5 percentage
+ * points), or a new rule that sets one above `PRICING_RULE_NEW_RULE_REVIEW_BPS`,
+ * waits for a second approver.
+ */
+export const PRICING_RULE_LARGE_CHANGE_BPS = 500;
+export const PRICING_RULE_NEW_RULE_REVIEW_BPS = 2_000;
+
+export const PRICING_RULE_BPS_FIELDS = [
+  'fxSpreadBps',
+  'fxRiskBufferBps',
+  'serviceFeeBps',
+  'paymentFeeBps',
+  'targetMarginBps',
+  'maxSupplierCostToleranceBps',
+] as const;
+
+export const PRICING_RULE_FIXED_IRR_FIELDS = [
+  'serviceFeeFixedIrr',
+  'operationalFeeIrr',
+  'paymentFeeFixedIrr',
+  'minimumMarginIrr',
+] as const;
+
+/** The fields that exceed a hard ceiling, for a write boundary to refuse. */
+export function pricingRuleLimitViolations(
+  values: Pick<
+    PricingRuleSnapshot,
+    (typeof PRICING_RULE_BPS_FIELDS)[number] | (typeof PRICING_RULE_FIXED_IRR_FIELDS)[number] | 'roundingStepIrr'
+  >,
+): Array<{ path: string; message: string }> {
+  const violations: Array<{ path: string; message: string }> = [];
+  for (const field of PRICING_RULE_BPS_FIELDS) {
+    if (values[field] > PRICING_RULE_MAX_BPS) {
+      violations.push({ path: field, message: `Must not exceed ${PRICING_RULE_MAX_BPS} bps` });
+    }
+  }
+  for (const field of PRICING_RULE_FIXED_IRR_FIELDS) {
+    if (BigInt(values[field]) > PRICING_RULE_MAX_FIXED_IRR) {
+      violations.push({ path: field, message: `Must not exceed ${PRICING_RULE_MAX_FIXED_IRR} IRR` });
+    }
+  }
+  if (BigInt(values.roundingStepIrr) > PRICING_RULE_MAX_ROUNDING_STEP_IRR) {
+    violations.push({
+      path: 'roundingStepIrr',
+      message: `Must not exceed ${PRICING_RULE_MAX_ROUNDING_STEP_IRR} IRR`,
+    });
+  }
+  return violations;
+}
 
 /* ============================================================================
  * Pricing input
@@ -171,8 +238,16 @@ export type PricingBreakdown = z.infer<typeof pricingBreakdownSchema>;
  * Admin quote simulator
  * ==========================================================================*/
 
-/** The simulator calls the same pure function; it never re-implements the formula. */
-export const simulateQuoteRequestSchema = pricingInputSchema;
+/**
+ * The simulator calls the same pure function; it never re-implements the formula.
+ *
+ * `customerForeignAmount` is what ONE unit is worth to the customer (a card's
+ * face value) as opposed to what it costs us. Supplying it reproduces a real
+ * SKU's quote; leaving it out prices a card whose face value equals its cost.
+ */
+export const simulateQuoteRequestSchema = pricingInputSchema.extend({
+  customerForeignAmount: strictlyPositiveDecimalStringSchema.optional(),
+});
 export type SimulateQuoteRequest = z.infer<typeof simulateQuoteRequestSchema>;
 
 export const simulateQuoteResponseSchema = z.object({

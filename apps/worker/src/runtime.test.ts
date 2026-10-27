@@ -3,7 +3,12 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { JobHandler, JobResult } from './jobs/job-types';
-import { attachWorkerListeners, createSweepProcessor, type SweepLogger } from './runtime';
+import {
+  attachWorkerListeners,
+  buildRetryClient,
+  createSweepProcessor,
+  type SweepLogger,
+} from './runtime';
 import { SweepLock, type LockStore } from './sweep-lock';
 
 function memoryStore(): LockStore {
@@ -78,6 +83,73 @@ describe('createSweepProcessor', () => {
       { lock: new SweepLock(memoryStore()), logger: captureLogger() },
     )({ data: undefined });
     expect(handle).toHaveBeenCalledWith({});
+  });
+});
+
+describe('createSweepProcessor — heartbeat', () => {
+  it('beats after a completed sweep', async () => {
+    const beat = vi.fn(async () => undefined);
+    const processor = createSweepProcessor(
+      { queueName: 'quote-expiry', handle: async () => ({ changed: 0, skipped: 0 }) },
+      { lock: new SweepLock(memoryStore()), logger: captureLogger(), heartbeat: { beat } },
+    );
+    await processor({ data: {} });
+    expect(beat).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not beat when the sweep throws, so a broken worker goes unhealthy', async () => {
+    const beat = vi.fn(async () => undefined);
+    const processor = createSweepProcessor(
+      {
+        queueName: 'quote-expiry',
+        handle: async () => {
+          throw new Error('database unreachable');
+        },
+      },
+      { lock: new SweepLock(memoryStore()), logger: captureLogger(), heartbeat: { beat } },
+    );
+    await expect(processor({ data: {} })).rejects.toThrow('database unreachable');
+    expect(beat).not.toHaveBeenCalled();
+  });
+
+  it('does not fail a sweep because the heartbeat could not be written', async () => {
+    const logger = captureLogger();
+    const processor = createSweepProcessor(
+      { queueName: 'quote-expiry', handle: async () => ({ changed: 1, skipped: 0 }) },
+      {
+        lock: new SweepLock(memoryStore()),
+        logger,
+        heartbeat: {
+          beat: async () => {
+            throw new Error('READONLY');
+          },
+        },
+      },
+    );
+    await expect(processor({ data: {} })).resolves.toMatchObject({ changed: 1 });
+    expect(logger.errors).toEqual(['[heartbeat] not written: READONLY']);
+  });
+});
+
+describe('buildRetryClient', () => {
+  const token = 'x'.repeat(40);
+
+  it('refuses a non-internal API URL before any token is sent', () => {
+    expect(() =>
+      buildRetryClient({ apiBaseUrl: 'https://www.centohub.com/api', internalServiceToken: token }),
+    ).toThrow(/internal host/);
+  });
+
+  it('refuses a missing or short token', () => {
+    expect(() => buildRetryClient({ apiBaseUrl: 'http://127.0.0.1:4000/api' })).toThrow(
+      /INTERNAL_SERVICE_TOKEN/,
+    );
+  });
+
+  it('builds a client for an internal URL', () => {
+    expect(
+      buildRetryClient({ apiBaseUrl: 'http://127.0.0.1:4000/api', internalServiceToken: token }),
+    ).toBeDefined();
   });
 });
 

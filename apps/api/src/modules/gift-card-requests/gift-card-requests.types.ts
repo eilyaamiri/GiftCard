@@ -4,7 +4,7 @@ export const GIFT_CARD_REQUESTS_DATABASE = Symbol('GIFT_CARD_REQUESTS_DATABASE')
 
 export type GiftCardRequestsDatabase = Pick<
   PrismaClient,
-  'giftCardCodeRequest' | 'workItem' | 'giftCardAsset' | 'order' | '$transaction'
+  'giftCardCodeRequest' | 'workItem' | 'giftCardAsset' | 'order' | 'supplierPurchaseAttempt' | '$transaction'
 >;
 
 export type GiftCardRequestStatus = 'OPEN' | 'FULFILLED' | 'CANCELLED';

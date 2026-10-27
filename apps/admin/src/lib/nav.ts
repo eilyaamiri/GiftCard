@@ -12,6 +12,7 @@ import {
   SUPPORT_TICKET_ROLES,
 } from "@/lib/api";
 import { REVIEW_MODERATION_ROLES } from "@/lib/reviews";
+import { REFUND_QUEUE_ROLES } from "@/lib/refunds";
 
 export interface NavItem {
   href: string;
@@ -41,6 +42,7 @@ export const ADMIN_NAV: NavSection[] = [
       { href: "/orders", label: "سفارش‌ها", icon: "shopping-bag", roles: BACK_OFFICE_ROLES },
       { href: "/quotes", label: "استعلام‌ها", icon: "receipt-text", roles: BACK_OFFICE_ROLES },
       { href: "/payments", label: "پرداخت‌ها", icon: "credit-card", roles: BACK_OFFICE_ROLES },
+      { href: "/refunds", label: "بازگشت وجه", icon: "rotate-ccw", roles: REFUND_QUEUE_ROLES },
       { href: "/customers", label: "نمای ۳۶۰ مشتری", icon: "user-cog", roles: CUSTOMER_VIEW_ROLES },
     ],
   },

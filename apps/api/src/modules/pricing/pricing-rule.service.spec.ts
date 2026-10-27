@@ -102,6 +102,16 @@ const database = vi.hoisted(() => {
     return Object.entries(where).every(([key, value]) => rule[key] === value);
   };
 
+  const auditMatches = (row: AnyRule, where: Record<string, unknown>): boolean =>
+    Object.entries(where).every(([key, value]) => {
+      if (value !== null && typeof value === 'object' && !(value instanceof Date)) {
+        const operators = value as { in?: unknown[]; gt?: Date };
+        if (operators.in !== undefined) return operators.in.includes(row[key]);
+        if (operators.gt !== undefined) return (row[key] as Date).getTime() > operators.gt.getTime();
+      }
+      return row[key] === value;
+    });
+
   const sortRules = (rules: AnyRule[]): AnyRule[] =>
     [...rules].sort((left, right) => {
       const scopeOrder = String(left['scope']).localeCompare(String(right['scope']));
@@ -188,6 +198,12 @@ const database = vi.hoisted(() => {
         state.auditLogs.push(created);
         return created;
       },
+      /* Enough of Prisma's filter language for the proposal queries:
+       * equality, `{ in: [...] }` and `{ gt: Date }`. */
+      findMany: async ({ where }: { where: Record<string, unknown> }) =>
+        (state.auditLogs as Record<string, unknown>[]).filter((row) => auditMatches(row, where)),
+      findFirst: async ({ where }: { where: Record<string, unknown> }) =>
+        (state.auditLogs as Record<string, unknown>[]).find((row) => auditMatches(row, where)) ?? null,
     },
 
     /**
@@ -249,7 +265,11 @@ const ACTOR = Object.freeze({
 });
 
 function putRequest(overrides: Record<string, unknown> = {}): PutRequest {
-  return putPricingRuleRequestSchema.parse({
+  return putPricingRuleRequestSchema.parse({ ...rawPutRequest(), ...overrides });
+}
+
+function rawPutRequest(): Record<string, unknown> {
+  return {
     name: 'Global default',
     scope: 'GLOBAL',
     targetId: null,
@@ -265,8 +285,7 @@ function putRequest(overrides: Record<string, unknown> = {}): PutRequest {
     quoteTtlSeconds: 600,
     roundingStepIrr: '10000',
     maxSupplierCostToleranceBps: 500,
-    ...overrides,
-  });
+  };
 }
 
 function rules(): StoredRule[] {
@@ -351,13 +370,26 @@ describe('PricingRuleService.put / versioning', () => {
 
   it('converts every IRR field to an exact bigint, never a float', async () => {
     const created = await service.put(
-      putRequest({ minimumMarginIrr: '9007199254740993' }),
+      putRequest({ minimumMarginIrr: '99999999' }),
       ACTOR,
     );
 
-    // 2^53 + 1 — the first integer a JS number cannot represent.
-    expect(created.minimumMarginIrr).toBe(9_007_199_254_740_993n);
+    expect(created.minimumMarginIrr).toBe(99_999_999n);
     expect(typeof created.minimumMarginIrr).toBe('bigint');
+  });
+
+  it('refuses a value past its ceiling at the write boundary (ORD-7)', () => {
+    /* 2^53 + 1 once tested the float path here; no rule may now hold a fixed
+     * amount anywhere near it, so the ceiling is what is tested instead. */
+    for (const overrides of [
+      { minimumMarginIrr: '9007199254740993' },
+      { targetMarginBps: 50_000 },
+      { fxSpreadBps: 5_001 },
+      { roundingStepIrr: '1000010' },
+    ]) {
+      expect(putPricingRuleRequestSchema.safeParse({ ...rawPutRequest(), ...overrides }).success).toBe(false);
+    }
+    expect(putPricingRuleRequestSchema.safeParse({ ...rawPutRequest(), targetMarginBps: 5_000 }).success).toBe(true);
   });
 
   it('records the creating staff member, and omits it for a system actor', async () => {
@@ -729,5 +761,93 @@ describe('rule projections', () => {
     const wire = toWirePricingRule(superseded as never);
     expect(wire.isActive).toBe(false);
     expect(typeof wire.effectiveTo).toBe('string');
+  });
+});
+
+/* ============================================================================
+ * Second approval for large changes (ORD-7)
+ * ==========================================================================*/
+
+describe('PricingRuleService.submit / second approval', () => {
+  /** The mock stamps every audit row at this instant. */
+  const AT = new Date('2026-08-30T12:30:00.000Z');
+  const APPROVER = Object.freeze({ ...ACTOR, staffId: 'staff_admin_2', auditActor: 'staff_admin_2', role: 'ADMIN' });
+
+  async function existingRule() {
+    return service.put(putRequest(), ACTOR);
+  }
+
+  it('applies a small change at once', async () => {
+    await existingRule();
+
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, targetMarginBps: 1_000 }), ACTOR);
+
+    expect(outcome.kind).toBe('APPLIED');
+    expect(rules().filter((rule) => rule.isActive)[0]?.targetMarginBps).toBe(1_000);
+  });
+
+  it('holds a large change as a proposal and changes no price', async () => {
+    await existingRule();
+
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, targetMarginBps: 1_200 }), ACTOR);
+
+    expect(outcome).toMatchObject({ kind: 'PENDING_APPROVAL', reasons: ['targetMarginBps 600 -> 1200 bps'] });
+    expect(rules()).toHaveLength(1);
+    expect(rules()[0]?.targetMarginBps).toBe(600);
+    expect(await service.listProposals(AT)).toHaveLength(1);
+  });
+
+  it('flags a fixed amount that more than halves or doubles', async () => {
+    await existingRule();
+
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, minimumMarginIrr: '2000000' }), ACTOR);
+
+    expect(outcome.kind).toBe('PENDING_APPROVAL');
+  });
+
+  it('holds a new rule only when it starts with an outsized rate', async () => {
+    expect((await service.submit(putRequest(), ACTOR)).kind).toBe('APPLIED');
+    const big = await service.submit(putRequest({ scope: 'SKU', targetId: 'sku_x', targetMarginBps: 2_500 }), ACTOR);
+    expect(big.kind).toBe('PENDING_APPROVAL');
+  });
+
+  it('refuses approval by the proposer, then applies it for a second person exactly once', async () => {
+    await existingRule();
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, targetMarginBps: 1_200 }), ACTOR);
+    if (outcome.kind !== 'PENDING_APPROVAL') throw new Error('expected a proposal');
+
+    await expect(service.approveProposal(outcome.proposalId, ACTOR, AT)).rejects.toBeInstanceOf(ConflictException);
+
+    const applied = await service.approveProposal(outcome.proposalId, APPROVER, AT);
+    expect(applied.targetMarginBps).toBe(1_200);
+    expect(applied.version).toBe(2);
+    expect(await service.listProposals(AT)).toHaveLength(0);
+    await expect(service.approveProposal(outcome.proposalId, APPROVER, AT)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('a rejected proposal is closed without touching the rule', async () => {
+    await existingRule();
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, fxSpreadBps: 900 }), ACTOR);
+    if (outcome.kind !== 'PENDING_APPROVAL') throw new Error('expected a proposal');
+
+    await service.rejectProposal(outcome.proposalId, APPROVER, AT);
+
+    expect(rules()).toHaveLength(1);
+    await expect(service.approveProposal(outcome.proposalId, APPROVER, AT)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('an old proposal must be made again', async () => {
+    await existingRule();
+    const outcome = await service.submit(putRequest({ expectedVersion: 1, fxSpreadBps: 900 }), ACTOR);
+    if (outcome.kind !== 'PENDING_APPROVAL') throw new Error('expected a proposal');
+
+    const later = new Date(AT.getTime() + 25 * 60 * 60_000);
+    await expect(service.approveProposal(outcome.proposalId, APPROVER, later)).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('an unknown proposal is a not-found', async () => {
+    await expect(
+      service.approveProposal('11111111-2222-3333-4444-555555555555', APPROVER, AT),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });

@@ -5,9 +5,12 @@ import type { QueueKey, WorkItemStatus, WorkItemType } from '@barat/contracts';
 import {
   DEFAULT_QUEUE_BY_WORK_ITEM_TYPE,
   DEFAULT_TITLE_BY_WORK_ITEM_TYPE,
+  MANAGER_REFUND_ROLES,
   type ClaimingStaff,
+  type ConvertToRefundResult,
   type CreateWorkItemRecord,
   type OrderQuoteTarget,
+  type RefundCardDisposition,
   type WorkItemStore,
   type WorkItemSummary,
 } from './workitems.types';
@@ -330,8 +333,9 @@ export class PrismaWorkItemStore implements WorkItemStore {
     allowedTypes: readonly WorkItemType[];
     note: string;
     amountIrr: bigint;
+    cardDisposition?: RefundCardDisposition;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }> {
+  }): Promise<ConvertToRefundResult> {
     const queue = await this.ensureQueue(DEFAULT_QUEUE_BY_WORK_ITEM_TYPE['REFUND_REVIEW']);
 
     return this.db.$transaction(async (tx) => {
@@ -365,6 +369,26 @@ export class PrismaWorkItemStore implements WorkItemStore {
       }
       if (input.amountIrr <= 0n || input.amountIrr > order.totalAmountIrr) {
         throw new Error('REFUND_AMOUNT_INVALID');
+      }
+
+      /*
+       * FUL-4: a card that exists changes what a refund means. Once it has
+       * been sent the customer holds it — refunding as well gives away both.
+       * One bought but not sent may only be refunded by a manager who says
+       * what becomes of the card.
+       */
+      const liveAssets = await tx.giftCardAsset.findMany({
+        where: { orderId: item.orderId, liveOrderKey: { not: null } },
+        select: { status: true },
+      });
+      if (liveAssets.some((asset) => asset.status === 'SENDING' || asset.status === 'SENT')) {
+        return { changed: false, orderId: item.orderId, blockedBy: 'ASSET_SENT' as const };
+      }
+      if (
+        liveAssets.length > 0 &&
+        (!MANAGER_REFUND_ROLES.has(input.staffRole) || input.cardDisposition === undefined)
+      ) {
+        return { changed: false, orderId: item.orderId, blockedBy: 'ASSET_NEEDS_MANAGER' as const };
       }
 
       /*
@@ -419,7 +443,12 @@ export class PrismaWorkItemStore implements WorkItemStore {
           entity: 'Order',
           entityId: item.orderId,
           before: { status: 'REVIEW_REQUIRED' } as Prisma.InputJsonValue,
-          after: { status: 'REFUND_PENDING', reason: 'CONVERTED_TO_REFUND', refundId: refund.id } as Prisma.InputJsonValue,
+          after: {
+            status: 'REFUND_PENDING',
+            reason: 'CONVERTED_TO_REFUND',
+            refundId: refund.id,
+            ...(input.cardDisposition === undefined ? {} : { cardDisposition: input.cardDisposition }),
+          } as Prisma.InputJsonValue,
         },
       });
 
