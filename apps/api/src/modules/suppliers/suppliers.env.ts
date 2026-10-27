@@ -10,6 +10,8 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
  * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `FAZERCARDS_TELEGRAM_ENABLED`,
  * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_STEAM_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
+ * `RESELLCODES_GIFTCARD_ENABLED`, `RESELLCODES_TOPUP_ENABLED`, `RESELLCODES_API_KEY`,
+ * `RESELLCODES_TIMEOUT_MS`,
  * `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
  * scattered — so the Foundation agent can lift these entries into the
@@ -101,6 +103,48 @@ function readFazerCardsTimeoutMs(): number {
   const timeoutMs = raw === undefined ? DEFAULT_TIMEOUT_MS : Number(raw);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
     throw new Error(`FAZERCARDS_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
+  }
+  return timeoutMs;
+}
+
+/**
+ * ReSellCodes (resell.codes): one API key, two products, each behind its own
+ * flag. Enabling one registers its adapter, which is what lets fulfillment spend
+ * real money — a human release gate (AGENTS.md section 4.5), so a key alone
+ * never turns either on.
+ */
+export type ResellCodesProductEnv = FazerCardsProductEnv;
+
+export function readResellCodesGiftCardEnv(): ResellCodesProductEnv {
+  return readResellCodesProductEnv('RESELLCODES_GIFTCARD_ENABLED', 'ReSellCodes gift cards');
+}
+
+export function readResellCodesTopUpEnv(): ResellCodesProductEnv {
+  return readResellCodesProductEnv('RESELLCODES_TOPUP_ENABLED', 'ReSellCodes top-up');
+}
+
+/** Like `FazerCardsCatalogEnv`: reading a catalogue spends nothing, so it does not wait for the spend flag. */
+export function readResellCodesCatalogEnv(): FazerCardsCatalogEnv {
+  const apiKey = read('RESELLCODES_API_KEY');
+  return { apiKey, timeoutMs: apiKey === undefined ? DEFAULT_TIMEOUT_MS : readResellCodesTimeoutMs() };
+}
+
+function readResellCodesProductEnv(flag: string, product: string): ResellCodesProductEnv {
+  if (!readBoolean(flag, false)) {
+    return { enabled: false, apiKey: '', timeoutMs: DEFAULT_TIMEOUT_MS };
+  }
+  const apiKey = read('RESELLCODES_API_KEY');
+  if (apiKey === undefined) {
+    throw new Error(`RESELLCODES_API_KEY is required when ${product} is enabled`);
+  }
+  return { enabled: true, apiKey, timeoutMs: readResellCodesTimeoutMs() };
+}
+
+function readResellCodesTimeoutMs(): number {
+  const raw = read('RESELLCODES_TIMEOUT_MS');
+  const timeoutMs = raw === undefined ? DEFAULT_TIMEOUT_MS : Number(raw);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error(`RESELLCODES_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
   }
   return timeoutMs;
 }
