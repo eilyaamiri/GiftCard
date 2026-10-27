@@ -8,6 +8,7 @@ import {
 import { RIAL_PAYMENT_PROVIDER, type RialPaymentProvider } from '@barat/payments';
 
 import {
+  ABANDONED_SESSION_AFTER_MS,
   FULFILLMENT_REPAIR_AFTER_MS,
   PAYMENTS_DATABASE,
   PaymentsService,
@@ -19,10 +20,11 @@ export const RECONCILIATION_SWEEP_INTERVAL_MS = 2 * 60_000;
 
 /**
  * A live session older than this is treated as abandoned and the gateway is
- * asked what became of it. Both gateways expire an unpaid session well inside
- * this, so a definite answer is available by then.
+ * asked what became of it. The gateways expire an unpaid session well inside
+ * this, so a definite answer is available by then. Defined with the service,
+ * which also uses it to close a session the gateway cannot be asked about.
  */
-export const ABANDONED_SESSION_AFTER_MS = 20 * 60_000;
+export { ABANDONED_SESSION_AFTER_MS };
 
 /** An undecided payment is asked about again at most this often. */
 export const RECHECK_INTERVAL_MS = 5 * 60_000;
