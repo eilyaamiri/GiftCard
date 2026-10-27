@@ -14,6 +14,9 @@ import {
   readFazerCardsTopUpEnv,
   readProviderSkuMap,
   readReloadlyEnv,
+  readResellCodesCatalogEnv,
+  readResellCodesGiftCardEnv,
+  readResellCodesTopUpEnv,
 } from './suppliers.env';
 
 /*
@@ -36,6 +39,10 @@ const KEYS = [
   'FAZERCARDS_TOPUP_ENABLED',
   'FAZERCARDS_API_KEY',
   'FAZERCARDS_TIMEOUT_MS',
+  'RESELLCODES_GIFTCARD_ENABLED',
+  'RESELLCODES_TOPUP_ENABLED',
+  'RESELLCODES_API_KEY',
+  'RESELLCODES_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
   'SUPPLIER_PROVIDER_SKU_MAP_FILE',
 ] as const;
@@ -334,6 +341,80 @@ describe('buildTopUpCatalogReaders', () => {
       'supplierName',
     ]);
     expect(JSON.stringify(reader)).not.toContain('fzr-live-key');
+  });
+});
+
+describe('ReSellCodes wiring', () => {
+  it('registers nothing, and reads no key, while both flags are off', () => {
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+
+    // Deploying the key is not the decision to spend with it.
+    expect(readResellCodesGiftCardEnv()).toEqual({ enabled: false, apiKey: '', timeoutMs: 20_000 });
+    expect(readResellCodesTopUpEnv().enabled).toBe(false);
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('gates each product on its own flag', () => {
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+    process.env['RESELLCODES_GIFTCARD_ENABLED'] = 'true';
+
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual([
+      'mock',
+      'resellcodes',
+    ]);
+
+    process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual([
+      'mock',
+      'resellcodes',
+      'resellcodes-topup',
+    ]);
+  });
+
+  it('never registers under NODE_ENV=test, even fully configured', () => {
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+    process.env['RESELLCODES_GIFTCARD_ENABLED'] = 'true';
+    process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
+
+    expect(buildSupplierProviders({ isTest: true }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('refuses to boot when a flag is on without a key', () => {
+    process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
+
+    expect(() => readResellCodesTopUpEnv()).toThrow(/RESELLCODES_API_KEY is required/u);
+  });
+
+  it('refuses a flag it cannot read as a decision, and a nonsense timeout', () => {
+    process.env['RESELLCODES_GIFTCARD_ENABLED'] = 'yes';
+    expect(() => readResellCodesGiftCardEnv()).toThrow(/must be exactly/u);
+
+    delete process.env['RESELLCODES_GIFTCARD_ENABLED'];
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+    process.env['RESELLCODES_TIMEOUT_MS'] = '999999';
+    expect(() => readResellCodesCatalogEnv()).toThrow(/RESELLCODES_TIMEOUT_MS/u);
+  });
+
+  it('builds a read-only catalogue reader from the key alone', () => {
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+
+    const readers = buildTopUpCatalogReaders({ isTest: false });
+
+    expect(readers.map((reader) => reader.supplierCode)).toEqual(['resellcodes-topup']);
+    expect(Object.keys(readers[0] ?? {}).sort()).toEqual([
+      'defaultCurrency',
+      'readCatalog',
+      'supplierCode',
+      'supplierName',
+    ]);
+    expect(JSON.stringify(readers[0])).not.toContain('rsc_live_key');
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('builds no catalogue reader without a key, or under test', () => {
+    expect(buildTopUpCatalogReaders({ isTest: false })).toEqual([]);
+    process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
+    expect(buildTopUpCatalogReaders({ isTest: true })).toEqual([]);
   });
 });
 
