@@ -77,6 +77,12 @@ export const adminProductListSchema = adminCatalogListSchema.extend({
   categoryId: idSchema.optional(),
   brandId: idSchema.optional(),
   /**
+   * Only products this supplier can currently serve: at least one of their SKUs
+   * has an active offer from it. An archived offer means the supplier no longer
+   * sells that SKU to us, so it does not count.
+   */
+  supplierId: idSchema.optional(),
+  /**
    * The "what still needs an operator" view. There is no separate
    * uncategorised list because no product is left without a category — the ones
    * the rules could not place are in «سایر» with this flag set, which is the
