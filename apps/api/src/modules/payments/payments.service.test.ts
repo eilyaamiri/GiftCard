@@ -15,6 +15,7 @@ import type { AuditService } from '../audit/audit.service';
  * what keeps that from happening again. */
 import type { FulfillmentTrigger, WorkItemSummary } from '../workitems/workitems.types';
 import {
+  ABANDONED_SESSION_AFTER_MS,
   assertPaymentTransition,
   FULFILLMENT_REPAIR_AFTER_MS,
   PaymentsService,
@@ -1694,6 +1695,161 @@ describe('PaymentsService with the Amin gateway', () => {
     expect(response.outcome).toBe('UNKNOWN');
     expect(gateway.verifyBodies).toHaveLength(0);
     expect(harness.trigger).not.toHaveBeenCalled();
+    /* Nothing was asked, so nothing moves: parking the payment in UNKNOWN here
+     * would block the customer from paying this order again. */
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBe(ORDER_ID);
+    expect(verifyAttempts(harness, paymentId)).toBe(0);
+  });
+
+  /* ------------------------------------------------------------------------
+   * A session nobody can resume or ask about: the customer opened Amin's page
+   * and never came back. Amin cannot be asked without the identifiers of a
+   * browser return, so none of these paths may call it or move a payment on the
+   * strength of a question that was never put.
+   * ----------------------------------------------------------------------*/
+
+  const MINUTE = 60_000;
+
+  const verifyAttempts = (harness: Harness, paymentId: string): number =>
+    harness.db.tables.paymentAttempt.filter(
+      (attempt) => attempt['paymentId'] === paymentId && attempt['action'] === 'VERIFY',
+    ).length;
+
+  const ageSession = (harness: Harness, paymentId: string, ms: number): void => {
+    harness.db.paymentById(paymentId)['createdAt'] = new Date(Date.now() - ms);
+  };
+
+  /** The API process restarting: same database, nothing remembered in memory. */
+  const afterRestart = (harness: Harness): PaymentsService =>
+    new PaymentsService(
+      harness.provider,
+      harness.db,
+      { record: harness.audit } as unknown as AuditService,
+      { onOrderPaid: harness.trigger } as FulfillmentTrigger,
+      harness.bridge,
+    );
+
+  const retry = (service: PaymentsService, key: string) =>
+    service.createPayment({ orderId: ORDER_ID, idempotencyKey: key }, CUSTOMER_ID, CALLBACK_URL);
+
+  it('a retry in the same process goes back to the page that is already open', async () => {
+    const { harness, gateway, created } = await aminHarness([]);
+
+    const again = await retry(harness.service, 'idem-2');
+
+    expect(again.created).toBe(false);
+    expect(again.payment.id).toBe(created.payment.id);
+    expect(again.redirectUrl).toBe(created.redirectUrl);
+    expect(gateway.withdrawCalls).toBe(1);
+  });
+
+  it('a retry after a restart replaces a session nobody can resume, instead of locking the customer out', async () => {
+    const { harness, gateway, paymentId } = await aminHarness([]);
+    ageSession(harness, paymentId, 2 * MINUTE);
+
+    const again = await retry(afterRestart(harness), 'idem-2');
+
+    expect(again.created).toBe(true);
+    expect(again.redirectUrl).toBe('https://api.aminremit.com/pgw/pay/tok-1');
+    expect(again.payment.id).not.toBe(paymentId);
+    expect(gateway.withdrawCalls).toBe(2);
+
+    const old = harness.db.paymentById(paymentId);
+    expect(old['status']).toBe('CANCELLED');
+    expect(old['liveOrderKey']).toBeNull();
+    const live = harness.db.tables.payment.filter((row) => row['liveOrderKey'] === ORDER_ID);
+    expect(live).toHaveLength(1);
+    expect(live[0]?.['id']).toBe(again.payment.id);
+    expect(auditActions(harness.audit)).toContain('PAYMENT_SESSION_REPLACED');
+  });
+
+  it('does not replace a session that is only seconds old — another process may have just opened it', async () => {
+    const { harness, paymentId } = await aminHarness([]);
+
+    await expect(retry(afterRestart(harness), 'idem-2')).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+  });
+
+  it('does not replace a session whose return identifiers are stored: the scanner can still settle it', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([new Error('connect ETIMEDOUT')]);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    ageSession(harness, paymentId, 2 * MINUTE);
+
+    await expect(retry(afterRestart(harness), 'idem-2')).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+  });
+
+  it('a payment made on the replaced page is still settled, and the order is delivered once', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([CONFIRMED]);
+    ageSession(harness, paymentId, 2 * MINUTE);
+    const fresh = await retry(afterRestart(harness), 'idem-2');
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+    /* Whatever happens to the second session, it cannot deliver the order again. */
+    expect(harness.db.paymentById(fresh.payment.id)['status']).not.toBe('PAID');
+  });
+
+  it('the scanner closes an abandoned session without asking the gateway or writing attempts', async () => {
+    const { harness, gateway, paymentId } = await aminHarness([]);
+    ageSession(harness, paymentId, ABANDONED_SESSION_AFTER_MS + MINUTE);
+
+    const result = await harness.service.reconcilePayment(paymentId);
+    const again = await harness.service.reconcilePayment(paymentId);
+
+    expect(result).toEqual({ status: 'CANCELLED', changed: true });
+    expect(again).toEqual({ status: 'CANCELLED', changed: false });
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBeNull();
+    expect(gateway.verifyBodies).toHaveLength(0);
+    expect(verifyAttempts(harness, paymentId)).toBe(0);
+    expect(auditActions(harness.audit)).toContain('PAYMENT_SESSION_ABANDONED');
+  });
+
+  it('the scanner leaves a session alone until it is old enough to be abandoned', async () => {
+    const { harness, paymentId } = await aminHarness([]);
+    ageSession(harness, paymentId, ABANDONED_SESSION_AFTER_MS - MINUTE);
+
+    await expect(harness.service.reconcilePayment(paymentId)).resolves.toEqual({
+      status: 'REDIRECTED',
+      changed: false,
+    });
+    expect(harness.db.paymentById(paymentId)['liveOrderKey']).toBe(ORDER_ID);
+  });
+
+  it('a genuine return after the session was closed still settles it and reopens a closed order', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([CONFIRMED]);
+    ageSession(harness, paymentId, ABANDONED_SESSION_AFTER_MS + MINUTE);
+    await harness.service.reconcilePayment(paymentId);
+    // The payment window then closed the order, as it does for any unpaid one.
+    harness.db.tables.order[0]!['status'] = 'CANCELLED';
+
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.db.tables.order[0]?.['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('an undecided payment with no identifiers, left by the earlier behaviour, is released', async () => {
+    const { harness, gateway, paymentId } = await aminHarness([]);
+    const row = harness.db.paymentById(paymentId);
+    row['status'] = 'UNKNOWN';
+    row['liveOrderKey'] = null;
+    ageSession(harness, paymentId, ABANDONED_SESSION_AFTER_MS + MINUTE);
+    // Until released it blocks the order from taking another payment.
+    await expect(retry(harness.service, 'idem-2')).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    const result = await harness.service.reconcilePayment(paymentId);
+
+    expect(result).toEqual({ status: 'FAILED', changed: true });
+    expect(gateway.verifyBodies).toHaveLength(0);
+    const next = await retry(harness.service, 'idem-3');
+    expect(next.created).toBe(true);
   });
 
   it('never keeps the merchant identifier or a full card number in what it stores', async () => {

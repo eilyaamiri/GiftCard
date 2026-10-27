@@ -198,6 +198,23 @@ const VERIFY_LEASE_POLL_MS = 250;
 export const FULFILLMENT_REPAIR_AFTER_MS = 2 * 60_000;
 
 /**
+ * A live session older than this is treated as abandoned: the scanner asks the
+ * gateway about it, and for a gateway that cannot be asked (Amin, without the
+ * identifiers of a browser return) closes it locally instead.
+ */
+export const ABANDONED_SESSION_AFTER_MS = 20 * 60_000;
+
+/**
+ * A retry may replace a session this process cannot send the browser back to
+ * only once it is this old. A younger one may have been opened a moment ago by
+ * another process, in which case it is the customer's current page.
+ */
+const SESSION_REPLACE_AFTER_MS = 60_000;
+
+/** The reason recorded when a session is closed because the customer walked away or started over. */
+const SESSION_CLOSED_REASON: PaymentFailureReason = 'CUSTOMER_CANCELLED';
+
+/**
  * Check a state transition in one place. `UNKNOWN -> PAID / FAILED` is only
  * open to the reconciliation path.
  */
@@ -341,6 +358,16 @@ export class PaymentsService {
     }
 
     if (reservation.kind === 'existing') return this.joinLiveSession(reservation.payment);
+    if (reservation.replaced !== undefined) {
+      await this.recordAudit({
+        actor: 'system:payments',
+        actorType: 'SYSTEM',
+        action: 'PAYMENT_SESSION_REPLACED',
+        entity: 'Payment',
+        entityId: reservation.replaced.id,
+        after: { reason: 'unresumable_session', replacedBy: reservation.payment.id },
+      });
+    }
     return this.openGatewaySession(reservation.payment, input, callbackUrl);
   }
 
@@ -423,10 +450,32 @@ export class PaymentsService {
         );
       }
 
+      let replaced: PaymentRecord | null = null;
       const live = await paymentTx.findFirst({
         where: { orderId: input.orderId, status: { in: [...LIVE_PAYMENT_STATUSES] } },
       });
-      if (live !== null) return { kind: 'existing' as const, payment: this.asPayment(live) };
+      if (live !== null) {
+        const livePayment = this.asPayment(live);
+        if (!(await this.isUnresumable(livePayment, transaction))) {
+          return { kind: 'existing' as const, payment: livePayment };
+        }
+        /* A session nobody can resume must not strand the order: the browser
+         * cannot be sent back to it and nothing will ever close it. Close it in
+         * the same transaction that opens the replacement, so the order's one
+         * live slot is never held by both or by neither. If the customer did pay
+         * on the old page, its return still finds the row and is settled (or
+         * refunded as a duplicate) like any other late payment. */
+        const closed = await paymentTx.updateMany({
+          where: { id: livePayment.id, status: { in: [...LIVE_PAYMENT_STATUSES] } },
+          data: { status: 'CANCELLED', failureReason: SESSION_CLOSED_REASON, liveOrderKey: null },
+        });
+        if (closed.count !== 1) {
+          /* Another request moved it first; whatever it is now, join that. */
+          const current = await paymentTx.findUnique({ where: { id: livePayment.id } });
+          return { kind: 'existing' as const, payment: this.asPayment(current ?? live) };
+        }
+        replaced = livePayment;
+      }
 
       // ACCEPTED is the persisted freeze marker. Once payment is reserved, the
       // quote is never re-priced or changed by this flow.
@@ -452,8 +501,42 @@ export class PaymentsService {
           requestedAt: new Date(),
         },
       });
-      return { kind: 'new' as const, payment: this.asPayment(created) };
+      return {
+        kind: 'new' as const,
+        payment: this.asPayment(created),
+        ...(replaced === null ? {} : { replaced }),
+      };
     });
+  }
+
+  /**
+   * Whether a live session can no longer be resumed or settled by anyone.
+   *
+   * True only for a gateway that has to be told the browser's return identifiers
+   * before it will answer about a payment (Amin), when this process does not
+   * know where to send the browser and no identifiers were ever stored: there is
+   * then no page to return the customer to and no question the scanner could
+   * ask. A session whose return was recorded is not unresumable — it can still
+   * be verified from the stored identifiers — and neither is a very young one.
+   */
+  private async isUnresumable(payment: PaymentRecord, transaction: PaymentDatabase): Promise<boolean> {
+    if (!this.needsReturnEvidence(payment)) return false;
+    if (payment.providerAuthority === null) return false;
+    if (this.redirectUrls.has(payment.id)) return false;
+    const createdAt = payment.createdAt instanceof Date ? payment.createdAt.getTime() : 0;
+    if (Date.now() - createdAt < SESSION_REPLACE_AFTER_MS) return false;
+    return (await this.storedCallbackEvidence(payment, transaction)) === undefined;
+  }
+
+  /**
+   * Gateways that cannot be asked about a payment from our records alone.
+   *
+   * Amin's verify takes `ref_num` and `tracking_code`, which only the customer's
+   * browser return carries. Without them there is nothing to ask, so nothing
+   * here may call it, record an attempt for it or move a payment on its account.
+   */
+  private needsReturnEvidence(payment: PaymentRecord): boolean {
+    return payment.provider === 'amin';
   }
 
   private async openGatewaySession(
@@ -811,11 +894,54 @@ export class PaymentsService {
         return { status: updated.status, changed: updated.status !== payment.status };
       }
 
-      const result = await this.verifyStoredPayment(payment);
+      const evidence = await this.storedCallbackEvidence(payment);
+      if (this.needsReturnEvidence(payment) && evidence === undefined) {
+        return this.closeUnaskableSession(payment);
+      }
+
+      const result = await this.verifyStoredPayment(payment, evidence);
       const response = await this.applyVerificationResult(payment, result, {}, 'reconciliation');
       const status = response.payment.status as PaymentStatusName;
       return { status, changed: status !== payment.status };
     });
+  }
+
+  /**
+   * A payment the gateway cannot be asked about because its browser return never
+   * reached us (Amin). The scanner would otherwise write an attempt row for it
+   * every few minutes for ever and the order would never be released.
+   *
+   * Nothing is asked and nothing is guessed. Once the session is older than
+   * `ABANDONED_SESSION_AFTER_MS` it is closed locally — a live one as
+   * CANCELLED, an undecided one as FAILED — which frees the order's live slot
+   * and lets the payment window close the order. That is no less safe than
+   * leaving it open, because nothing can detect a payment without the
+   * identifiers either way; and if the customer did pay and the browser comes
+   * back later, the return finds this row and settles it through the late
+   * payment path, reopening the order if it was closed meanwhile.
+   */
+  private async closeUnaskableSession(
+    payment: PaymentRecord,
+  ): Promise<{ readonly status: PaymentStatusName; readonly changed: boolean }> {
+    const unchanged = { status: payment.status, changed: false };
+    const live = LIVE_PAYMENT_STATUSES.includes(payment.status);
+    if (!live && payment.status !== 'UNKNOWN') return unchanged;
+    if (Date.now() - payment.createdAt.getTime() < ABANDONED_SESSION_AFTER_MS) return unchanged;
+
+    const updated = live
+      ? await this.transitionFailure(payment, SESSION_CLOSED_REASON, 'CANCELLED')
+      : await this.transitionStatus(payment, 'FAILED', 'reconciliation', SESSION_CLOSED_REASON);
+    if (updated.status === payment.status) return unchanged;
+
+    await this.recordAudit({
+      actor: 'system:payments',
+      actorType: 'SYSTEM',
+      action: 'PAYMENT_SESSION_ABANDONED',
+      entity: 'Payment',
+      entityId: payment.id,
+      after: { reason: 'no_return_identifiers', from: payment.status, to: updated.status },
+    });
+    return { status: updated.status, changed: true };
   }
 
   /**
@@ -965,6 +1091,12 @@ export class PaymentsService {
     /* In the refund path our row is the answer; only the scanner asks the
      * gateway about it, to see an uncommitted charge handed back. */
     if (payment.status === 'REFUND_PENDING' || payment.status === 'REFUNDED') return null;
+    /* Nothing to ask without the return identifiers (Amin): no gateway call, no
+     * attempt row, and above all no state change on the strength of a question
+     * that was never put. The browser's return, or a later "check again" once
+     * identifiers are stored, is what settles it. */
+    const evidence = options.evidence ?? (await this.storedCallbackEvidence(payment));
+    if (this.needsReturnEvidence(payment) && evidence === undefined) return null;
     if (options.force !== true && !LIVE_PAYMENT_STATUSES.includes(payment.status)) {
       const last = await this.delegate(this.db.paymentAttempt).findFirst({
         where: { paymentId: payment.id, action: 'VERIFY' },
@@ -973,7 +1105,7 @@ export class PaymentsService {
       const lastAt = (last as { createdAt?: Date } | null)?.createdAt;
       if (lastAt instanceof Date && now.getTime() - lastAt.getTime() < VERIFY_COOLDOWN_MS) return null;
     }
-    return this.verifyStoredPayment(payment, options.evidence);
+    return this.verifyStoredPayment(payment, evidence);
   }
 
   private async verifyStoredPayment(
@@ -1005,9 +1137,10 @@ export class PaymentsService {
    */
   private async storedCallbackEvidence(
     payment: PaymentRecord,
+    source: PaymentDatabase = this.db,
   ): Promise<Readonly<Record<string, string>> | undefined> {
-    if (payment.provider !== 'amin') return undefined;
-    const attempt = await this.delegate(this.db.paymentAttempt).findFirst({
+    if (!this.needsReturnEvidence(payment)) return undefined;
+    const attempt = await this.delegate(source.paymentAttempt).findFirst({
       where: { paymentId: payment.id, action: 'CALLBACK', status: AMIN_EVIDENCE_STATUS },
       orderBy: { createdAt: 'desc' },
     });
@@ -1766,8 +1899,8 @@ export class PaymentsService {
 }
 
 type Reservation =
-  | { readonly kind: 'new'; readonly payment: PaymentRecord }
-  | { readonly kind: 'existing'; readonly payment: PaymentRecord };
+  | { readonly kind: 'new'; readonly payment: PaymentRecord; readonly replaced?: PaymentRecord }
+  | { readonly kind: 'existing'; readonly payment: PaymentRecord; readonly replaced?: undefined };
 
 export interface CallbackFailureResponse {
   readonly payment: null;
