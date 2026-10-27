@@ -940,6 +940,19 @@ export class PaymentsService {
       }
 
       const result = await this.verifyStoredPayment(payment, evidence);
+      if (
+        result.outcome === 'UNKNOWN' &&
+        LIVE_PAYMENT_STATUSES.includes(payment.status) &&
+        (await this.isReturnUnsettled(payment, this.db))
+      ) {
+        /* The browser came back with identifiers a while ago and the gateway
+         * still cannot confirm it. Elsewhere a blip leaves a live session live
+         * for the next pass; here that would keep the order's live slot past its
+         * payment window for a customer who simply cancelled. Parked, not
+         * written off: it is asked about again from the stored identifiers. */
+        const parked = await this.transitionFailure(payment, result.failureReason, 'UNKNOWN');
+        return { status: parked.status, changed: parked.status !== payment.status };
+      }
       const response = await this.applyVerificationResult(payment, result, {}, 'reconciliation');
       const status = response.payment.status as PaymentStatusName;
       return { status, changed: status !== payment.status };

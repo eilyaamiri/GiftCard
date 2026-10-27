@@ -23,6 +23,7 @@ import {
   VERIFY_LEASE_TTL_MS,
 } from './payments.service';
 import { FakeOrderBridge, FakePaymentDatabase, type Row } from './testing/fake-payment-database';
+import { PaymentReconciliationScanner } from './payment-reconciliation.scanner';
 
 /* ============================================================================
  * Fixtures
@@ -1836,6 +1837,29 @@ describe('PaymentsService with the Amin gateway', () => {
     expect(result.status).toBe('PAID');
     expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
     expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
+  it('the scanner frees the order of a cancelled return soon enough for its payment window to cancel it', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([
+      new Error('connect ETIMEDOUT'),
+      new Error('connect ETIMEDOUT'),
+    ]);
+    const scanner = new PaymentReconciliationScanner(harness.service, harness.db, harness.provider);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    // A return only a moment old is the customer still being settled, not a cancel.
+    for (const row of harness.db.tables.paymentAttempt) row['createdAt'] = new Date();
+    expect((await scanner.sweepOnce()).checked).toBe(0);
+    ageSession(harness, paymentId, 6 * MINUTE);
+    expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
+
+    for (const row of harness.db.tables.paymentAttempt) row['createdAt'] = new Date(Date.now() - 6 * MINUTE);
+    const result = await scanner.sweepOnce();
+
+    expect(result.checked).toBe(1);
+    const row = harness.db.paymentById(paymentId);
+    // Parked, not written off, and no longer holding the order's live slot.
+    expect(row['status']).toBe('UNKNOWN');
+    expect(row['liveOrderKey']).toBeNull();
   });
 
   it('a payment made on the replaced page is still settled, and the order is delivered once', async () => {
