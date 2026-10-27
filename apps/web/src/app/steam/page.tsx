@@ -38,18 +38,18 @@ export default async function SteamPage() {
 
   return (
     <main>
-      <section className="tg-hero steam-hero">
+      <section className="tg-hero tg-hero--compact steam-hero">
         <div className="container tg-hero-inner">
           <div className="eyebrow">استیم</div>
           <h1 className="h1 tg-hero-title">شارژ کیف پول استیم، فقط با شناسهٔ ورود</h1>
-          <p className="tg-hero-copy">
-            شناسهٔ ورود حساب استیم و مبلغ دلاری دلخواه را وارد کنید. بعد از تأیید پرداخت، همان مبلغ مستقیم
-            به کیف پول استیم می‌نشیند.
-          </p>
-          <div className="tg-hero-facts">
-            <span><BadgeCheck size={15} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
-            <span><ShieldCheck size={15} aria-hidden="true" /> بدون رمز عبور و Steam Guard</span>
-            <span><Clock3 size={15} aria-hidden="true" /> تحویل خودکار روی حساب</span>
+          {/* The order form is the point of this page, so the hero is kept
+              short: the three facts are chips, and what the paragraph said
+              («شناسهٔ ورود و مبلغ دلاری را وارد کنید») is the form's own
+              header right below. */}
+          <div className="tg-hero-chips">
+            <span><BadgeCheck size={14} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
+            <span><ShieldCheck size={14} aria-hidden="true" /> بدون رمز عبور و Steam Guard</span>
+            <span><Clock3 size={14} aria-hidden="true" /> تحویل خودکار روی حساب</span>
           </div>
         </div>
       </section>
