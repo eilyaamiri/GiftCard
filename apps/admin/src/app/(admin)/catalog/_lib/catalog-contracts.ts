@@ -290,6 +290,13 @@ const productCategoryRefSchema = z.object({
   nameFa: z.string(),
   iconKey: z.string(),
 });
+/** A supplier as the product list names it. `isActive` is the supplier's own switch. */
+const productSupplierRefSchema = z.object({
+  id: idSchema,
+  code: z.string(),
+  name: z.string(),
+  isActive: z.boolean(),
+});
 
 export const adminProductSchema = z.object({
   id: idSchema,
@@ -318,6 +325,12 @@ export const adminProductSchema = z.object({
     .array(z.object({ category: z.object({ id: idSchema, slug: z.string(), nameFa: z.string() }) }))
     .optional(),
   _count: z.object({ skus: z.number().int() }).optional(),
+  /**
+   * List only: the suppliers with an active offer on one of its SKUs. Absent
+   * wherever a product is nested inside a SKU or an offer, which is why it is
+   * optional rather than defaulted to an empty list that would read as «none».
+   */
+  suppliers: z.array(productSupplierRefSchema).optional(),
 });
 export type AdminProduct = z.infer<typeof adminProductSchema>;
 
@@ -700,6 +713,8 @@ export interface CatalogQuery {
   readonly status: "ALL" | "ACTIVE" | "INACTIVE";
   readonly categoryId?: string;
   readonly brandId?: string;
+  /** Only products this supplier can currently serve (an active offer on a SKU). */
+  readonly supplierId?: string;
   /**
    * Set only when the operator asked for the review queue. Absent means "every
    * product", never "the ones that are fine" — `needsReview=false` would hide
@@ -715,6 +730,7 @@ type CatalogOverrides = {
   /** An empty string clears the filter; `undefined` keeps what the query has. */
   categoryId?: string;
   brandId?: string;
+  supplierId?: string;
   needsReview?: boolean;
 };
 
@@ -737,6 +753,7 @@ export function readCatalogQuery(
   const id = (key: string): string | undefined => first(key)?.slice(0, 64);
   const categoryId = id("categoryId");
   const brandId = id("brandId");
+  const supplierId = id("supplierId");
 
   return {
     page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
@@ -746,6 +763,7 @@ export function readCatalogQuery(
     ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
     ...(categoryId !== undefined ? { categoryId } : {}),
     ...(brandId !== undefined ? { brandId } : {}),
+    ...(supplierId !== undefined ? { supplierId } : {}),
     ...(first("needsReview") === "true" ? { needsReview: true as const } : {}),
   };
 }
@@ -757,13 +775,13 @@ export function readCatalogQuery(
  */
 export function catalogHref(basePath: string, query: CatalogQuery, overrides: CatalogOverrides = {}): string {
   const params = new URLSearchParams();
-  const pick = (key: "search" | "categoryId" | "brandId"): string | undefined =>
+  const pick = (key: "search" | "categoryId" | "brandId" | "supplierId"): string | undefined =>
     overrides[key] === undefined ? query[key] : overrides[key];
   const status = overrides.status === undefined ? query.status : overrides.status;
   const needsReview = overrides.needsReview === undefined ? query.needsReview === true : overrides.needsReview;
   const page = overrides.page ?? 1;
 
-  for (const key of ["search", "categoryId", "brandId"] as const) {
+  for (const key of ["search", "categoryId", "brandId", "supplierId"] as const) {
     const value = pick(key);
     if (value) params.set(key, value);
   }
