@@ -211,6 +211,14 @@ export const ABANDONED_SESSION_AFTER_MS = 20 * 60_000;
  */
 const SESSION_REPLACE_AFTER_MS = 60_000;
 
+/**
+ * A browser return that carried identifiers (Amin) but that verify could not
+ * settle — a customer who cancelled at the bank comes back with them too — stops
+ * holding the order after this long. The scanner keeps asking about it from the
+ * stored identifiers, so a payment that did go through is still settled.
+ */
+export const RETURN_UNSETTLED_AFTER_MS = 2 * 60_000;
+
 /** The reason recorded when a session is closed because the customer walked away or started over. */
 const SESSION_CLOSED_REASON: PaymentFailureReason = 'CUSTOMER_CANCELLED';
 
@@ -365,7 +373,7 @@ export class PaymentsService {
         action: 'PAYMENT_SESSION_REPLACED',
         entity: 'Payment',
         entityId: reservation.replaced.id,
-        after: { reason: 'unresumable_session', replacedBy: reservation.payment.id },
+        after: { reason: reservation.replacedReason ?? 'unresumable_session', replacedBy: reservation.payment.id },
       });
     }
     return this.openGatewaySession(reservation.payment, input, callbackUrl);
@@ -440,23 +448,33 @@ export class PaymentsService {
        * money. Opening another before the gateway has answered is how a
        * customer pays twice. The scanner settles it within minutes. A session
        * that never reached the gateway (no authority) cannot have been paid. */
+      let replaced: PaymentRecord | null = null;
+      let replacedReason = 'unresumable_session';
       const undecided = await paymentTx.findFirst({
         where: { orderId: input.orderId, status: 'UNKNOWN', providerAuthority: { not: null } },
       });
       if (undecided !== null) {
-        throw DomainErrors.conflict(
-          'نتیجهٔ پرداخت قبلی این سفارش هنوز از بانک دریافت نشده است. لطفاً چند دقیقه بعد دوباره تلاش کنید.',
-          `Order ${input.orderId} has undecided payment ${this.asPayment(undecided).id}`,
-        );
+        const undecidedPayment = this.asPayment(undecided);
+        /* A customer who cancelled at Amin's page comes back with identifiers
+         * and verify never settles it. It stays UNKNOWN for the scanner to keep
+         * asking; it must not hold the order for ever. */
+        if (!(await this.isReturnUnsettled(undecidedPayment, transaction))) {
+          throw DomainErrors.conflict(
+            'نتیجهٔ پرداخت قبلی این سفارش هنوز از بانک دریافت نشده است. لطفاً چند دقیقه بعد دوباره تلاش کنید.',
+            `Order ${input.orderId} has undecided payment ${undecidedPayment.id}`,
+          );
+        }
+        replaced = undecidedPayment;
+        replacedReason = 'return_unsettled';
       }
 
-      let replaced: PaymentRecord | null = null;
       const live = await paymentTx.findFirst({
         where: { orderId: input.orderId, status: { in: [...LIVE_PAYMENT_STATUSES] } },
       });
       if (live !== null) {
         const livePayment = this.asPayment(live);
-        if (!(await this.isUnresumable(livePayment, transaction))) {
+        const unsettled = await this.isReturnUnsettled(livePayment, transaction);
+        if (!unsettled && !(await this.isUnresumable(livePayment, transaction))) {
           return { kind: 'existing' as const, payment: livePayment };
         }
         /* A session nobody can resume must not strand the order: the browser
@@ -464,10 +482,15 @@ export class PaymentsService {
          * the same transaction that opens the replacement, so the order's one
          * live slot is never held by both or by neither. If the customer did pay
          * on the old page, its return still finds the row and is settled (or
-         * refunded as a duplicate) like any other late payment. */
+         * refunded as a duplicate) like any other late payment.
+         *
+         * One whose return came back with identifiers is not cancelled but
+         * parked as UNKNOWN, which the scanner keeps asking about. */
         const closed = await paymentTx.updateMany({
           where: { id: livePayment.id, status: { in: [...LIVE_PAYMENT_STATUSES] } },
-          data: { status: 'CANCELLED', failureReason: SESSION_CLOSED_REASON, liveOrderKey: null },
+          data: unsettled
+            ? { status: 'UNKNOWN', liveOrderKey: null }
+            : { status: 'CANCELLED', failureReason: SESSION_CLOSED_REASON, liveOrderKey: null },
         });
         if (closed.count !== 1) {
           /* Another request moved it first; whatever it is now, join that. */
@@ -475,6 +498,7 @@ export class PaymentsService {
           return { kind: 'existing' as const, payment: this.asPayment(current ?? live) };
         }
         replaced = livePayment;
+        replacedReason = unsettled ? 'return_unsettled' : 'unresumable_session';
       }
 
       // ACCEPTED is the persisted freeze marker. Once payment is reserved, the
@@ -504,7 +528,7 @@ export class PaymentsService {
       return {
         kind: 'new' as const,
         payment: this.asPayment(created),
-        ...(replaced === null ? {} : { replaced }),
+        ...(replaced === null ? {} : { replaced, replacedReason }),
       };
     });
   }
@@ -526,6 +550,22 @@ export class PaymentsService {
     const createdAt = payment.createdAt instanceof Date ? payment.createdAt.getTime() : 0;
     if (Date.now() - createdAt < SESSION_REPLACE_AFTER_MS) return false;
     return (await this.storedCallbackEvidence(payment, transaction)) === undefined;
+  }
+
+  /**
+   * Whether the customer's browser came back with identifiers (Amin) long enough
+   * ago that verify should have settled it, and has not. A cancelled payment
+   * looks exactly like this, and so does a transient gateway error on a real
+   * one — which is why the payment is parked for the scanner, never written off.
+   */
+  private async isReturnUnsettled(payment: PaymentRecord, transaction: PaymentDatabase): Promise<boolean> {
+    if (!this.needsReturnEvidence(payment)) return false;
+    const attempt = await this.delegate(transaction.paymentAttempt).findFirst({
+      where: { paymentId: payment.id, action: 'CALLBACK', status: AMIN_EVIDENCE_STATUS },
+      orderBy: { createdAt: 'desc' },
+    });
+    const returnedAt = (attempt as { createdAt?: unknown } | null)?.createdAt;
+    return returnedAt instanceof Date && Date.now() - returnedAt.getTime() >= RETURN_UNSETTLED_AFTER_MS;
   }
 
   /**
@@ -1899,7 +1939,12 @@ export class PaymentsService {
 }
 
 type Reservation =
-  | { readonly kind: 'new'; readonly payment: PaymentRecord; readonly replaced?: PaymentRecord }
+  | {
+      readonly kind: 'new';
+      readonly payment: PaymentRecord;
+      readonly replaced?: PaymentRecord;
+      readonly replacedReason?: string;
+    }
   | { readonly kind: 'existing'; readonly payment: PaymentRecord; readonly replaced?: undefined };
 
 export interface CallbackFailureResponse {

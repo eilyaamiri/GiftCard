@@ -1782,6 +1782,62 @@ describe('PaymentsService with the Amin gateway', () => {
     expect(harness.db.paymentById(paymentId)['status']).toBe('REDIRECTED');
   });
 
+  /* A customer who cancels at Amin's page comes back with identifiers, and verify
+   * never settles it. Found in production on 2026-10-27: the order stayed locked
+   * behind an UNKNOWN payment for good. */
+  const ageReturn = (harness: Harness, paymentId: string, ms: number): void => {
+    for (const row of harness.db.tables.paymentAttempt) {
+      if (row['paymentId'] === paymentId && row['action'] === 'CALLBACK') {
+        row['createdAt'] = new Date(Date.now() - ms);
+      }
+    }
+  };
+
+  it('a cancelled return that verify cannot settle stops holding the order after a couple of minutes', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([new Error('connect ETIMEDOUT')]);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    ageReturn(harness, paymentId, 3 * MINUTE);
+
+    const again = await retry(harness.service, 'idem-2');
+
+    expect(again.created).toBe(true);
+    expect(again.payment.id).not.toBe(paymentId);
+    const old = harness.db.paymentById(paymentId);
+    // Parked for the scanner, not written off: it may have been a real payment.
+    expect(old['status']).toBe('UNKNOWN');
+    expect(old['liveOrderKey']).toBeNull();
+    expect(harness.db.tables.payment.filter((row) => row['liveOrderKey'] === ORDER_ID)).toHaveLength(1);
+    expect(auditActions(harness.audit)).toContain('PAYMENT_SESSION_REPLACED');
+  });
+
+  it('the same holds when the failed check already parked the payment as UNKNOWN', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([new Error('connect ETIMEDOUT')]);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    const row = harness.db.paymentById(paymentId);
+    row['status'] = 'UNKNOWN';
+    row['liveOrderKey'] = null;
+
+    await expect(retry(harness.service, 'idem-2')).rejects.toMatchObject({ code: 'CONFLICT' });
+
+    ageReturn(harness, paymentId, 3 * MINUTE);
+    const again = await retry(harness.service, 'idem-3');
+    expect(again.created).toBe(true);
+    expect(harness.db.paymentById(paymentId)['status']).toBe('UNKNOWN');
+  });
+
+  it('a payment parked that way is still settled by the scanner if it was real', async () => {
+    const { harness, paymentId, orderId } = await aminHarness([new Error('connect ETIMEDOUT'), CONFIRMED]);
+    await harness.service.handleAminReturn({ order_id: orderId, ...GENUINE });
+    ageReturn(harness, paymentId, 3 * MINUTE);
+    await retry(harness.service, 'idem-2');
+
+    const result = await harness.service.reconcilePayment(paymentId);
+
+    expect(result.status).toBe('PAID');
+    expect(harness.db.paymentById(paymentId)['status']).toBe('PAID');
+    expect(harness.trigger).toHaveBeenCalledTimes(1);
+  });
+
   it('a payment made on the replaced page is still settled, and the order is delivered once', async () => {
     const { harness, paymentId, orderId } = await aminHarness([CONFIRMED]);
     ageSession(harness, paymentId, 2 * MINUTE);
