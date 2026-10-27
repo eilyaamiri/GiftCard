@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { formatTomanCompact, Ltr } from "@barat/ui";
+import { formatTomanCompact } from "@barat/ui";
 import { ProductArtwork } from "@/components/catalog-artwork";
 import { FavoriteButton } from "@/components/favorite-button";
 import type { CatalogProduct } from "@/lib/catalog";
+import { regionLabel, sortRegions } from "@/lib/regions";
 
 /** Beyond three, the region line wraps and stops being scannable. */
 const REGIONS_SHOWN = 3;
@@ -61,7 +62,7 @@ export function CatalogProductCard({
               "منطقه‌ای ثبت نشده"
             ) : (
               <>
-                منطقه <Ltr>{product.regions.slice(0, REGIONS_SHOWN).join("، ")}</Ltr>
+                منطقه {sortRegions(product.regions).slice(0, REGIONS_SHOWN).map(regionLabel).join("، ")}
                 {product.regions.length > REGIONS_SHOWN
                   ? ` و ${product.regions.length - REGIONS_SHOWN} منطقهٔ دیگر`
                   : null}

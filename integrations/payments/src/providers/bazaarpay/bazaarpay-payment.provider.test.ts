@@ -252,6 +252,157 @@ describe('createPayment', () => {
 });
 
 /* ============================================================================
+ * Auto-login — skip BazaarPay's own login for a customer signed in with us
+ * ==========================================================================*/
+
+const ACCESS_TOKEN_PATH = '/merchant/create-user-access-token/';
+const LOGIN_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.user-login-token-do-not-leak.sig';
+
+/** Answers by path, because init and the token request run side by side. */
+class RoutedHttpClient implements BazaarPayHttpClient {
+  readonly requests: Captured[] = [];
+
+  constructor(private readonly routes: Readonly<Record<string, BazaarPayHttpResponse | Error | 'hang'>>) {}
+
+  async postJson(
+    url: string,
+    body: Readonly<Record<string, unknown>>,
+    headers: Readonly<Record<string, string>>,
+    signal: AbortSignal,
+  ): Promise<BazaarPayHttpResponse> {
+    this.requests.push({ url, body: { ...body }, headers: { ...headers } });
+    const path = new URL(url).pathname.replace(/^\/badje\/v1/u, '');
+    const route = this.routes[path];
+    if (route === undefined) throw new Error(`RoutedHttpClient has no route for ${path}`);
+    if (route === 'hang') {
+      return new Promise((_resolve, reject) => {
+        signal.addEventListener('abort', () => reject(new Error('aborted')));
+      });
+    }
+    if (route instanceof Error) throw route;
+    return route;
+  }
+
+  paths(): string[] {
+    return this.requests.map((request) => new URL(request.url).pathname.replace(/^\/badje\/v1/u, ''));
+  }
+}
+
+const SIGNED_IN = { ...CREATE_INPUT, customerMobile: '09121234567' };
+
+async function pageFor(
+  http: BazaarPayHttpClient,
+  input: typeof CREATE_INPUT & { customerMobile?: string | null },
+  overrides: Partial<BazaarPayPaymentProviderConfig> = { autoLogin: true },
+): Promise<URL> {
+  const result = await provider(http, overrides).createPayment(input);
+  if (!result.ok) throw new Error(`expected ok, got ${result.failureReason}`);
+  return new URL(result.redirectUrl);
+}
+
+describe('createPayment auto-login', () => {
+  it('requests a purchase-scoped login token for the mobile and puts it on the payment page', async () => {
+    const http = new RoutedHttpClient({
+      '/checkout/init/': json(INIT_OK),
+      [ACCESS_TOKEN_PATH]: json({ access_token: LOGIN_TOKEN }),
+    });
+    const page = await pageFor(http, SIGNED_IN);
+
+    const tokenRequest = http.requests.find((request) => request.url.endsWith(ACCESS_TOKEN_PATH));
+    expect(tokenRequest?.url).toBe('https://api.bazaar-pay.ir/badje/v1/merchant/create-user-access-token/');
+    expect(tokenRequest?.body).toEqual({ user_phone_number: '09121234567', scope: 'purchase' });
+    expect(tokenRequest?.headers['authorization']).toBe(`Token ${TOKEN}`);
+
+    expect(page.searchParams.get('auto_login_token')).toBe(LOGIN_TOKEN);
+    expect(page.searchParams.get('phone')).toBe('09121234567');
+    expect(page.searchParams.get('token')).toBe('3258455376');
+    // The return address is still intact next to the new parameters.
+    expect(new URL(page.searchParams.get('redirect_url') ?? '').searchParams.get('order')).toBe('BP-2026-000200');
+  });
+
+  it('is off unless configured: no token request, but the mobile still pre-fills the login', async () => {
+    const http = new RoutedHttpClient({ '/checkout/init/': json(INIT_OK) });
+    const page = await pageFor(http, SIGNED_IN, {});
+
+    expect(http.paths()).toEqual(['/checkout/init/']);
+    expect(page.searchParams.has('auto_login_token')).toBe(false);
+    expect(page.searchParams.get('phone')).toBe('09121234567');
+  });
+
+  it('asks for nothing when the caller has no mobile for the customer', async () => {
+    const http = new RoutedHttpClient({ '/checkout/init/': json(INIT_OK) });
+    const page = await pageFor(http, { ...CREATE_INPUT, customerMobile: null });
+
+    expect(http.paths()).toEqual(['/checkout/init/']);
+    expect(page.searchParams.has('auto_login_token')).toBe(false);
+    expect(page.searchParams.has('phone')).toBe(false);
+  });
+
+  it.each([
+    ['98 prefix', '989121234567'],
+    ['+98 prefix', '+989121234567'],
+    ['surrounding spaces', ' 09121234567 '],
+  ])('normalises a mobile with %s to the 09 form', async (_name, mobile) => {
+    const http = new RoutedHttpClient({
+      '/checkout/init/': json(INIT_OK),
+      [ACCESS_TOKEN_PATH]: json({ access_token: LOGIN_TOKEN }),
+    });
+    const page = await pageFor(http, { ...CREATE_INPUT, customerMobile: mobile });
+
+    expect(http.requests.find((request) => request.url.endsWith(ACCESS_TOKEN_PATH))?.body['user_phone_number']).toBe(
+      '09121234567',
+    );
+    expect(page.searchParams.get('phone')).toBe('09121234567');
+  });
+
+  it.each([['landline', '02112345678'], ['too short', '0912123456'], ['e-mail', 'a@b.ir'], ['empty', '']])(
+    'sends neither a token request nor a phone for a %s',
+    async (_name, mobile) => {
+      const http = new RoutedHttpClient({ '/checkout/init/': json(INIT_OK) });
+      const page = await pageFor(http, { ...CREATE_INPUT, customerMobile: mobile });
+
+      expect(http.paths()).toEqual(['/checkout/init/']);
+      expect(page.searchParams.has('phone')).toBe(false);
+    },
+  );
+
+  it.each([
+    ['403 (auto-login not enabled for the merchant)', json({ detail: 'You cannot use auto-login for purchase.' }, 403)],
+    ['401', json({ detail: 'x' }, 401)],
+    ['503', noBody(503)],
+    ['network error', new Error('ECONNRESET')],
+    ['no access_token', json({})],
+    ['a token with a space', json({ access_token: 'two words' })],
+    ['a non-string token', json({ access_token: 12345 })],
+  ])('falls back to the normal login when the token request yields %s', async (_name, answer) => {
+    const http = new RoutedHttpClient({ '/checkout/init/': json(INIT_OK), [ACCESS_TOKEN_PATH]: answer });
+    const page = await pageFor(http, SIGNED_IN);
+
+    expect(page.searchParams.has('auto_login_token')).toBe(false);
+    expect(page.searchParams.get('phone')).toBe('09121234567');
+    expect(page.searchParams.get('token')).toBe('3258455376');
+  });
+
+  it('does not let a hanging token request hold the checkout beyond its own short timeout', async () => {
+    const http = new RoutedHttpClient({ '/checkout/init/': json(INIT_OK), [ACCESS_TOKEN_PATH]: 'hang' });
+    const page = await pageFor(http, SIGNED_IN, { autoLogin: true, timeoutMs: 30 });
+
+    expect(page.searchParams.has('auto_login_token')).toBe(false);
+  });
+
+  it('keeps an init failure a failure, and never surfaces the login token in it', async () => {
+    const http = new RoutedHttpClient({
+      '/checkout/init/': json({ amount: ['bad'] }, 400),
+      [ACCESS_TOKEN_PATH]: json({ access_token: LOGIN_TOKEN }),
+    });
+    const result = await provider(http, { autoLogin: true }).createPayment(SIGNED_IN);
+
+    expect(result).toMatchObject({ ok: false, providerCode: 400, failureReason: 'REQUEST_REJECTED' });
+    expect(JSON.stringify(result)).not.toContain(LOGIN_TOKEN);
+  });
+});
+
+/* ============================================================================
  * verifyPayment — read-only, status from /trace/
  * ==========================================================================*/
 

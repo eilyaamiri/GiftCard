@@ -3,6 +3,7 @@ import { MapPin } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import { CategoryIcon } from "@/components/category-icon";
 import type { Brand, Category } from "@/lib/catalog";
+import { regionLabel } from "@/lib/regions";
 import { catalogHref, type CatalogFilters } from "../_lib/catalog-url";
 
 /**
@@ -111,7 +112,7 @@ export function RegionFacets({
               <span className="facet-icon" aria-hidden="true">
                 <MapPin size={17} />
               </span>
-              <span className="facet-label">{region}</span>
+              <span className="facet-label">{regionLabel(region)}</span>
             </Link>
           </li>
         );

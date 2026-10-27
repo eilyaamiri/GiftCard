@@ -29,6 +29,8 @@ export interface ProductChoices {
   readonly brand: string;
   /** Only regions that have at least one purchasable denomination. */
   readonly regions: readonly string[];
+  /** Persian names by region code; a region without one is shown as its code. */
+  readonly regionNames?: Readonly<Record<string, string>>;
   readonly skus: readonly SkuOption[];
 }
 
@@ -169,5 +171,7 @@ export interface AssistantServices {
     field(spec: FieldSpec, raw: string): { value: string } | { error: string };
   };
   analytics: { track(event: string, props: Readonly<Record<string, string | number | boolean>>): void };
+  /** Storefront features an operator has switched off; the menu leaves them out. */
+  features: { readonly internationalPayment: boolean };
   now(): number;
 }

@@ -35,6 +35,7 @@ import { buildLoggerOptions } from './common/logger/logger.config';
  *   workitems     B6           operator queues and task routing
  *   fulfillment   B6           checklists, gift-card assets, delivery
  *   suppliers     B6           supplier offers and purchase records
+ *   system-settings O6         admin SMTP + off-host backup settings, backup scheduler
  * ==========================================================================*/
 import { HealthModule } from './modules/health/health.module';
 import { PricingModule } from './modules/pricing/pricing.module';
@@ -52,6 +53,7 @@ import { SuppliersModule } from './modules/suppliers/suppliers.module';
 import { GiftCardRequestsModule } from './modules/gift-card-requests/gift-card-requests.module';
 import { KbModule } from './modules/kb/kb.module';
 import { MonitoringModule } from './modules/monitoring/monitoring.module';
+import { SystemSettingsModule } from './modules/system-settings/system-settings.module';
 import { FinanceController } from './modules/finance/finance.controller';
 
 @Module({
@@ -100,6 +102,7 @@ import { FinanceController } from './modules/finance/finance.controller';
     GiftCardRequestsModule,
     KbModule,
     MonitoringModule,
+    SystemSettingsModule,
   ],
   /* The finance read model is a single Prisma query behind one route, so it has
    * no module of its own: a module here would need an entry in the frozen

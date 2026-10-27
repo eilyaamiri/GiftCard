@@ -39,6 +39,14 @@ export type CreatePaymentResult =
 export interface VerifyPaymentInput {
   readonly authority: string;
   readonly amountIrr: bigint;
+  /**
+   * Identifiers the gateway handed the customer's browser on return, for a
+   * gateway whose verify cannot be asked about from the authority alone (Amin
+   * needs `ref_num` and `tracking_code`). They only say WHAT to ask the gateway
+   * about; the outcome is still the gateway's own answer, and a wrong value gets
+   * a refusal, never a payment. Absent for ZarinPal, BazaarPay and the mock.
+   */
+  readonly evidence?: Readonly<Record<string, string>>;
 }
 
 export type VerifyResult =

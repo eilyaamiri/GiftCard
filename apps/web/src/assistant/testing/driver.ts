@@ -16,8 +16,9 @@ export interface Driver {
   giftCardToQuote(): Promise<AssistantResponse>;
 }
 
-export async function startDriver(sessionId = "s1"): Promise<Driver> {
+export async function startDriver(sessionId = "s1", configure?: (fake: Fake) => void): Promise<Driver> {
   const fake = createFake();
+  configure?.(fake);
   const store = createMemoryStore();
   const engine = createEngine({ services: fake.services, store });
   const driver: Driver = {
@@ -44,7 +45,7 @@ export async function startDriver(sessionId = "s1"): Promise<Driver> {
       await driver.pick("🎁 خرید گیفت کارت");
       await driver.send("SEARCH", "itunes");
       await driver.pick("iTunes");
-      await driver.pick("US");
+      await driver.pick("آمریکا");
       return driver.pick("۲۵ دلار");
     },
   };

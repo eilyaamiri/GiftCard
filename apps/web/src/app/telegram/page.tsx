@@ -59,18 +59,18 @@ export default async function TelegramLandingPage() {
 
   return (
     <main>
-      <section className="tg-hero tg-hero--telegram">
+      <section className="tg-hero tg-hero--compact tg-hero--telegram">
         <div className="container tg-hero-inner">
           <div className="eyebrow">تلگرام</div>
           <h1 className="h1 tg-hero-title">استارز و پرمیوم تلگرام، روی حساب خودتان</h1>
-          <p className="tg-hero-copy">
-            کافی است نام کاربری تلگرام‌تان را وارد کنید. مبلغ را قبل از پرداخت می‌بینید و
-            تأیید می‌کنید؛ استارز یا پرمیوم مستقیم به همان حساب می‌نشیند.
-          </p>
-          <div className="tg-hero-facts">
-            <span><BadgeCheck size={15} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
-            <span><ShieldCheck size={15} aria-hidden="true" /> بدون رمز عبور و کد ورود</span>
-            <span><Clock3 size={15} aria-hidden="true" /> تحویل خودکار روی حساب</span>
+          {/* The page is two products to choose from, so the hero is kept short:
+              the three facts are chips now, and the paragraph's «نام کاربری را
+              وارد کنید، مبلغ را ببینید، روی همان حساب می‌نشیند» is the «روش
+              کار» block further down. */}
+          <div className="tg-hero-chips">
+            <span><BadgeCheck size={14} aria-hidden="true" /> قیمت نهایی پیش از پرداخت</span>
+            <span><ShieldCheck size={14} aria-hidden="true" /> بدون رمز عبور و کد ورود</span>
+            <span><Clock3 size={14} aria-hidden="true" /> تحویل خودکار روی حساب</span>
           </div>
         </div>
       </section>

@@ -1,13 +1,12 @@
 import { Global, Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { prisma } from '@barat/database';
-import {
-  EMAIL_PROVIDER,
-  MockEmailProvider,
-  SMS_PROVIDER,
-} from '@barat/notifications';
+import { EMAIL_PROVIDER, SMS_PROVIDER } from '@barat/notifications';
 
+import { AppConfigService } from '../../common/config/app-config.service';
 import { AuditModule } from '../audit/audit.module';
+import { SettingsSecretBox } from '../system-settings/settings-secrets';
+import { ConfiguredEmailProvider } from '../system-settings/smtp-transport';
 import { AdminSettingsController } from './admin-settings.controller';
 import {
   ADMIN_SETTINGS_DATABASE,
@@ -35,7 +34,9 @@ import { StaffAuthService } from './staff-auth.service';
  *
  * The transports are chosen here and nowhere else — no service imports a
  * concrete provider (AGENTS.md section 2). SMS selection lives in
- * `createSmsProvider`; e-mail is still the Mock implementation.
+ * `createSmsProvider`; e-mail goes through `ConfiguredEmailProvider`, which uses
+ * the SMTP account saved in Admin → Settings once it is switched on, and the
+ * mock transport until then.
  */
 @Global()
 @Module({
@@ -45,7 +46,12 @@ import { StaffAuthService } from './staff-auth.service';
     { provide: IDENTITY_DATABASE, useValue: prisma },
     { provide: ADMIN_SETTINGS_DATABASE, useValue: prisma },
     { provide: SMS_PROVIDER, useFactory: () => createSmsProvider() },
-    { provide: EMAIL_PROVIDER, useFactory: () => new MockEmailProvider() },
+    {
+      provide: EMAIL_PROVIDER,
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) =>
+        new ConfiguredEmailProvider(prisma, new SettingsSecretBox(config.settingsEncryptionKey())),
+    },
     SessionService,
     StaffAuthService,
     AdminSettingsService,

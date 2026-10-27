@@ -34,6 +34,11 @@ const BAZAARPAY = {
   BAZAARPAY_DESTINATION: 'barat',
 };
 
+const AMIN = {
+  AMIN_ENABLED: 'true',
+  AMIN_MERCHANT_ID: 'merchant-1234',
+};
+
 function parse(overrides: Record<string, unknown>) {
   return envSchema.safeParse({ ...BASE, ...overrides });
 }
@@ -102,6 +107,74 @@ describe('payment gateway selection at boot', () => {
 
     expect(result.success).toBe(false);
     expect(JSON.stringify(result.error?.issues)).not.toContain('super-secret-value');
+  });
+});
+
+describe('BAZAARPAY_AUTO_LOGIN', () => {
+  it('is off unless explicitly turned on, and blank means off', () => {
+    expect(parse(BAZAARPAY).success && parse(BAZAARPAY).data?.BAZAARPAY_AUTO_LOGIN).toBe(false);
+    const blank = parse({ ...BAZAARPAY, BAZAARPAY_AUTO_LOGIN: '' });
+    expect(blank.success && blank.data.BAZAARPAY_AUTO_LOGIN).toBe(false);
+    const on = parse({ ...BAZAARPAY, BAZAARPAY_AUTO_LOGIN: 'true' });
+    expect(on.success && on.data.BAZAARPAY_AUTO_LOGIN).toBe(true);
+  });
+
+  it('refuses a value that is neither true nor false rather than guessing', () => {
+    expect(parse({ ...BAZAARPAY, BAZAARPAY_AUTO_LOGIN: 'maybe' }).success).toBe(false);
+  });
+});
+
+describe('Amin gateway at boot', () => {
+  it('boots production on Amin alone and parses its settings', () => {
+    const result = parse({ ...AMIN, AMIN_TIMEOUT_MS: '2500', AMIN_BASE_URL: 'https://sandbox.example' });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.AMIN_TIMEOUT_MS).toBe(2500);
+    expect(result.success && result.data.AMIN_BASE_URL).toBe('https://sandbox.example');
+  });
+
+  it('counts as a live gateway, so production does not demand the mock flag', () => {
+    expect(messagesFor(parse(AMIN), 'PAYMENTS_ALLOW_MOCK')).toBe('');
+  });
+
+  it('is off by default, even if a merchant id is present', () => {
+    const result = parse({ AMIN_MERCHANT_ID: 'merchant-1234', PAYMENTS_ALLOW_MOCK: 'true' });
+
+    expect(result.success).toBe(true);
+    expect(result.success && result.data.AMIN_ENABLED).toBe(false);
+  });
+
+  it('refuses to be on without its merchant id, treating blank as unset', () => {
+    expect(messagesFor(parse({ AMIN_ENABLED: 'true' }), 'AMIN_MERCHANT_ID')).toMatch(/required/u);
+    expect(messagesFor(parse({ AMIN_ENABLED: 'true', AMIN_MERCHANT_ID: '   ' }), 'AMIN_MERCHANT_ID')).toMatch(
+      /required/u,
+    );
+  });
+
+  it('refuses Amin together with either other gateway', () => {
+    expect(messagesFor(parse({ ...ZARINPAL, ...AMIN }), 'AMIN_ENABLED')).toMatch(/exactly one rial gateway/u);
+    expect(messagesFor(parse({ ...BAZAARPAY, ...AMIN }), 'AMIN_ENABLED')).toMatch(/exactly one rial gateway/u);
+    expect(parse({ ...ZARINPAL, ...BAZAARPAY, ...AMIN }).success).toBe(false);
+  });
+
+  it('refuses a fixed login code while Amin takes payments', () => {
+    const result = parse({ NODE_ENV: 'staging', ...AMIN, OTP_DEV_FIXED_CODE: '123456' });
+
+    expect(result.success).toBe(false);
+    expect(messagesFor(result, 'OTP_DEV_FIXED_CODE')).toMatch(/AMIN_ENABLED/u);
+  });
+
+  it('rejects an out-of-range timeout and a non-URL base', () => {
+    expect(parse({ ...AMIN, AMIN_TIMEOUT_MS: '0' }).success).toBe(false);
+    expect(parse({ ...AMIN, AMIN_TIMEOUT_MS: '60001' }).success).toBe(false);
+    expect(parse({ ...AMIN, AMIN_BASE_URL: 'not a url' }).success).toBe(false);
+  });
+
+  it('never echoes the merchant id in an error message', () => {
+    const result = parse({ ...ZARINPAL, ...AMIN, AMIN_MERCHANT_ID: 'super-secret-merchant' });
+
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).not.toContain('super-secret-merchant');
   });
 });
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AminPaymentProvider,
   BazaarPayPaymentProvider,
   MockRialPaymentProvider,
   ZarinPalPaymentProvider,
@@ -10,6 +11,7 @@ import { createRialPaymentProvider } from './rial-payment-provider.factory';
 
 type ZarinPalSettings = NonNullable<AppConfigService['zarinpal']>;
 type BazaarPaySettings = NonNullable<AppConfigService['bazaarPay']>;
+type AminSettings = NonNullable<AppConfigService['amin']>;
 
 const VALID_SETTINGS: ZarinPalSettings = {
   merchantId: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
@@ -27,12 +29,20 @@ const BAZAARPAY_SETTINGS: BazaarPaySettings = {
   baseUrl: undefined,
   amountUnit: 'IRR',
   timeoutMs: 10_000,
+  autoLogin: false,
+};
+
+const AMIN_SETTINGS: AminSettings = {
+  merchantId: 'merchant-1234',
+  baseUrl: undefined,
+  timeoutMs: 10_000,
 };
 
 interface StubOptions {
   zarinpalEnabled?: boolean;
   zarinpal?: ZarinPalSettings | null;
   bazaarPay?: BazaarPaySettings | null;
+  amin?: AminSettings | null;
   paymentsAllowMock?: boolean;
   otpDevFixedCode?: string | null;
 }
@@ -42,6 +52,7 @@ function configStub(options: StubOptions = {}): AppConfigService {
     zarinpalEnabled: options.zarinpalEnabled ?? false,
     zarinpal: options.zarinpal ?? null,
     bazaarPay: options.bazaarPay ?? null,
+    amin: options.amin ?? null,
     paymentsAllowMock: options.paymentsAllowMock ?? true,
     otpDevFixedCode: options.otpDevFixedCode ?? null,
     apiPublicUrl: 'https://api.barat.test',
@@ -121,5 +132,65 @@ describe('createRialPaymentProvider', () => {
     expect(() =>
       createRialPaymentProvider(configStub({ bazaarPay: BAZAARPAY_SETTINGS, otpDevFixedCode: '123456' })),
     ).toThrow(/OTP_DEV_FIXED_CODE/u);
+  });
+});
+
+describe('createRialPaymentProvider with Amin', () => {
+  it('selects Amin when it is the only gateway enabled, in production without the mock flag', () => {
+    const provider = createRialPaymentProvider(configStub({ amin: AMIN_SETTINGS, paymentsAllowMock: false }));
+
+    expect(provider).toBeInstanceOf(AminPaymentProvider);
+    expect(provider.name).toBe('amin');
+  });
+
+  it('stays on the default gateway when Amin is off, even if an identifier is present', () => {
+    // `config.amin` is null whenever AMIN_ENABLED is false, whatever else is set.
+    expect(createRialPaymentProvider(configStub({ amin: null }))).toBeInstanceOf(MockRialPaymentProvider);
+  });
+
+  it('refuses Amin together with ZarinPal rather than choosing one', () => {
+    expect(() =>
+      createRialPaymentProvider(
+        configStub({ amin: AMIN_SETTINGS, zarinpalEnabled: true, zarinpal: VALID_SETTINGS }),
+      ),
+    ).toThrow('ZARINPAL_ENABLED and AMIN_ENABLED are both true');
+  });
+
+  it('refuses Amin together with BazaarPay rather than choosing one', () => {
+    expect(() =>
+      createRialPaymentProvider(configStub({ amin: AMIN_SETTINGS, bazaarPay: BAZAARPAY_SETTINGS })),
+    ).toThrow('BAZAARPAY_ENABLED and AMIN_ENABLED are both true');
+  });
+
+  it('refuses a fixed login code on a deployment that takes Amin payments', () => {
+    expect(() =>
+      createRialPaymentProvider(configStub({ amin: AMIN_SETTINGS, otpDevFixedCode: '123456' })),
+    ).toThrow(/OTP_DEV_FIXED_CODE must not be set while AMIN_ENABLED is true/u);
+  });
+
+  it('fails at boot, without echoing the identifier, when the merchant id is malformed', () => {
+    try {
+      createRialPaymentProvider(
+        configStub({ amin: { ...AMIN_SETTINGS, merchantId: 'bad id with spaces' } }),
+      );
+      expect.unreachable('should have thrown');
+    } catch (error) {
+      expect(String(error)).toMatch(/merchant identifier is invalid/u);
+      expect(String(error)).not.toContain('bad id with spaces');
+    }
+  });
+
+  it('fails at boot when the public API URL is not a URL', () => {
+    const config = { ...configStub({ amin: AMIN_SETTINGS }), apiPublicUrl: 'nope' } as AppConfigService;
+
+    expect(() => createRialPaymentProvider(config)).toThrow(/return URL is invalid/u);
+  });
+
+  it('honours a configured base URL', () => {
+    const provider = createRialPaymentProvider(
+      configStub({ amin: { ...AMIN_SETTINGS, baseUrl: 'https://sandbox.example' } }),
+    );
+
+    expect(provider.name).toBe('amin');
   });
 });

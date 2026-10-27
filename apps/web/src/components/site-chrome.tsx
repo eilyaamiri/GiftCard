@@ -17,17 +17,14 @@ import { SteamIcon } from "@/components/steam-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { buildCategoryMenu } from "@/lib/category-menu";
+import { customerDisplayName } from "@/lib/customer-display";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 import { BRAND, copyrightYear } from "@/lib/brand";
 
 /** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
 const TRENDING_BRANDS_SHOWN = 8;
-
-function profileLabel(customer: CustomerDto): string {
-  const name = [customer.firstName, customer.lastName].filter(Boolean).join(" ").trim();
-  return name || customer.maskedMobile || customer.maskedEmail || customer.customerCode;
-}
 
 /**
  * Public storefront chrome with a session-aware identity area.
@@ -141,7 +138,7 @@ export function SiteChrome({
               <Link href="/account" className="customer-profile-link" aria-label="مشاهده پنل کاربری">
                 <span className="customer-profile-avatar"><CircleUserRound size={20} /></span>
                 <span className="customer-profile-copy">
-                  <strong>{profileLabel(customer)}</strong>
+                  <strong><bdi>{customerDisplayName(customer)}</bdi></strong>
                   <small>پنل کاربری</small>
                 </span>
               </Link>
@@ -218,15 +215,17 @@ export function SiteChrome({
               <Link href="/telegram" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>تلگرام</Link>
               <Link href="/games" aria-current={pathname.startsWith("/games") ? "page" : undefined}>شارژ بازی</Link>
               <Link href="/steam" className="nav-steam" aria-current={pathname.startsWith("/steam") ? "page" : undefined}><SteamIcon size={15} /> استیم</Link>
-              <NavDropdown
-                label="پرداخت بین‌المللی"
-                emptyLabel="سرویسی موجود نیست"
-                items={SERVICE_CATEGORIES.map((category) => ({
-                  key: category.slug,
-                  label: category.labelFa,
-                  href: `/services?category=${encodeURIComponent(category.slug)}`,
-                }))}
-              />
+              {INTERNATIONAL_PAYMENT_ENABLED ? (
+                <NavDropdown
+                  label="پرداخت بین‌المللی"
+                  emptyLabel="سرویسی موجود نیست"
+                  items={SERVICE_CATEGORIES.map((category) => ({
+                    key: category.slug,
+                    label: category.labelFa,
+                    href: `/services?category=${encodeURIComponent(category.slug)}`,
+                  }))}
+                />
+              ) : null}
               <Link href="/help" aria-current={pathname.startsWith("/help") ? "page" : undefined}>راهنما</Link>
             </nav>
           </div>
@@ -252,7 +251,7 @@ export function SiteChrome({
             <Link href="/telegram">استارز و پرمیوم تلگرام</Link>
             <Link href="/games">شارژ مستقیم بازی</Link>
             <Link href="/steam">شارژ کیف پول استیم</Link>
-            <Link href="/services">پرداخت بین‌المللی</Link>
+            {INTERNATIONAL_PAYMENT_ENABLED ? <Link href="/services">پرداخت بین‌المللی</Link> : null}
             <Link href="/brands">برندها</Link>
             <Link href="/orders">پیگیری سفارش</Link>
             <Link href="/help">راهنما</Link>

@@ -117,10 +117,25 @@ export class AppConfigService {
     return this.get('SESSION_JWT_SECRET');
   }
 
+  /**
+   * Raw AES-256-GCM key for secrets entered in the admin settings (SMTP
+   * password, backup SSH key and archive passphrase), or null when unset.
+   * Deliberately no fallback: without it those secrets simply cannot be saved.
+   */
+  settingsEncryptionKey(): Buffer | null {
+    const configured = this.get('SETTINGS_ENCRYPTION_KEY');
+    return configured === undefined ? null : Buffer.from(configured, 'base64');
+  }
+
   /* ------------------------------------------------------------ file storage */
 
   get productImageDir(): string {
     return this.get('PRODUCT_IMAGE_DIR');
+  }
+
+  /** Read-only source of the off-host backup copy. */
+  get backupSourceDir(): string {
+    return this.get('BACKUP_SOURCE_DIR');
   }
 
   /* ---------------------------------------------------------------- OTP policy */
@@ -210,6 +225,7 @@ export class AppConfigService {
     baseUrl: string | undefined;
     amountUnit: AppEnv['BAZAARPAY_AMOUNT_UNIT'];
     timeoutMs: number;
+    autoLogin: boolean;
   } | null {
     if (!this.bazaarPayEnabled) {
       return null;
@@ -221,6 +237,34 @@ export class AppConfigService {
       baseUrl: this.get('BAZAARPAY_BASE_URL'),
       amountUnit: this.get('BAZAARPAY_AMOUNT_UNIT'),
       timeoutMs: this.get('BAZAARPAY_TIMEOUT_MS'),
+      autoLogin: this.get('BAZAARPAY_AUTO_LOGIN'),
+    };
+  }
+
+  /* -------------------------------------------------------------------- Amin */
+
+  get aminEnabled(): boolean {
+    return this.get('AMIN_ENABLED');
+  }
+
+  /**
+   * Amin settings. `null` when the gateway is disabled. `merchantId` is the
+   * gateway's only credential: hand it to the adapter's constructor and
+   * nowhere else.
+   */
+  get amin(): {
+    merchantId: string;
+    baseUrl: string | undefined;
+    timeoutMs: number;
+  } | null {
+    if (!this.aminEnabled) {
+      return null;
+    }
+
+    return {
+      merchantId: this.get('AMIN_MERCHANT_ID') ?? '',
+      baseUrl: this.get('AMIN_BASE_URL'),
+      timeoutMs: this.get('AMIN_TIMEOUT_MS'),
     };
   }
 

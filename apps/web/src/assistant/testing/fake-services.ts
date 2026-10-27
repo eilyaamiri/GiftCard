@@ -22,6 +22,7 @@ export interface Fake {
     outcome: PaymentOutcome;
     searchFails: boolean;
     gatewayUrl: string | null;
+    internationalPayment: boolean;
   };
   count(name: string): number;
 }
@@ -32,7 +33,13 @@ const SKUS = [
   { skuId: "sku-eu-25", region: "EU", label: "۲۵ یورو", priceLabel: null },
 ];
 
-const ITUNES: ProductChoices = { title: "iTunes", brand: "Apple", regions: ["US", "EU"], skus: SKUS };
+const ITUNES: ProductChoices = {
+  title: "iTunes",
+  brand: "Apple",
+  regions: ["US", "EU"],
+  regionNames: { US: "آمریکا", EU: "اروپا" },
+  skus: SKUS,
+};
 
 const PUBG: TopUpChoices = {
   title: "PUBG Mobile",
@@ -115,6 +122,7 @@ export function createFake(): Fake {
     outcome: "PAID",
     searchFails: false,
     gatewayUrl: "https://gateway.test/pay",
+    internationalPayment: true,
   };
   let quoteSeq = 0;
   const orders = new Map<string, { orderId: string; orderNumber: string }>();
@@ -202,6 +210,11 @@ export function createFake(): Fake {
       field: (spec, raw) => (raw.trim() === "" ? { error: `${spec.label} را وارد کنید.` } : { value: raw.trim() }),
     },
     analytics: { track: (event) => void events.push(event) },
+    features: {
+      get internationalPayment() {
+        return state.internationalPayment;
+      },
+    },
     now: () => state.now,
   };
 

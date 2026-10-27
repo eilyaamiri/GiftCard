@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { absoluteUrl } from "@/lib/brand";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { getKbContent } from "@/lib/kb";
 
 /* The help articles are admin-edited, so the sitemap is built per request
@@ -14,7 +15,7 @@ const STATIC_PATHS = [
   "/telegram",
   "/telegram/stars",
   "/telegram/premium",
-  "/services",
+  ...(INTERNATIONAL_PAYMENT_ENABLED ? ["/services"] : []),
   "/brands",
   "/help",
   "/business",

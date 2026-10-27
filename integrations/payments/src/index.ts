@@ -38,5 +38,17 @@ export {
   type BazaarPayPaymentProviderConfig,
 } from './providers/bazaarpay/bazaarpay-payment.provider';
 
+export {
+  AMIN_MAX_AMOUNT_IRR,
+  AMIN_MIN_AMOUNT_IRR,
+  AMIN_ORDER_ID_PATTERN,
+  AminPaymentProvider,
+  buildAminOrderId,
+  toAminMobile,
+  DEFAULT_AMIN_BASE_URL,
+  DEFAULT_AMIN_TIMEOUT_MS,
+  type AminPaymentProviderConfig,
+} from './providers/amin/amin-payment.provider';
+
 /** DI token for the selected provider. */
 export const RIAL_PAYMENT_PROVIDER = Symbol.for('BARAT_RIAL_PAYMENT_PROVIDER');

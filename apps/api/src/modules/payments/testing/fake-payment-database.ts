@@ -75,7 +75,7 @@ const NULLABLE_DEFAULTS: Readonly<Record<TableName, readonly string[]>> = {
     'callbackAt',
     'verifiedAt',
   ],
-  paymentAttempt: ['providerCode', 'providerMessage', 'ip', 'userAgent', 'durationMs'],
+  paymentAttempt: ['providerCode', 'providerMessage', 'ip', 'userAgent', 'durationMs', 'responsePayload'],
   reconciliationIssue: ['paymentId', 'orderId', 'expectedAmountIrr', 'actualAmountIrr', 'differenceIrr', 'openDedupeKey'],
   refund: ['paymentId', 'requestedByStaffId', 'approvedByStaffId', 'providerRefundRef', 'processedAt'],
   workItem: [],

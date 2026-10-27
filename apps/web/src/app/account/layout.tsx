@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { customerDisplayName, requireSession } from "@/lib/session";
+import { customerDisplayName } from "@/lib/customer-display";
+import { requireSession } from "@/lib/session";
 import { AccountSidebarNav } from "@/components/account-sidebar-nav";
 import { AccountTopbarActions } from "@/components/account-topbar-actions";
 import { BrandLogo } from "@/components/brand-logo";
@@ -17,7 +18,7 @@ export default async function AccountLayout({ children }: Readonly<{ children: R
         </Link>
         <AccountSidebarNav />
         <div className="account-sidebar-footer">
-          <div className="account-sidebar-user"><span className="account-avatar">{initial}</span><span><strong>{name}</strong><small>حساب فعال</small></span></div>
+          <div className="account-sidebar-user"><span className="account-avatar">{initial}</span><span><strong><bdi>{name}</bdi></strong><small>حساب فعال</small></span></div>
         </div>
       </aside>
       <section className="account-main">

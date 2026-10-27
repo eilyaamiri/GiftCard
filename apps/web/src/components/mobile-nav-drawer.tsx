@@ -8,6 +8,7 @@ import { CategoryIcon } from "@/components/category-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import type { Brand, Category } from "@/lib/catalog";
 import { buildCategoryMenu } from "@/lib/category-menu";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { BrandLogo } from "@/components/brand-logo";
 
@@ -133,27 +134,31 @@ export function MobileNavDrawer({
               )}
             </details>
 
-            <details className="mobile-nav-drawer-group">
-              <summary>
-                <span>پرداخت بین‌المللی</span>
-                <ChevronDown size={16} aria-hidden="true" />
-              </summary>
-              <ul>
-                {SERVICE_CATEGORIES.map((category) => (
-                  <li key={category.slug}>
-                    <Link href={`/services?category=${encodeURIComponent(category.slug)}`}>
-                      <span>{category.labelFa}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </details>
+            {INTERNATIONAL_PAYMENT_ENABLED ? (
+              <details className="mobile-nav-drawer-group">
+                <summary>
+                  <span>پرداخت بین‌المللی</span>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </summary>
+                <ul>
+                  {SERVICE_CATEGORIES.map((category) => (
+                    <li key={category.slug}>
+                      <Link href={`/services?category=${encodeURIComponent(category.slug)}`}>
+                        <span>{category.labelFa}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
 
             <Link href="/gift-cards" className="mobile-nav-drawer-link">گیفت‌کارت‌ها</Link>
             <Link href="/telegram" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/telegram") ? "page" : undefined}>استارز و پرمیوم تلگرام</Link>
             <Link href="/games" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/games") ? "page" : undefined}>شارژ مستقیم بازی</Link>
             <Link href="/steam" className="mobile-nav-drawer-link" aria-current={pathname.startsWith("/steam") ? "page" : undefined}>شارژ کیف پول استیم</Link>
-            <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
+            {INTERNATIONAL_PAYMENT_ENABLED ? (
+              <Link href="/services" className="mobile-nav-drawer-link">پرداخت بین‌المللی</Link>
+            ) : null}
             <Link href="/help" className="mobile-nav-drawer-link">راهنما</Link>
           </nav>
 

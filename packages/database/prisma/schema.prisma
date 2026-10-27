@@ -2405,3 +2405,122 @@ model KbArticle {
   @@index([isEnabled, sortOrder])
   @@index([isPromoted])
 }
+
+/* ============================================================================
+ * Platform settings managed from the admin panel: outbound e-mail and the
+ * off-host backup copy. Each is a single row with id `default`.
+ *
+ * Secrets (SMTP password, SSH private key, archive passphrase) are stored only
+ * as AES-256-GCM envelopes under SETTINGS_ENCRYPTION_KEY, each bound to its own
+ * AAD. The API never returns them; the panel only learns whether one is set.
+ * ==========================================================================*/
+
+enum SmtpSecurity {
+  /// Implicit TLS from the first byte, usually port 465.
+  SSL_TLS
+  /// Plain connection upgraded with STARTTLS before AUTH, usually port 587.
+  STARTTLS
+}
+
+enum BackupRunTrigger {
+  SCHEDULED
+  MANUAL
+}
+
+enum BackupRunStatus {
+  RUNNING
+  SUCCEEDED
+  /// The newest local snapshot was already uploaded; nothing was sent.
+  SKIPPED
+  FAILED
+}
+
+/// The SMTP account used for every outbound e-mail: login codes, order and
+/// account notifications, and newsletters. While `isEnabled` is false the API
+/// keeps the development mock transport, exactly as before this table existed.
+model SmtpSettings {
+  id        String  @id @default("default")
+  isEnabled Boolean @default(false)
+
+  host     String       @default("")
+  port     Int          @default(587)
+  security SmtpSecurity @default(STARTTLS)
+  /// Empty when the relay accepts the connection without AUTH.
+  username String       @default("")
+  /// AES-256-GCM envelope. Never returned by the API.
+  passwordEncrypted String?
+
+  fromAddress String  @default("")
+  /// Display name in the From header, e.g. `سنتو`.
+  fromName    String  @default("")
+  replyTo     String?
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// Where the API copies the daily database snapshot, over SFTP with a pinned
+/// host key and key-only authentication.
+model BackupSettings {
+  id        String  @id @default("default")
+  isEnabled Boolean @default(false)
+
+  host            String @default("")
+  port            Int    @default(22)
+  username        String @default("")
+  /// Absolute or home-relative directory on the backup server.
+  remoteDirectory String @default("")
+  /// Pinned server host keys, one `<type> <base64>` per line.
+  hostKeys        String @default("")
+
+  /// AES-256-GCM envelope of an unencrypted OpenSSH private key.
+  privateKeyEncrypted String?
+  /// `ssh-ed25519 AAAA… comment` — not secret, shown so it can be installed in
+  /// the backup server's authorized_keys.
+  publicKey           String?
+  /// AES-256-GCM envelope of the passphrase every uploaded archive is
+  /// encrypted with. Restoring needs the same passphrase, kept off this server.
+  archivePassphraseEncrypted String?
+
+  /// Daily upload time, minutes after midnight Asia/Tehran.
+  dailyAtMinute  Int @default(240)
+  /// How many uploaded archives to keep on the backup server.
+  retentionCount Int @default(14)
+
+  updatedByStaffId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One attempt to copy a snapshot off the host. Never deleted.
+model BackupRun {
+  id      String           @id @default(cuid())
+  trigger BackupRunTrigger
+  status  BackupRunStatus  @default(RUNNING)
+
+  /// Tehran calendar day (`YYYY-MM-DD`) a scheduled run belongs to. Unique so
+  /// two API processes, or a restart mid-minute, cannot both run the same day.
+  scheduledDay String? @unique
+
+  /// Local snapshot that was (or would have been) uploaded, e.g. `snapshot-Ab12Cd34`.
+  sourceSnapshot  String?
+  sourceCreatedAt DateTime?
+  /// Name of the encrypted archive on the backup server.
+  remoteFileName  String?
+  sizeBytes       BigInt?
+  /// SHA-256 of the encrypted archive as uploaded, hex.
+  sha256          String?
+  /// Normalised reason; never a raw tool output, path to a key, or secret.
+  errorMessage    String?
+
+  requestedByStaffId String?
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([status, startedAt])
+  @@index([startedAt])
+}

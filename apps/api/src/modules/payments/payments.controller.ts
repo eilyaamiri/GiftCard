@@ -113,6 +113,31 @@ export class PaymentsController {
   }
 
   /**
+   * The customer's browser returning from Amin's hosted page.
+   *
+   * Public for the same reason as the BazaarPay return, and equally a GET that
+   * only redirects. Every query value is untrusted: `order_id` locates a payment
+   * we stored, `ref_num` and `tracking_code` say what to ask the gateway about,
+   * and `status` / `card_no` are ignored. The outcome is decided by a
+   * server-to-server verify inside `handleAminReturn`, and the redirect carries
+   * only our own ids.
+   */
+  @Get('amin/return')
+  @Public()
+  @Throttle({ short: { ttl: 1_000, limit: 3 }, medium: { ttl: 60_000, limit: 30 } })
+  async aminReturn(
+    @Query() query: Record<string, unknown>,
+    @Req() request: RequestLike,
+    @Res() response: { redirect(status: number, url: string): void },
+  ): Promise<void> {
+    const result = await this.paymentsService.handleAminReturn(
+      { order_id: query['order_id'], ref_num: query['ref_num'], tracking_code: query['tracking_code'] },
+      { ip: request.ip ?? null, userAgent: request.get('user-agent') ?? null },
+    );
+    response.redirect(303, this.resultPageUrl(result));
+  }
+
+  /**
    * Every call may reach the gateway and writes a PaymentAttempt row, so it is
    * rate limited per caller here (PAY-13) and per payment in the service, which
    * answers a closed payment from its own row between gateway calls.

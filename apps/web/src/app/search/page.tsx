@@ -6,6 +6,7 @@ import { catalogQueryString } from "@/lib/catalog";
 import { gameTitle, imageUrlOf, isSteamEntry, isTelegramEntry, regionLabel } from "@/lib/game-topups";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { ServiceCard } from "@/components/service-card";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import type { ListTopUpGamesResponse } from "@/lib/catalog";
 
 export const metadata = {
@@ -100,7 +101,10 @@ export default async function SearchPage({
     );
   }
 
-  const totalCount = products.meta.total + services.meta.total + topUps.items.length;
+  /* A hidden feature's matches must not count, or a search that finds only
+   * those would show an empty page instead of «چیزی پیدا نشد». */
+  const totalCount =
+    products.meta.total + (INTERNATIONAL_PAYMENT_ENABLED ? services.meta.total : 0) + topUps.items.length;
   /* Fail-open: a pricing hiccup costs the cards their «از ...» label only. */
   const fromPrices = await api.fromPrices(products.items.map((product) => product.id));
 
@@ -156,7 +160,7 @@ export default async function SearchPage({
             </section>
           ) : null}
 
-          {services.items.length > 0 ? (
+          {INTERNATIONAL_PAYMENT_ENABLED && services.items.length > 0 ? (
             <section>
               <div className="section-head">
                 <div>

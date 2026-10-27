@@ -78,3 +78,5 @@ export * from './providers/ippanel-sms.provider';
 export * from './providers/mock-email.provider';
 export * from './providers/mock-sms.provider';
 export * from './providers/safe-dispatch-record';
+export * from './providers/smtp-email.provider';
+export { encodeHeaderText, isDeliverableAddress } from './providers/smtp-message';

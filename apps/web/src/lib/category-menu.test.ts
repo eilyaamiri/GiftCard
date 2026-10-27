@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { categorySchema, type Category } from "./catalog";
 import { buildCategoryMenu, buildCategoryStrip } from "./category-menu";
+import { INTERNATIONAL_PAYMENT_ENABLED } from "./features";
 
 function category(overrides: Record<string, unknown> = {}): Category {
   return categorySchema.parse({
@@ -53,6 +54,27 @@ describe("buildCategoryMenu", () => {
     expect(utilitySection?.href).toBe("/categories/utility-software");
     expect(utilitySection?.entries.map((entry) => entry.href)).toEqual(["/games/capcut", "/games/telegram-stars"]);
     expect(gamesSection?.entries[0]?.href).toBe("/gift-cards/steam-us");
+  });
+
+  it("follows the international-payment switch for a curated link to a payment service", () => {
+    const mixed = category({
+      id: "cat_mixed",
+      slug: "mixed",
+      nameFa: "ترکیبی",
+      kind: "SERVICES",
+      productCount: 0,
+      links: [
+        { id: "m1", type: "SERVICE", slug: "wise", title: "وایز", imageUrl: null },
+        { id: "m2", type: "TOP_UP_GAME", slug: "capcut", title: "کپ‌کات", imageUrl: null },
+      ],
+    });
+    const onlyService = category({ id: "cat_svc", slug: "svc", nameFa: "فقط سرویس", kind: "SERVICES", productCount: 0, links: [{ id: "s1", type: "SERVICE", slug: "wise", title: "وایز", imageUrl: null }] });
+    const [section] = buildCategoryMenu([mixed]);
+    expect(section?.entries.map((entry) => entry.href)).toEqual(
+      INTERNATIONAL_PAYMENT_ENABLED ? ["/services/wise", "/games/capcut"] : ["/games/capcut"],
+    );
+    /* A list left with nothing to follow drops out of the menu altogether. */
+    expect(buildCategoryMenu([onlyService]).length).toBe(INTERNATIONAL_PAYMENT_ENABLED ? 1 : 0);
   });
 
   it("omits a service list with nothing to show and an umbrella with no products", () => {

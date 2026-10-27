@@ -2,12 +2,19 @@ import { STAFF_ROLE_LABELS, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { SettingsTabs } from "./settings-tabs";
 import {
+  settingsBackupResponseSchema,
+  settingsBackupRunListSchema,
   settingsFaqListSchema,
   settingsFeatureFlagListSchema,
   settingsQueueListSchema,
+  settingsSmtpResponseSchema,
   settingsStaffListSchema,
   settingsSupportChannelListSchema,
+  type SettingsBackup,
+  type SettingsBackupRun,
   type SettingsFaq,
+  type SettingsLocalSnapshot,
+  type SettingsSmtp,
   type SettingsFeatureFlag,
   type SettingsQueue,
   type SettingsStaff,
@@ -24,21 +31,43 @@ export default async function SettingsPage() {
   let queues: readonly SettingsQueue[] = [];
   let supportChannels: readonly SettingsSupportChannel[] = [];
   let faqs: readonly SettingsFaq[] = [];
+  let smtp: SettingsSmtp | null = null;
+  let backup: SettingsBackup | null = null;
+  let backupSnapshot: SettingsLocalSnapshot | null = null;
+  let backupSnapshotError: string | null = null;
+  let backupRuns: readonly SettingsBackupRun[] = [];
   let loadError: string | null = null;
 
   try {
-    const [flagResponse, staffResponse, queueResponse, supportResponse, faqResponse] = await Promise.all([
+    const [
+      flagResponse,
+      staffResponse,
+      queueResponse,
+      supportResponse,
+      faqResponse,
+      smtpResponse,
+      backupResponse,
+      backupRunsResponse,
+    ] = await Promise.all([
       api.get("/api/admin/settings/feature-flags", settingsFeatureFlagListSchema),
       api.get("/api/admin/settings/staff", settingsStaffListSchema),
       api.get("/api/admin/settings/queues", settingsQueueListSchema),
       api.get("/api/admin/settings/support-channels", settingsSupportChannelListSchema),
       api.get("/api/admin/settings/faqs", settingsFaqListSchema),
+      api.get("/api/admin/settings/smtp", settingsSmtpResponseSchema),
+      api.get("/api/admin/settings/backup", settingsBackupResponseSchema),
+      api.get("/api/admin/settings/backup/runs", settingsBackupRunListSchema),
     ]);
     flags = flagResponse.items;
     staff = staffResponse.items;
     queues = queueResponse.items;
     supportChannels = supportResponse.items;
     faqs = faqResponse.items;
+    smtp = smtpResponse.settings;
+    backup = backupResponse.settings;
+    backupSnapshot = backupResponse.localSnapshot ?? null;
+    backupSnapshotError = backupResponse.localSnapshotError ?? null;
+    backupRuns = backupRunsResponse.items;
   } catch {
     loadError = "خواندن تنظیمات از سرویس ممکن نشد. صفحه را دوباره بارگذاری کنید.";
   }
@@ -68,6 +97,11 @@ export default async function SettingsPage() {
         queues={queues}
         supportChannels={supportChannels}
         faqs={faqs}
+        smtp={smtp}
+        backup={backup}
+        backupSnapshot={backupSnapshot}
+        backupSnapshotError={backupSnapshotError}
+        backupRuns={backupRuns}
         currentStaffId={staffUser.id}
         loadError={loadError}
       />

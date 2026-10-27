@@ -205,7 +205,7 @@ describe("presentation", () => {
   it("translates known regions and keeps unknown codes rather than hiding them", () => {
     expect(regionLabel("GLOBAL")).toBe("جهانی");
     expect(regionLabel("global")).toBe("جهانی");
-    expect(regionLabel("BR")).toBe("BR");
+    expect(regionLabel("XX-1")).toBe("XX-1");
     expect(regionLabel(null)).toBeNull();
     expect(regionLabel(" ")).toBeNull();
   });

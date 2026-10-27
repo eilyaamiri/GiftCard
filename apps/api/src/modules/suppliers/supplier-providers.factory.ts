@@ -5,6 +5,8 @@ import {
   FazerCardsTopUpSupplierProvider,
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
+  ResellCodesGiftCardSupplierProvider,
+  ResellCodesTopUpSupplierProvider,
   type SupplierProvider,
 } from '@barat/suppliers';
 
@@ -14,11 +16,17 @@ import {
   readFazerCardsTelegramEnv,
   readFazerCardsTopUpEnv,
   readReloadlyEnv,
+  readResellCodesCatalogEnv,
+  readResellCodesGiftCardEnv,
+  readResellCodesTopUpEnv,
 } from './suppliers.env';
 import type { TopUpCatalogReader } from './suppliers.types';
 
 /** The `Supplier.code` game top-ups are sold under; the adapter's own key. */
 export const FAZERCARDS_TOPUP_SUPPLIER_CODE = 'fazercards-topup';
+/** ReSellCodes sells gift cards and top-ups under two codes, one per adapter. */
+export const RESELLCODES_GIFTCARD_SUPPLIER_CODE = 'resellcodes';
+export const RESELLCODES_TOPUP_SUPPLIER_CODE = 'resellcodes-topup';
 
 /**
  * Turns the environment into the adapter list bound to `SUPPLIER_PROVIDERS`.
@@ -83,6 +91,32 @@ export function buildSupplierProviders(options: {
     logger.warn('FazerCards top-up is not registered; game top-ups escalate to an operator');
   }
 
+  /*
+   * ReSellCodes: two independent flags over one key, and `isTest` outranks both.
+   * The venue has no idempotency key and no sandbox, so a registered adapter is a
+   * live spender — the key being present decides nothing.
+   */
+  const resellGiftCards = readResellCodesGiftCardEnv();
+  if (resellGiftCards.enabled && !options.isTest) {
+    providers.push(
+      new ResellCodesGiftCardSupplierProvider({ apiKey: resellGiftCards.apiKey, timeoutMs: resellGiftCards.timeoutMs }),
+    );
+    /* Environment only — never the API key. */
+    logger.log('ReSellCodes gift cards registered');
+  } else {
+    logger.warn('ReSellCodes gift cards are not registered; its offers can only be fulfilled by an operator');
+  }
+
+  const resellTopUp = readResellCodesTopUpEnv();
+  if (resellTopUp.enabled && !options.isTest) {
+    providers.push(
+      new ResellCodesTopUpSupplierProvider({ apiKey: resellTopUp.apiKey, timeoutMs: resellTopUp.timeoutMs }),
+    );
+    logger.log('ReSellCodes top-up registered');
+  } else {
+    logger.warn('ReSellCodes top-up is not registered; its game top-ups escalate to an operator');
+  }
+
   const reloadly = readReloadlyEnv();
   if (!reloadly.enabled || options.isTest) {
     /*
@@ -124,17 +158,26 @@ export function buildTopUpCatalogReaders(options: {
   readonly isTest: boolean;
 }): readonly TopUpCatalogReader[] {
   const env = readFazerCardsCatalogEnv();
-  if (env.apiKey === undefined || options.isTest) {
-    return [];
-  }
-
-  const adapter = new FazerCardsTopUpSupplierProvider({ apiKey: env.apiKey, timeoutMs: env.timeoutMs });
-  return [
-    {
+  const readers: TopUpCatalogReader[] = [];
+  if (env.apiKey !== undefined && !options.isTest) {
+    const adapter = new FazerCardsTopUpSupplierProvider({ apiKey: env.apiKey, timeoutMs: env.timeoutMs });
+    readers.push({
       supplierCode: FAZERCARDS_TOPUP_SUPPLIER_CODE,
       supplierName: 'FazerCards Top-up',
       defaultCurrency: 'USD',
       readCatalog: () => adapter.readTopUpCatalog(),
-    },
-  ];
+    });
+  }
+
+  const resell = readResellCodesCatalogEnv();
+  if (resell.apiKey !== undefined && !options.isTest) {
+    const adapter = new ResellCodesTopUpSupplierProvider({ apiKey: resell.apiKey, timeoutMs: resell.timeoutMs });
+    readers.push({
+      supplierCode: RESELLCODES_TOPUP_SUPPLIER_CODE,
+      supplierName: 'ReSellCodes Top-up',
+      defaultCurrency: 'USD',
+      readCatalog: () => adapter.readTopUpCatalog(),
+    });
+  }
+  return readers;
 }

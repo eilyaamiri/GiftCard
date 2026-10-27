@@ -103,8 +103,23 @@ export const envSchema = z
      * gift-card key rotation never has to move bank data with it.
      */
     BANK_DETAILS_ENCRYPTION_KEY: blankAsUndefined(base64Key32),
+    /**
+     * Encrypts the secrets an admin enters in the panel's settings: the SMTP
+     * password, the backup server's SSH private key and the backup archive
+     * passphrase. Optional so an existing deployment still boots; until it is
+     * set the panel refuses to store any of them, and no fallback to another
+     * key exists on purpose.
+     */
+    SETTINGS_ENCRYPTION_KEY: blankAsUndefined(base64Key32),
     /** Persistent local storage for catalog product images. */
     PRODUCT_IMAGE_DIR: z.string().trim().min(1).default('/var/lib/baratpay/product-images'),
+    /**
+     * Where the host's backup timer leaves its `snapshot-*` directories, each
+     * holding one completed `database.dump`. The API only reads from here; it
+     * is an environment setting, not a panel one, so an admin account cannot
+     * point the off-host copy at an arbitrary file on the server.
+     */
+    BACKUP_SOURCE_DIR: z.string().trim().min(1).default('/var/backups/baratpay'),
 
     /* ------------------------------------------------------------ OTP policy */
     OTP_LENGTH: z.coerce.number().int().min(4).max(8).default(6),
@@ -148,9 +163,10 @@ export const envSchema = z
 
     /* --------------------------------------------------------------- BazaarPay */
     /**
-     * Second rial gateway. Exactly one of ZarinPal and BazaarPay may be on;
-     * turning either on is a human release gate (AGENTS.md section 4).
-     * `BAZAARPAY_API_TOKEN` is a secret: it is never logged or echoed.
+     * Second rial gateway. Exactly one rial gateway (ZarinPal, BazaarPay or
+     * Amin) may be on; turning any of them on is a human release gate
+     * (AGENTS.md section 4). `BAZAARPAY_API_TOKEN` is a secret: it is never
+     * logged or echoed.
      */
     BAZAARPAY_ENABLED: booleanFromEnv.default(false),
     BAZAARPAY_API_TOKEN: blankAsUndefined(z.string().trim().min(1)),
@@ -159,6 +175,21 @@ export const envSchema = z
     BAZAARPAY_BASE_URL: blankAsUndefined(httpUrl),
     BAZAARPAY_AMOUNT_UNIT: z.enum(['IRR', 'IRT']).default('IRR'),
     BAZAARPAY_TIMEOUT_MS: positiveInt.max(60_000).default(10_000),
+    /** Skips BazaarPay's own login for a signed-in customer (verified mobile only). */
+    BAZAARPAY_AUTO_LOGIN: booleanFromEnv.default(false),
+
+    /* -------------------------------------------------------------------- Amin */
+    /**
+     * Third rial gateway (api.aminremit.com). `AMIN_MERCHANT_ID` is its only
+     * credential, so it is a secret: handed to the adapter's constructor and
+     * nowhere else, never logged or quoted in an error. The adapter only exists
+     * when `AMIN_ENABLED` is explicitly true, never because an id is present.
+     */
+    AMIN_ENABLED: booleanFromEnv.default(false),
+    AMIN_MERCHANT_ID: blankAsUndefined(z.string().trim().min(1)),
+    /** Unset means the adapter's built-in production base URL. */
+    AMIN_BASE_URL: blankAsUndefined(httpUrl),
+    AMIN_TIMEOUT_MS: positiveInt.max(60_000).default(10_000),
 
     /**
      * Lets a production process run on the mock gateway, which treats every
@@ -232,14 +263,27 @@ export const envSchema = z
       }
     }
 
-    /* Which gateway a customer is sent to must never depend on a precedence
-     * rule nobody wrote down. */
-    if (env.ZARINPAL_ENABLED && env.BAZAARPAY_ENABLED) {
+    /* Amin, like the others, is fully configured or fully off. */
+    if (env.AMIN_ENABLED && !env.AMIN_MERCHANT_ID) {
       ctx.addIssue({
         code: 'custom',
-        path: ['BAZAARPAY_ENABLED'],
-        message:
-          'ZARINPAL_ENABLED and BAZAARPAY_ENABLED are both true: exactly one rial gateway may take payments',
+        path: ['AMIN_MERCHANT_ID'],
+        message: 'AMIN_MERCHANT_ID is required when AMIN_ENABLED is true',
+      });
+    }
+
+    /* Which gateway a customer is sent to must never depend on a precedence
+     * rule nobody wrote down. */
+    const liveGateways = [
+      env.ZARINPAL_ENABLED ? 'ZARINPAL_ENABLED' : null,
+      env.BAZAARPAY_ENABLED ? 'BAZAARPAY_ENABLED' : null,
+      env.AMIN_ENABLED ? 'AMIN_ENABLED' : null,
+    ].filter((flag): flag is string => flag !== null);
+    if (liveGateways.length > 1) {
+      ctx.addIssue({
+        code: 'custom',
+        path: [liveGateways[liveGateways.length - 1] ?? 'ZARINPAL_ENABLED'],
+        message: `${liveGateways.join(' and ')} are all true: exactly one rial gateway may take payments`,
       });
     }
 
@@ -248,16 +292,16 @@ export const envSchema = z
      * only allowed when someone has said so explicitly. */
     if (
       env.NODE_ENV === 'production' &&
-      !env.ZARINPAL_ENABLED &&
-      !env.BAZAARPAY_ENABLED &&
+      liveGateways.length === 0 &&
       !env.PAYMENTS_ALLOW_MOCK
     ) {
       ctx.addIssue({
         code: 'custom',
         path: ['PAYMENTS_ALLOW_MOCK'],
         message:
-          'No live payment gateway is enabled in production. Enable ZARINPAL_ENABLED or ' +
-          'BAZAARPAY_ENABLED, or set PAYMENTS_ALLOW_MOCK=true to run on the mock gateway knowingly',
+          'No live payment gateway is enabled in production. Enable ZARINPAL_ENABLED, ' +
+          'BAZAARPAY_ENABLED or AMIN_ENABLED, or set PAYMENTS_ALLOW_MOCK=true to run on the ' +
+          'mock gateway knowingly',
       });
     }
 
@@ -265,12 +309,12 @@ export const envSchema = z
      * real money is the clearest signal that a deployment is not a demo, so it
      * is the signal this interlock uses: refusing to boot is the only failure
      * mode loud enough to stop the value being forgotten in an env file. */
-    if (env.OTP_DEV_FIXED_CODE && (env.ZARINPAL_ENABLED || env.BAZAARPAY_ENABLED)) {
+    if (env.OTP_DEV_FIXED_CODE && liveGateways.length > 0) {
       ctx.addIssue({
         code: 'custom',
         path: ['OTP_DEV_FIXED_CODE'],
         message:
-          `OTP_DEV_FIXED_CODE must not be set while ${env.ZARINPAL_ENABLED ? 'ZARINPAL_ENABLED' : 'BAZAARPAY_ENABLED'} ` +
+          `OTP_DEV_FIXED_CODE must not be set while ${liveGateways[0] ?? 'a gateway'} ` +
           'is true — a fixed login code lets anyone sign in as any mobile number, which is not ' +
           'survivable on a deployment that accepts payments',
       });
@@ -312,6 +356,18 @@ export const envSchema = z
           code: 'custom',
           path: ['GIFT_CARD_ENCRYPTION_KEY'],
           message: 'GIFT_CARD_ENCRYPTION_KEY is the all-zero example key',
+        });
+      }
+      /* Reusing a key would let one domain's leak open the other's columns. */
+      if (
+        env.SETTINGS_ENCRYPTION_KEY !== undefined &&
+        (env.SETTINGS_ENCRYPTION_KEY === env.GIFT_CARD_ENCRYPTION_KEY ||
+          env.SETTINGS_ENCRYPTION_KEY === env.BANK_DETAILS_ENCRYPTION_KEY)
+      ) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['SETTINGS_ENCRYPTION_KEY'],
+          message: 'SETTINGS_ENCRYPTION_KEY must differ from the gift-card and bank-details keys',
         });
       }
     }

@@ -182,7 +182,7 @@ export function AccountTopbarActions({
         <summary className="account-profile-trigger" aria-label="باز کردن منوی پروفایل">
           <span className="account-avatar">{initial}</span>
           <span className="account-profile-copy">
-            <strong>{name}</strong>
+            <strong><bdi>{name}</bdi></strong>
             <small>{customerCode}</small>
           </span>
           <ChevronDown className="account-profile-chevron" size={15} aria-hidden="true" />
@@ -191,7 +191,7 @@ export function AccountTopbarActions({
           <div className="account-profile-menu-head">
             <span className="account-avatar">{initial}</span>
             <span>
-              <strong>{name}</strong>
+              <strong><bdi>{name}</bdi></strong>
               <small>{customerCode}</small>
             </span>
           </div>
