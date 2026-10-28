@@ -10,7 +10,7 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * `RELOADLY_CLIENT_ID`, `RELOADLY_CLIENT_SECRET`, `RELOADLY_RECIPIENT_EMAIL`,
  * `RELOADLY_SENDER_NAME`, `RELOADLY_TIMEOUT_MS`, `FAZERCARDS_TELEGRAM_ENABLED`,
  * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_STEAM_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
- * `RESELLCODES_GIFTCARD_ENABLED`, `RESELLCODES_TOPUP_ENABLED`, `RESELLCODES_TELEGRAM_ENABLED`, `RESELLCODES_API_KEY`,
+ * `RESELLCODES_GIFTCARD_ENABLED`, `RESELLCODES_TOPUP_ENABLED`, `RESELLCODES_TELEGRAM_ENABLED`, `RESELLCODES_STEAM_ENABLED`, `RESELLCODES_API_KEY`,
  * `RESELLCODES_TIMEOUT_MS`,
  * `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
@@ -125,6 +125,10 @@ export function readResellCodesTopUpEnv(): ResellCodesProductEnv {
 
 export function readResellCodesTelegramEnv(): ResellCodesProductEnv {
   return readResellCodesProductEnv('RESELLCODES_TELEGRAM_ENABLED', 'ReSellCodes Telegram');
+}
+
+export function readResellCodesSteamEnv(): ResellCodesProductEnv {
+  return readResellCodesProductEnv('RESELLCODES_STEAM_ENABLED', 'ReSellCodes Steam');
 }
 
 /** Like `FazerCardsCatalogEnv`: reading a catalogue spends nothing, so it does not wait for the spend flag. */

@@ -16,6 +16,7 @@ import {
   readReloadlyEnv,
   readResellCodesCatalogEnv,
   readResellCodesGiftCardEnv,
+  readResellCodesSteamEnv,
   readResellCodesTelegramEnv,
   readResellCodesTopUpEnv,
 } from './suppliers.env';
@@ -43,6 +44,7 @@ const KEYS = [
   'RESELLCODES_GIFTCARD_ENABLED',
   'RESELLCODES_TOPUP_ENABLED',
   'RESELLCODES_TELEGRAM_ENABLED',
+  'RESELLCODES_STEAM_ENABLED',
   'RESELLCODES_API_KEY',
   'RESELLCODES_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
@@ -380,6 +382,15 @@ describe('ReSellCodes wiring', () => {
       'resellcodes-topup',
       'resellcodes-telegram',
     ]);
+
+    process.env['RESELLCODES_STEAM_ENABLED'] = 'true';
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual([
+      'mock',
+      'resellcodes',
+      'resellcodes-topup',
+      'resellcodes-telegram',
+      'resellcodes-steam',
+    ]);
   });
 
   it('never registers under NODE_ENV=test, even fully configured', () => {
@@ -387,6 +398,7 @@ describe('ReSellCodes wiring', () => {
     process.env['RESELLCODES_GIFTCARD_ENABLED'] = 'true';
     process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
     process.env['RESELLCODES_TELEGRAM_ENABLED'] = 'true';
+    process.env['RESELLCODES_STEAM_ENABLED'] = 'true';
 
     expect(buildSupplierProviders({ isTest: true }).map((provider) => provider.key)).toEqual(['mock']);
   });
@@ -398,6 +410,9 @@ describe('ReSellCodes wiring', () => {
 
     process.env['RESELLCODES_TELEGRAM_ENABLED'] = 'true';
     expect(() => readResellCodesTelegramEnv()).toThrow(/RESELLCODES_API_KEY is required/u);
+
+    process.env['RESELLCODES_STEAM_ENABLED'] = 'true';
+    expect(() => readResellCodesSteamEnv()).toThrow(/RESELLCODES_API_KEY is required/u);
   });
 
   it('refuses a flag it cannot read as a decision, and a nonsense timeout', () => {

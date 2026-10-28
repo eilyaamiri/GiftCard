@@ -2,10 +2,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ResellCodesGiftCardSupplierProvider,
+  ResellCodesSteamSupplierProvider,
   ResellCodesTelegramSupplierProvider,
   ResellCodesTopUpSupplierProvider,
   ResellCodesSupplierError,
   parseResellCodesProviderSku,
+  parseResellCodesSteamProviderSku,
   parseResellCodesTelegramProviderSku,
 } from './resellcodes.provider';
 
@@ -742,6 +744,135 @@ describe('Telegram', () => {
       status: 'SUCCEEDED',
       providerReference: '12',
       asset: { assetType: 'DIRECT_TOPUP', accountReference: 'durov' },
+    });
+  });
+});
+
+describe('Steam wallet', () => {
+  const steam = (): ResellCodesSteamSupplierProvider => new ResellCodesSteamSupplierProvider({ apiKey: KEY, sleep: noSleep });
+
+  const RATES: Route = {
+    body: { object: 'steam_rates', base: 'USD', rates: { USD: 1, RUB: 92.1, UAH: 41.2, KZT: 480 }, min_topup_usd: '0.15' },
+  };
+  const CAN_REFILL: Route = { body: { object: 'steam_login_check', steam_login: 'gaben', can_refill: true } };
+  const request = {
+    providerSku: 'steam:usd:10.5',
+    quantity: 1,
+    idempotencyKey: 'st-1',
+    accountFields: { steam_login: 'gaben' },
+  } as const;
+
+  it('reads its SKUs strictly, within the USD bounds', () => {
+    expect(parseResellCodesSteamProviderSku('steam:usd:10')).toEqual({ cents: 1000n });
+    expect(parseResellCodesSteamProviderSku('steam:usd:0.15')).toEqual({ cents: 15n });
+    for (const bad of ['steam:usd:custom', 'steam:usd:0', 'steam:usd:1000.01', 'steam:usd:1.234', 'steam:rub:10', 'telegram:stars:50']) {
+      expect(() => parseResellCodesSteamProviderSku(bad)).toThrow(ResellCodesSupplierError);
+    }
+  });
+
+  it('prices at face value, the most the venue can charge', async () => {
+    stubFetch({ 'GET /api/v1/steam-topup/rates': RATES });
+    expect((await steam().getPrice('steam:usd:10.5')).cost).toEqual({ amount: '10.5000', currency: 'USD' });
+  });
+
+  it('refuses an amount under the venue minimum, and an unusable rates payload', async () => {
+    stubFetch({ 'GET /api/v1/steam-topup/rates': { body: { ...(RATES.body as object), min_topup_usd: '1.00' } } });
+    await expect(steam().getPrice('steam:usd:0.5')).rejects.toMatchObject({ code: 'OFFER_NOT_FOUND' });
+    stubFetch({ 'GET /api/v1/steam-topup/rates': { body: { base: 'EUR', rates: {} } } });
+    await expect(steam().getPrice('steam:usd:10')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('lists the one template entry', async () => {
+    stubFetch({ 'GET /api/v1/steam-topup/rates': RATES });
+    expect(await steam().getCatalog()).toEqual([
+      {
+        providerSku: 'steam:usd:custom',
+        name: 'Steam Wallet (custom USD amount)',
+        region: 'GLOBAL',
+        faceValue: { amount: '0.1500', currency: 'USD' },
+        assetType: 'DIRECT_TOPUP',
+        requiredAccountFields: ['steam_login'],
+      },
+    ]);
+  });
+
+  it('checks the login, then orders in USD with the shortest amount, and reports the credited login', async () => {
+    const { calls } = stubFetch({
+      'POST /api/v1/steam-topup/check-login': CAN_REFILL,
+      'POST /api/v1/steam-topup/order': {
+        body: { number: 31, status: 'completed', charged_usd: '9.9750', steam_login: 'gaben', currency: 'USD', amount: '10.5' },
+      },
+    });
+    const result = await steam().purchase(request);
+    expect(calls.map((call) => call.path)).toEqual(['/api/v1/steam-topup/check-login', '/api/v1/steam-topup/order']);
+    expect(calls[0]?.body).toEqual({ steam_login: 'gaben' });
+    expect(calls[1]?.body).toEqual({ steam_login: 'gaben', currency: 'USD', amount: '10.5' });
+    expect(result).toEqual({
+      status: 'SUCCEEDED',
+      providerReference: '31',
+      cost: { amount: '9.9750', currency: 'USD' },
+      asset: { assetType: 'DIRECT_TOPUP', accountReference: 'gaben' },
+    });
+  });
+
+  it('refuses a login the venue cannot refill, charges nothing, and lets the same key try again', async () => {
+    const stub = stubFetch({
+      'POST /api/v1/steam-topup/check-login': [
+        { body: { can_refill: false } },
+        CAN_REFILL,
+      ],
+      'POST /api/v1/steam-topup/order': { body: { number: 32, status: 'processing' } },
+    });
+    const provider = steam();
+    expect(await provider.purchase(request)).toEqual({ status: 'FAILED', failureCode: 'STEAM_LOGIN_CANNOT_REFILL' });
+    expect(stub.count('POST /api/v1/steam-topup/order')).toBe(0);
+    expect(await provider.purchase(request)).toMatchObject({ status: 'PENDING', providerReference: '32' });
+  });
+
+  it('refuses a bad request before anything is sent', async () => {
+    const { calls } = stubFetch({});
+    expect(await steam().purchase({ ...request, quantity: 2 })).toEqual({ status: 'FAILED', failureCode: 'QUANTITY_NOT_SUPPORTED' });
+    expect(await steam().purchase({ ...request, accountFields: {} })).toEqual({ status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_MISSING' });
+    expect(await steam().purchase({ ...request, accountFields: { steam_login: 'has space' } })).toEqual({
+      status: 'FAILED',
+      failureCode: 'ACCOUNT_FIELDS_INVALID',
+    });
+    expect(await steam().purchase({ ...request, providerSku: 'steam:usd:custom' })).toEqual({
+      status: 'FAILED',
+      failureCode: 'INVALID_PROVIDER_SKU',
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('never sends the same order twice: an unknown answer is replayed, not resent', async () => {
+    const stub = stubFetch({
+      'POST /api/v1/steam-topup/check-login': CAN_REFILL,
+      'POST /api/v1/steam-topup/order': { throws: new TypeError('fetch failed') },
+    });
+    const provider = steam();
+    const first = await provider.purchase(request);
+    expect(first).toEqual({ status: 'UNKNOWN', failureCode: 'NETWORK_ERROR' });
+    expect(await provider.purchase(request)).toEqual(first);
+    expect(stub.count('POST /api/v1/steam-topup/order')).toBe(1);
+  });
+
+  it('maps a refund to a settled failure', async () => {
+    stubFetch({
+      'POST /api/v1/steam-topup/check-login': CAN_REFILL,
+      'POST /api/v1/steam-topup/order': { body: { number: 33, status: 'refund', fail_code: 'account_problem' } },
+    });
+    expect(await steam().purchase({ ...request, idempotencyKey: 'st-2' })).toMatchObject({
+      status: 'FAILED',
+      providerReference: '33',
+      failureCode: 'RESELL_ACCOUNT_PROBLEM',
+    });
+  });
+
+  it('reads an order back by number, naming the login it credited', async () => {
+    stubFetch({ 'GET /api/v1/orders/31': { body: { number: 31, status: 'completed', steam_login: 'gaben' } } });
+    expect(await steam().getPurchaseStatus('31')).toMatchObject({
+      status: 'SUCCEEDED',
+      asset: { assetType: 'DIRECT_TOPUP', accountReference: 'gaben' },
     });
   });
 });
