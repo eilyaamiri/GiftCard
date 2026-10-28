@@ -1,12 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiClientError, api } from "@/lib/api";
-import type { AdminBrandOption, AdminCategory, AdminProduct } from "../_lib/catalog-contracts";
+import type { AdminBrandOption, AdminCategory, AdminGalleryItem, AdminProduct } from "../_lib/catalog-contracts";
 import { CategoryIcon } from "./category-icon";
 import { DeliveryTimeSelect } from "./delivery-time-select";
 import { FormError } from "./form-error";
+import { GalleryPicker } from "./gallery-picker";
 
 /** The API refuses more than five related categories. */
 const MAX_EXTRA_CATEGORIES = 5;
@@ -33,6 +34,12 @@ export function ProductForm({
   );
   const [imageUrl, setImageUrl] = useState(product?.imageUrl ?? "");
   const [imageFile, setImageFile] = useState<File | null>(null);
+  /* An image chosen from the gallery instead of uploaded from this computer.
+   * The two are mutually exclusive — picking one clears the other — because a
+   * product has one image and «which one wins» should never be a question. */
+  const [galleryPick, setGalleryPick] = useState<AdminGalleryItem | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [descriptionFa, setDescriptionFa] = useState(product?.descriptionFa ?? "");
   const [redemptionNotesFa, setRedemptionNotesFa] = useState(product?.redemptionNotesFa ?? "");
   const [deliveryMinutes, setDeliveryMinutes] = useState<number | null>(product?.deliveryMinutes ?? null);
@@ -48,13 +55,25 @@ export function ProductForm({
 
   useEffect(() => {
     if (!imageFile) {
-      setPreviewUrl(product?.imageUrl ?? null);
+      setPreviewUrl(galleryPick?.url ?? product?.imageUrl ?? null);
       return;
     }
     const url = URL.createObjectURL(imageFile);
     setPreviewUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [imageFile, product?.imageUrl]);
+  }, [imageFile, galleryPick, product?.imageUrl]);
+
+  function chooseFile(file: File | null) {
+    setImageFile(file);
+    if (file) setGalleryPick(null);
+  }
+
+  function chooseFromGallery(item: AdminGalleryItem) {
+    setGalleryPick(item);
+    setImageFile(null);
+    if (fileInput.current) fileInput.current.value = "";
+    setPickerOpen(false);
+  }
 
   /* The primary category may not also be a related one — the API refuses it,
    * and it would double-count the product in the category totals. */
@@ -96,6 +115,12 @@ export function ProductForm({
       }
       if (imageFile) {
         await api.uploadProductImage(savedProduct.id, imageFile);
+      } else if (galleryPick) {
+        /* The server copies the gallery image under this product's own key, so
+         * the product keeps its picture if the gallery entry is deleted later. */
+        await api.post(`/api/admin/catalog/products/${savedProduct.id}/image/from-gallery`, {
+          name: galleryPick.name,
+        });
       }
       router.push("/catalog");
       router.refresh();
@@ -164,15 +189,36 @@ export function ProductForm({
         <label>
           بارگذاری تصویر محصول (اختیاری)
           <input
+            ref={fileInput}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
-            onChange={(event) => setImageFile(event.target.files?.[0] ?? null)}
+            onChange={(event) => chooseFile(event.target.files?.[0] ?? null)}
           />
           <small>JPG، PNG، WebP یا GIF — حداکثر ۵ مگابایت. تصویر بارگذاری‌شده بر آدرس تصویر اولویت دارد.</small>
+        </label>
+        {/* Outside the label above: a button inside it would also activate the file input. */}
+        <div className="gallery-field">
+          <span className="gallery-field-title">یا انتخاب از گالری تصاویر</span>
+          <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="secondary-btn" onClick={() => setPickerOpen(true)}>
+              {galleryPick ? "تغییر تصویر گالری" : "انتخاب از گالری"}
+            </button>
+            {galleryPick ? (
+              <>
+                <span className="muted" title={galleryPick.name}>
+                  {galleryPick.label ?? galleryPick.name}
+                </span>
+                <button type="button" className="filter" onClick={() => setGalleryPick(null)}>
+                  لغو انتخاب
+                </button>
+              </>
+            ) : null}
+          </span>
+          <small>تصویری که قبلاً بارگذاری شده را دوباره استفاده کنید. نسخهٔ جداگانه‌ای برای همین محصول ذخیره می‌شود.</small>
           {previewUrl ? (
             <img src={previewUrl} alt="پیش‌نمایش تصویر محصول" className="product-image-preview" />
           ) : null}
-        </label>
+        </div>
         <label>
           ترتیب نمایش
           <input value={sortOrder} onChange={(event) => setSortOrder(event.target.value)} type="number" className="bp-ltr" />
@@ -247,6 +293,12 @@ export function ProductForm({
           {pending ? "در حال ذخیره…" : isEdit ? "ذخیرهٔ تغییرات" : "افزودن محصول"}
         </button>
       </div>
+      <GalleryPicker
+        open={pickerOpen}
+        selectedName={galleryPick?.name ?? null}
+        onPick={chooseFromGallery}
+        onClose={() => setPickerOpen(false)}
+      />
     </form>
   );
 }

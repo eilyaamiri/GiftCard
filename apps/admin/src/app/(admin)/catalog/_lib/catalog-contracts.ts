@@ -793,6 +793,101 @@ export function catalogHref(basePath: string, query: CatalogQuery, overrides: Ca
 }
 
 /* ============================================================================
+ * Image gallery
+ *
+ * Every image uploaded to the catalog, wherever it was uploaded from: the API
+ * lists the image directory, so there is no gallery table and nothing to
+ * migrate. State lives in the URL like the product list's.
+ * ==========================================================================*/
+
+export const GALLERY_SOURCE_VALUES = ["PRODUCT", "BRAND", "TOPUP", "GALLERY"] as const;
+export type GallerySource = (typeof GALLERY_SOURCE_VALUES)[number];
+export const GALLERY_SOURCE_LABELS: Record<GallerySource, string> = {
+  PRODUCT: "محصول",
+  BRAND: "برند",
+  TOPUP: "شارژ مستقیم",
+  GALLERY: "گالری",
+};
+
+export const adminGalleryItemSchema = z.object({
+  /** `<key>.<ext>` — the file's identity, and what a product is given. */
+  name: z.string().min(1),
+  source: z.enum(GALLERY_SOURCE_VALUES),
+  ownerId: z.string().nullable(),
+  /** The owner's Persian name; null for a gallery upload or an owner that is gone. */
+  label: z.string().nullable(),
+  sizeBytes: z.number().int().min(0),
+  updatedAt: isoDateTimeSchema,
+  /** Admin-authenticated route for the bytes — same origin, so an `<img>` carries the session. */
+  url: z.string().min(1),
+  /** Only an image uploaded to the gallery itself; the others are a live page's file. */
+  canDelete: z.boolean(),
+});
+export type AdminGalleryItem = z.infer<typeof adminGalleryItemSchema>;
+export const adminGalleryListSchema = paginatedSchema(adminGalleryItemSchema);
+
+export const GALLERY_PAGE_SIZE = 40;
+export type GallerySourceFilter = "ALL" | GallerySource;
+
+export interface GalleryQuery {
+  readonly page: number;
+  readonly pageSize: number;
+  readonly search?: string;
+  readonly source: GallerySourceFilter;
+}
+
+/** Coerces untrusted `searchParams` into a query the API will actually accept. */
+export function readGalleryQuery(
+  params: Record<string, string | string[] | undefined>,
+  pageSize = GALLERY_PAGE_SIZE,
+): GalleryQuery {
+  const first = (key: string): string | undefined => {
+    const value = params[key];
+    const single = Array.isArray(value) ? value[0] : value;
+    return single !== undefined && single.trim() !== "" ? single.trim() : undefined;
+  };
+  const rawPage = Number.parseInt(first("page") ?? "1", 10);
+  const search = first("search");
+  const rawSource = first("source");
+  const source = GALLERY_SOURCE_VALUES.find((candidate) => candidate === rawSource) ?? "ALL";
+
+  return {
+    page: Number.isFinite(rawPage) && rawPage >= 1 ? rawPage : 1,
+    pageSize,
+    source,
+    // The API caps `search` at 120 characters and would 400 on anything longer.
+    ...(search !== undefined ? { search: search.slice(0, 120) } : {}),
+  };
+}
+
+/** The API query string for a `GalleryQuery`. */
+export function galleryListSearch(query: GalleryQuery): string {
+  return buildListSearch({
+    page: query.page,
+    pageSize: query.pageSize,
+    ...(query.source === "ALL" ? {} : { source: query.source }),
+    ...(query.search ? { search: query.search } : {}),
+  });
+}
+
+/** Href for the same screen with part of the query replaced; `page` resets to 1 unless given. */
+export function galleryHref(
+  basePath: string,
+  query: GalleryQuery,
+  overrides: { page?: number; search?: string; source?: GallerySourceFilter } = {},
+): string {
+  const search = overrides.search === undefined ? query.search : overrides.search;
+  const source = overrides.source ?? query.source;
+  const page = overrides.page ?? 1;
+  const params = new URLSearchParams();
+  if (search) params.set("search", search);
+  if (source !== "ALL") params.set("source", source);
+  if (page > 1) params.set("page", String(page));
+  const suffix = params.toString();
+  return suffix ? `${basePath}?${suffix}` : basePath;
+}
+
+/* ============================================================================
  * Direct top-up
  *
  * A second catalogue with its own models. It is not a SKU: there is no code to
