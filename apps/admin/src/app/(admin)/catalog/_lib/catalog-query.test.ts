@@ -5,7 +5,10 @@ import {
   TOP_UP_PAGE_SIZE,
   buildListSearch,
   catalogHref,
+  galleryHref,
+  galleryListSearch,
   readCatalogQuery,
+  readGalleryQuery,
   readTopUpQuery,
   topUpHref,
   topUpListSearch,
@@ -224,5 +227,39 @@ describe("topUpHref", () => {
       "/catalog/top-ups?search=free+fire&status=ACTIVE&listed=LISTED",
     );
     expect(topUpHref("/catalog/top-ups", readTopUpQuery({}))).toBe("/catalog/top-ups");
+  });
+});
+
+describe("gallery query", () => {
+  it("asks for the first forty images from every source by default", () => {
+    expect(readGalleryQuery({})).toEqual({ page: 1, pageSize: 40, source: "ALL" });
+  });
+
+  it("falls back to page 1 and to every source for hand-typed nonsense", () => {
+    expect(readGalleryQuery({ page: "-2" }).page).toBe(1);
+    expect(readGalleryQuery({ page: "abc" }).page).toBe(1);
+    expect(readGalleryQuery({ source: "EVERYTHING" }).source).toBe("ALL");
+    expect(readGalleryQuery({ source: "BRAND" }).source).toBe("BRAND");
+  });
+
+  it("truncates the search to the length the API accepts and drops a blank one", () => {
+    expect(readGalleryQuery({ search: "x".repeat(200) }).search).toHaveLength(120);
+    expect(readGalleryQuery({ search: "  " }).search).toBeUndefined();
+  });
+
+  it("sends only the filters that are set", () => {
+    expect(galleryListSearch(readGalleryQuery({}))).toBe("?page=1&pageSize=40");
+    expect(galleryListSearch(readGalleryQuery({ source: "GALLERY", search: "steam", page: "3" }))).toBe(
+      "?page=3&pageSize=40&source=GALLERY&search=steam",
+    );
+  });
+
+  it("keeps the filters across a page change and resets the page when one changes", () => {
+    const query = readGalleryQuery({ source: "BRAND", search: "apple", page: "4" });
+
+    expect(galleryHref("/catalog/gallery", query, { page: 5 })).toBe("/catalog/gallery?search=apple&source=BRAND&page=5");
+    // A new filter has no page 4 to land on.
+    expect(galleryHref("/catalog/gallery", query, { source: "ALL" })).toBe("/catalog/gallery?search=apple");
+    expect(galleryHref("/catalog/gallery", query, { search: "" })).toBe("/catalog/gallery?source=BRAND");
   });
 });

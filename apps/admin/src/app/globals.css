@@ -441,3 +441,19 @@ h1 { margin: 0; color: var(--ink); font-size: clamp(22px, 2.5vw, 30px); letter-s
 .taxonomy-multi { min-height: 128px; }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+/* Image gallery — the catalog gallery page and the chooser in the product form. */
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.gallery-item { display: grid; gap: 8px; align-content: start; padding: 8px; background: white; border: 1px solid var(--line); border-radius: 12px; }
+.gallery-item.selected { border-color: var(--teal); box-shadow: 0 0 0 2px var(--teal-light); }
+.gallery-thumb { display: grid; place-items: center; height: 120px; overflow: hidden; background: var(--soft); border-radius: 8px; }
+.gallery-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.gallery-meta { display: grid; gap: 3px; font-size: 11px; }
+.gallery-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.gallery-pick { display: grid; gap: 8px; width: 100%; padding: 0; color: inherit; font: inherit; text-align: start; background: transparent; border: 0; cursor: pointer; }
+.gallery-upload { display: grid; gap: 4px; justify-items: start; }
+.gallery-field { display: grid; gap: 6px; align-content: start; color: var(--slate); font-size: 10px; font-weight: 700; }
+.gallery-field small { font-weight: 400; }
+.gallery-dialog { width: min(920px, 94vw); max-height: 88vh; padding: 18px; color: var(--ink); background: white; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px #0b1d3340; overflow: auto; }
+.gallery-dialog::backdrop { background: #0b1d3399; }
+.gallery-dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
