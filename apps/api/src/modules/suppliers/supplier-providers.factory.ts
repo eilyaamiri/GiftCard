@@ -6,6 +6,7 @@ import {
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
   ResellCodesGiftCardSupplierProvider,
+  ResellCodesSteamSupplierProvider,
   ResellCodesTelegramSupplierProvider,
   ResellCodesTopUpSupplierProvider,
   type SupplierProvider,
@@ -19,6 +20,7 @@ import {
   readReloadlyEnv,
   readResellCodesCatalogEnv,
   readResellCodesGiftCardEnv,
+  readResellCodesSteamEnv,
   readResellCodesTelegramEnv,
   readResellCodesTopUpEnv,
 } from './suppliers.env';
@@ -128,6 +130,15 @@ export function buildSupplierProviders(options: {
     logger.log('ReSellCodes Telegram registered');
   } else {
     logger.warn('ReSellCodes Telegram is not registered; its offers can only be fulfilled by an operator');
+  }
+
+  /* Steam is a fourth ReSellCodes flag, for the same reason: no other product being live decides it. */
+  const resellSteam = readResellCodesSteamEnv();
+  if (resellSteam.enabled && !options.isTest) {
+    providers.push(new ResellCodesSteamSupplierProvider({ apiKey: resellSteam.apiKey, timeoutMs: resellSteam.timeoutMs }));
+    logger.log('ReSellCodes Steam registered');
+  } else {
+    logger.warn('ReSellCodes Steam is not registered; its top-ups escalate to an operator');
   }
 
   const reloadly = readReloadlyEnv();

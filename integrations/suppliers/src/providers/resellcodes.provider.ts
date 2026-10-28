@@ -1239,3 +1239,225 @@ export class ResellCodesTelegramSupplierProvider implements SupplierProvider {
     return plans;
   }
 }
+
+/* ============================================================================
+ * Steam wallet top-up
+ * ==========================================================================*/
+
+/**
+ * The same SKU contract as the FazerCards Steam adapter: the catalogue holds one
+ * template, `steam:usd:custom`, and the quote binds the customer's typed amount
+ * into `steam:usd:<amount>` before anything is priced or bought.
+ */
+export const RESELLCODES_STEAM_CUSTOM_AMOUNT_SKU = 'steam:usd:custom';
+
+/** Outer bound a SKU may carry, in US cents; the quote path enforces the same one. */
+const MAX_STEAM_USD_CENTS = 1_000n * 100n;
+/** Used only when the venue's `min_topup_usd` cannot be read; it documents 0.15. */
+const DEFAULT_MIN_STEAM_USD_CENTS = 15n;
+const MAX_STEAM_LOGIN_LENGTH = 64;
+const STEAM_LOGIN_PATTERN = /^[^\s\p{Cc}]+$/u;
+
+export function parseResellCodesSteamProviderSku(providerSku: string): { readonly cents: bigint } {
+  const match = /^steam:usd:(\d{1,4}(?:\.\d{1,2})?)$/u.exec(providerSku.trim());
+  const amount = match?.[1];
+  if (amount !== undefined) {
+    const [whole = '0', fraction = ''] = amount.split('.');
+    const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+    if (cents > 0n && cents <= MAX_STEAM_USD_CENTS) {
+      return { cents };
+    }
+  }
+  throw new ResellCodesSupplierError('INVALID_PROVIDER_SKU', 'Invalid ReSellCodes Steam provider SKU');
+}
+
+/** `500n` -> `"5"`, `1050n` -> `"10.5"`: the shortest form of the venue's at-most-two-decimals USD rule. */
+function steamUsdString(cents: bigint): string {
+  const whole = cents / 100n;
+  const fraction = (cents % 100n).toString().padStart(2, '0').replace(/0+$/u, '');
+  return fraction === '' ? whole.toString() : `${whole}.${fraction}`;
+}
+
+function centsToMoney(cents: bigint): string {
+  return formatAmount(cents * (MONEY_UNIT / 100n));
+}
+
+/**
+ * ReSellCodes (resell.codes) Steam wallet adapter, `Supplier.code = resellcodes-steam`.
+ *
+ * Endpoints `/steam-topup/rates`, `/steam-topup/check-login` and
+ * `/steam-topup/order`, from the published OpenAPI. Same caveats as the other
+ * ReSellCodes adapters: nothing verified against a live response, no sandbox,
+ * and no idempotency key — so the shared purchase memory guards replays.
+ *
+ * Cost: the venue charges "face value minus your discount" and exposes no
+ * per-order quote, so the cost reported is the USD face value. That is the most
+ * the order can cost; the real charge, never higher, comes back as `charged_usd`.
+ *
+ * Only USD is bought. The customer's Steam *login* (not the display name) is
+ * checked with `check-login` before any charge; a login the venue says cannot
+ * be refilled is refused there, with nothing spent.
+ */
+export class ResellCodesSteamSupplierProvider implements SupplierProvider {
+  readonly key = 'resellcodes-steam';
+
+  private readonly client: ResellCodesClient;
+  private readonly clock: () => Date;
+  private readonly purchases = new PurchaseMemory();
+
+  constructor(options: ResellCodesSupplierProviderOptions) {
+    this.client = new ResellCodesClient(options);
+    this.clock = options.clock ?? (() => new Date());
+  }
+
+  getBalance(): Promise<SupplierBalance> {
+    return this.client.balance(this.clock);
+  }
+
+  async getCatalog(): Promise<readonly SupplierCatalogItem[]> {
+    const minCents = await this.minimumCents();
+    return [
+      {
+        providerSku: RESELLCODES_STEAM_CUSTOM_AMOUNT_SKU,
+        name: 'Steam Wallet (custom USD amount)',
+        region: 'GLOBAL',
+        faceValue: { amount: centsToMoney(minCents), currency: 'USD' },
+        assetType: 'DIRECT_TOPUP',
+        requiredAccountFields: ['steam_login'],
+      },
+    ];
+  }
+
+  async getPrice(providerSku: string): Promise<SupplierPrice> {
+    const { cents } = parseResellCodesSteamProviderSku(providerSku);
+    if (cents < (await this.minimumCents())) {
+      throw new ResellCodesSupplierError('OFFER_NOT_FOUND', 'ReSellCodes Steam amount is below the venue minimum');
+    }
+    return { providerSku, cost: { amount: centsToMoney(cents), currency: 'USD' }, observedAt: this.clock() };
+  }
+
+  async checkAvailability(providerSku: string): Promise<SupplierAvailabilityResult> {
+    const observedAt = this.clock();
+    let cents: bigint;
+    try {
+      ({ cents } = parseResellCodesSteamProviderSku(providerSku));
+    } catch {
+      return { providerSku, availability: 'UNAVAILABLE', observedAt };
+    }
+    let availability: SupplierAvailability;
+    try {
+      /* The template itself is always "available" when the venue answers; a bound amount must clear the minimum. */
+      availability = cents >= (await this.minimumCents()) ? 'AVAILABLE' : 'UNAVAILABLE';
+    } catch {
+      availability = 'UNKNOWN';
+    }
+    return { providerSku, availability, observedAt: this.clock() };
+  }
+
+  async purchase(request: SupplierPurchaseRequest): Promise<SupplierPurchaseResult> {
+    if (request.quantity !== 1) {
+      return { status: 'FAILED', failureCode: 'QUANTITY_NOT_SUPPORTED' };
+    }
+    const identifier = request.idempotencyKey.trim();
+    if (identifier === '') {
+      return { status: 'FAILED', failureCode: 'IDEMPOTENCY_KEY_UNUSABLE' };
+    }
+    const login = trimmed(request.accountFields?.['steam_login']);
+    if (login === null) {
+      return { status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_MISSING' };
+    }
+    if (login.length > MAX_STEAM_LOGIN_LENGTH || !STEAM_LOGIN_PATTERN.test(login)) {
+      return { status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_INVALID' };
+    }
+    let cents: bigint;
+    try {
+      ({ cents } = parseResellCodesSteamProviderSku(request.providerSku));
+    } catch {
+      return { status: 'FAILED', failureCode: 'INVALID_PROVIDER_SKU' };
+    }
+
+    return this.purchases.run(identifier, async () => {
+      /* Nothing is charged before the order call, so a refusal here may be tried again. */
+      const refusal = await this.checkLogin(login);
+      if (refusal !== null) {
+        return { result: refusal, sent: false };
+      }
+
+      let response: ResellCodesResponse;
+      try {
+        response = await this.client.call({
+          method: 'POST',
+          path: '/steam-topup/order',
+          body: { steam_login: login, currency: 'USD', amount: steamUsdString(cents) },
+        });
+      } catch {
+        /* The request may have reached the venue, and a credited wallet cannot be taken back. */
+        return { result: { status: 'UNKNOWN', failureCode: 'NETWORK_ERROR' }, sent: true };
+      }
+      if (response.status === 200 || response.status === 201) {
+        return { result: this.settle(response.payload, login), sent: true };
+      }
+      return { result: classifyPostFailure(response), sent: true };
+    });
+  }
+
+  async getPurchaseStatus(providerReference: string): Promise<SupplierPurchaseResult> {
+    const reference = providerReference.trim();
+    if (!ORDER_NUMBER_PATTERN.test(reference)) {
+      return { status: 'UNKNOWN', providerReference, failureCode: 'INVALID_PROVIDER_REFERENCE' };
+    }
+    const { status, order, payload } = await this.client.order(reference);
+    if (status === 404) {
+      return { status: 'UNKNOWN', providerReference, failureCode: 'ORDER_NOT_FOUND' };
+    }
+    if (status !== 200) {
+      return { status: 'UNKNOWN', providerReference, failureCode: normaliseErrorCode(payload, 'STATUS_UNAVAILABLE') };
+    }
+    return this.settle(order, undefined);
+  }
+
+  /** The order echoes `steam_login`; the request's own login stands in when it does not. */
+  private settle(payload: unknown, requested: string | undefined): SupplierPurchaseResult {
+    const source = isObject(payload) && isObject(payload['order']) ? payload['order'] : payload;
+    return settleOrder(source, (order): SupplierDeliveryAsset | null => ({
+      assetType: 'DIRECT_TOPUP',
+      accountReference: trimmed(order['steam_login']) ?? requested ?? 'credited',
+    }));
+  }
+
+  /** `null` when the venue says the login can be refilled; otherwise a FAILED result, nothing charged. */
+  private async checkLogin(login: string): Promise<SupplierPurchaseResult | null> {
+    let response: ResellCodesResponse;
+    try {
+      response = await this.client.call({ method: 'POST', path: '/steam-topup/check-login', body: { steam_login: login } });
+    } catch {
+      return { status: 'FAILED', failureCode: 'LOGIN_CHECK_UNAVAILABLE' };
+    }
+    if (response.status === 429) {
+      return { status: 'FAILED', failureCode: 'RATE_LIMITED' };
+    }
+    if (response.status !== 200 || !isObject(response.payload)) {
+      return { status: 'FAILED', failureCode: normaliseErrorCode(response.payload, 'LOGIN_CHECK_UNAVAILABLE') };
+    }
+    return response.payload['can_refill'] === true ? null : { status: 'FAILED', failureCode: 'STEAM_LOGIN_CANNOT_REFILL' };
+  }
+
+  /**
+   * The venue's minimum, in cents, from `/steam-topup/rates`. Reading it is also
+   * the liveness check: a payload that is not the documented one means this is
+   * not a product to sell from right now.
+   */
+  private async minimumCents(): Promise<bigint> {
+    const payload = this.client.expectOk(await this.client.read('/steam-topup/rates'), 'RATES_UNAVAILABLE');
+    if (!isObject(payload) || payload['base'] !== 'USD' || !isObject(payload['rates'])) {
+      throw new ResellCodesSupplierError('INVALID_RESPONSE', 'ReSellCodes Steam rates payload is unusable');
+    }
+    const min = payload['min_topup_usd'];
+    if (typeof min !== 'string' || !/^\d{1,4}(?:\.\d{1,2})?$/u.test(min.trim())) {
+      return DEFAULT_MIN_STEAM_USD_CENTS;
+    }
+    const [whole = '0', fraction = ''] = min.trim().split('.');
+    const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+    return cents > 0n ? cents : DEFAULT_MIN_STEAM_USD_CENTS;
+  }
+}

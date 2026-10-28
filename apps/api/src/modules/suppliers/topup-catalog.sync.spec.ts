@@ -246,6 +246,12 @@ describe('planAvailability — the namespaced Telegram catalogue', () => {
     expect(FazerCardsSteamSupplierProvider).toBeDefined();
   });
 
+  it('composes the same template SKU for the ReSellCodes Steam game, so a typed amount binds there too', async () => {
+    const { RESELLCODES_STEAM_CUSTOM_AMOUNT_SKU: adapterSku } = await import('@barat/suppliers');
+    expect(adapterSku).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+    expect(topUpProviderSku('resellcodes-steam', 'usd', 'custom')).toBe(STEAM_CUSTOM_AMOUNT_SKU);
+  });
+
   it('still delists the one package the venue withdrew, and reports a new one', () => {
     const plan = planAvailability({
       supplierCode: TELEGRAM,
