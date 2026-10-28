@@ -129,6 +129,55 @@ describe('planImport', () => {
     expect(plan.skipped).toContain('13 "Empty": no usable card');
   });
 
+  /*
+   * The venue's `region` field also carries currency codes and a product's own
+   * word. `Sku.region` is served as 2–8 characters, and "CONQUEROR" (9) made the
+   * admin catalog and the offers list fail to load.
+   */
+  describe('region', () => {
+    const regionOfCategory = (region: string) =>
+      planImport(raw({ categories: [{ data: [{ category_id: '12', name: 'Steam', image: 'https://img/steam.png', region }] }] }));
+
+    it.each(['US', 'gb', 'EU', 'global', 'CIS'])('reads %s as a region', (region) => {
+      const plan = regionOfCategory(region);
+
+      expect(plan.skus[0]?.region).toBe(region.toUpperCase());
+      expect(plan.products[0]?.needsReview).toBe(false);
+    });
+
+    it.each(['CONQUEROR', 'MINECOINS', 'ROBUX', 'USD', 'BRL', 'USDT'])(
+      'does not store %s as a region: GLOBAL, held for review',
+      (region) => {
+        const plan = regionOfCategory(region);
+
+        expect(plan.skus.every((sku) => sku.region === 'GLOBAL')).toBe(true);
+        // A fallback is not an answer: the card may be locked to a country.
+        expect(plan.products[0]?.needsReview).toBe(true);
+      },
+    );
+
+    it('keeps every region it stores within what the API serves', () => {
+      for (const region of ['CONQUEROR', 'MINECOINS', 'ABCDEFGHIJKL', 'U', 'US']) {
+        for (const sku of regionOfCategory(region).skus) {
+          expect(sku.region.length).toBeGreaterThanOrEqual(2);
+          expect(sku.region.length).toBeLessThanOrEqual(8);
+        }
+      }
+    });
+
+    it('does not hold a category for review when the brands feed supplies the region instead', () => {
+      const plan = planImport(
+        raw({
+          categories: [{ data: [{ category_id: '12', name: 'Steam', image: 'https://img/steam.png', region: 'ROBUX' }] }],
+          brands: [{ data: [{ brand: 'Steam', subcategories: [{ category_id: '12', region: 'us' }] }] }],
+        }),
+      );
+
+      expect(plan.skus[0]?.region).toBe('US');
+      expect(plan.products[0]?.needsReview).toBe(false);
+    });
+  });
+
   it('makes the venue\'s relative picture path absolute on the venue host, and nothing else', () => {
     const relative = planImport(raw({ categories: [{ data: [{ category_id: '12', name: 'Steam', image: '/api/media/steam.png' }] }] }));
     expect(relative.products[0]?.imageUrl).toBe('https://resell.codes/api/media/steam.png');

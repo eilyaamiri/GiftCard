@@ -166,9 +166,20 @@ function imageOf(row: Json): string | null {
   return null;
 }
 
+/**
+ * A country code (`US`, `GB`, `EU`), `GLOBAL`, or the venue's own `CIS`.
+ *
+ * The venue's `region` field is not only regions: it also holds currency codes
+ * ("USD", "BRL") and a product's own word ("ROBUX", "CONQUEROR", "MINECOINS").
+ * Taking any run of letters stored those as a region, and one of them over the
+ * 8 characters `Sku.region` is served with made the admin pages fail to load.
+ * A value that is not a region is not guessed at.
+ */
+const REGION = /^(?:[A-Z]{2}|GLOBAL|CIS)$/u;
+
 function regionOf(value: unknown): string | null {
   const region = text(value)?.toUpperCase() ?? null;
-  return region !== null && /^[A-Z]{2,12}$/u.test(region) ? region : null;
+  return region !== null && REGION.test(region) ? region : null;
 }
 
 /** `category_id` -> region, from `/gift-cards/brands`, whichever of two shapes it has. */
@@ -297,7 +308,12 @@ export function planImport(raw: RawCatalog): Plan {
 
     const name = text(category['name']) ?? categoryId;
     const brand = text(category['brand']) ?? name;
-    const region = regionOf(category['region']) ?? brandRegions.get(categoryId) ?? 'GLOBAL';
+    const statedRegion = regionOf(category['region']);
+    const region = statedRegion ?? brandRegions.get(categoryId) ?? 'GLOBAL';
+    // The venue named something, and it is not a region we can read: `GLOBAL` is
+    // then a fallback, not an answer, and a gift card is often region-locked.
+    const regionUnreadable =
+      statedRegion === null && text(category['region']) !== null && !brandRegions.has(categoryId);
     const productId = boundedKey(PRODUCT_ID_PREFIX, [categoryId], '_');
     const cards = (raw.cards[categoryId] ?? []).flatMap((page) => rowsOf(page, ['offers', 'data', 'cards']));
 
@@ -368,7 +384,8 @@ export function planImport(raw: RawCatalog): Plan {
       category: 'ReSellCodes',
       categorySlug,
       imageUrl,
-      needsReview: imageUrl === null || categorySlug === 'other' || planned.some((sku) => !sku.faceValueFromName),
+      needsReview:
+        imageUrl === null || categorySlug === 'other' || regionUnreadable || planned.some((sku) => !sku.faceValueFromName),
       providerCategoryId: categoryId,
     });
     skus.push(...planned);
