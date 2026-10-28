@@ -50,6 +50,7 @@
  * ============================================================================
  */
 
+import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 
 import { Prisma, SupplierIntegrationMode } from '../generated/client';
@@ -253,6 +254,26 @@ function idPart(value: string): string {
   return value.replace(/[^A-Za-z0-9-]/gu, '_').slice(0, 60);
 }
 
+/**
+ * The longest id or code the API will hand to a page: `idSchema` in
+ * `@barat/contracts` is `max(64)`, and a row over it makes every list that
+ * contains it fail to parse — the admin catalog and the offers list stopped
+ * loading altogether once such rows existed.
+ */
+const MAX_KEY_LENGTH = 64;
+
+/**
+ * `<prefix><part>_<part>…` while it fits, so an id that was always short keeps
+ * the id it already has and a re-run still finds its row. When the venue's own
+ * ids make it too long it is `<prefix><hash>` instead: a digest of the same
+ * parts, so it is just as stable from one run to the next.
+ */
+function boundedKey(prefix: string, parts: readonly string[], separator: string): string {
+  const readable = `${prefix}${parts.map(idPart).join(separator)}`;
+  if (readable.length <= MAX_KEY_LENGTH) return readable;
+  return `${prefix}${createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 32)}`;
+}
+
 /* ========================================================================== */
 /* Planning — pure                                                            */
 /* ========================================================================== */
@@ -277,7 +298,7 @@ export function planImport(raw: RawCatalog): Plan {
     const name = text(category['name']) ?? categoryId;
     const brand = text(category['brand']) ?? name;
     const region = regionOf(category['region']) ?? brandRegions.get(categoryId) ?? 'GLOBAL';
-    const productId = `${PRODUCT_ID_PREFIX}${idPart(categoryId)}`;
+    const productId = boundedKey(PRODUCT_ID_PREFIX, [categoryId], '_');
     const cards = (raw.cards[categoryId] ?? []).flatMap((page) => rowsOf(page, ['offers', 'data', 'cards']));
 
     const planned: PlannedSku[] = [];
@@ -314,9 +335,9 @@ export function planImport(raw: RawCatalog): Plan {
 
       const stock = card['stock'];
       planned.push({
-        skuId: `${SKU_ID_PREFIX}${idPart(categoryId)}_${idPart(cardId)}`,
+        skuId: boundedKey(SKU_ID_PREFIX, [categoryId, cardId], '_'),
         productRowId: productId,
-        code: `RSC-${idPart(categoryId)}-${idPart(cardId)}`,
+        code: boundedKey('RSC-', [categoryId, cardId], '-'),
         region,
         currency,
         faceValue,
