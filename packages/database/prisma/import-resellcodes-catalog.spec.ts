@@ -129,6 +129,14 @@ describe('planImport', () => {
     expect(plan.skipped).toContain('13 "Empty": no usable card');
   });
 
+  it('makes the venue\'s relative picture path absolute on the venue host, and nothing else', () => {
+    const relative = planImport(raw({ categories: [{ data: [{ category_id: '12', name: 'Steam', image: '/api/media/steam.png' }] }] }));
+    expect(relative.products[0]?.imageUrl).toBe('https://resell.codes/api/media/steam.png');
+
+    const protocolRelative = planImport(raw({ categories: [{ data: [{ category_id: '12', name: 'Steam', image: '//evil.example/x.png' }] }] }));
+    expect(protocolRelative.products[0]?.imageUrl).toBeNull();
+  });
+
   it('refuses a non-https image', () => {
     const plan = planImport(raw({ categories: [{ data: [{ category_id: '12', name: 'Steam', image: 'javascript:alert(1)' }] }] }));
     expect(plan.products[0]?.imageUrl).toBeNull();

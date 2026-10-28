@@ -70,7 +70,10 @@ const REPORT_LIMIT = 20;
 const REQUEST_GAP_MS = 2200;
 const TIMEOUT_MS = 20_000;
 const MAX_429_RETRIES = 5;
-const MAX_PAGES = 50;
+/** The category list is one request; its `limit` is capped at 600 (default 200). */
+const CATEGORY_LIMIT = 600;
+/** Where the venue's relative picture paths live. */
+const VENUE_ORIGIN = 'https://resell.codes';
 
 type Json = Record<string, unknown>;
 
@@ -144,11 +147,17 @@ function rowsOf(page: unknown, keys: readonly string[]): Json[] {
   return [];
 }
 
-/** Same rule as the adapter: https only, and of a sane length. */
+/**
+ * Same rule as the adapter: https only, and of a sane length. The venue serves
+ * its own pictures as a path (`/api/media/...`), which is made absolute against
+ * the venue's own host; a path is never joined to any other origin.
+ */
 function imageOf(row: Json): string | null {
   for (const key of ['image', 'image_url', 'logo', 'logo_url']) {
-    const url = text(row[key]);
-    if (url !== null && url.startsWith('https://') && url.length <= 2048) return url;
+    const raw = text(row[key]);
+    if (raw === null) continue;
+    const url = raw.startsWith('/') && !raw.startsWith('//') ? `${VENUE_ORIGIN}${raw}` : raw;
+    if (url.startsWith('https://') && url.length <= 2048) return url;
   }
   return null;
 }
@@ -380,24 +389,25 @@ async function fetchCatalog(): Promise<RawCatalog> {
     }
   };
 
-  /** Every page, following the documented cursor (`has_more` / `next_cursor`). */
+  /*
+   * None of the three catalogue endpoints has a cursor: the list is capped by
+   * `limit` and reports its `total`. One request each; the result keeps the
+   * `pages` shape the planner and `--catalog` files already use.
+   */
   const pages = async (path: string): Promise<{ status: number; pages: unknown[] }> => {
-    const collected: unknown[] = [];
-    let cursor: string | null = null;
-    for (let page = 0; page < MAX_PAGES; page += 1) {
-      const query = cursor === null ? '?limit=100' : `?limit=100&cursor=${encodeURIComponent(cursor)}`;
-      const { status, body } = await get(`${path}${query}`);
-      if (status !== 200) return { status, pages: collected };
-      collected.push(body);
-      cursor = isObject(body) && body['has_more'] === true ? text(body['next_cursor']) : null;
-      if (cursor === null) break;
-    }
-    return { status: 200, pages: collected };
+    const { status, body } = await get(path);
+    return { status, pages: status === 200 ? [body] : [] };
   };
 
-  const categories = await pages('/gift-cards/categories');
+  const categories = await pages(`/gift-cards/categories?limit=${String(CATEGORY_LIMIT)}`);
   if (categories.status !== 200) {
     throw new Error(`GET /gift-cards/categories answered ${String(categories.status)}`);
+  }
+  const first = categories.pages[0];
+  const total = isObject(first) && typeof first['total'] === 'number' ? first['total'] : null;
+  const received = categories.pages.flatMap((page) => rowsOf(page, ['data', 'categories'])).length;
+  if (total !== null && received < total) {
+    throw new Error(`the venue lists ${String(total)} categories but returned ${String(received)}; refusing a partial import`);
   }
   const brands = await pages('/gift-cards/brands');
   if (brands.status !== 200) {
