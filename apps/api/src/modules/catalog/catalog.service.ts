@@ -944,6 +944,9 @@ export class CatalogService {
       ...(status === 'INACTIVE' ? { isActive: false } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.brandId ? { brandId: query.brandId } : {}),
+      ...(query.supplierId
+        ? { skus: { some: { supplierOffers: { some: { supplierId: query.supplierId } } } } }
+        : {}),
       ...(query.needsReview === undefined ? {} : { needsReview: query.needsReview }),
       ...(query.search
         ? {
@@ -962,6 +965,10 @@ export class CatalogService {
           _count: { select: { skus: true } },
           brandRef: { select: { id: true, slug: true, name: true, nameFa: true } },
           categoryRef: { select: { id: true, slug: true, nameFa: true, iconKey: true } },
+          /* Only to name the suppliers behind a row; collapsed below, never returned. */
+          skus: {
+            select: { supplierOffers: { select: { supplier: { select: { id: true, code: true, name: true } } } } },
+          },
         },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
         skip: (query.page - 1) * query.pageSize,
@@ -969,7 +976,16 @@ export class CatalogService {
       }),
       this.db.product.count({ where }),
     ]);
-    return { items, meta: pageMeta(query.page, query.pageSize, total) };
+    return {
+      items: items.map(({ skus, ...product }) => {
+        const suppliers = new Map<string, { id: string; code: string; name: string }>();
+        for (const sku of skus) {
+          for (const offer of sku.supplierOffers) suppliers.set(offer.supplier.id, offer.supplier);
+        }
+        return { ...product, suppliers: [...suppliers.values()].sort((a, b) => a.code.localeCompare(b.code)) };
+      }),
+      meta: pageMeta(query.page, query.pageSize, total),
+    };
   }
 
   async adminGetProduct(id: string) {

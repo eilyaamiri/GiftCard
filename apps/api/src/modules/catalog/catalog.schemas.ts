@@ -77,6 +77,12 @@ export const adminProductListSchema = adminCatalogListSchema.extend({
   categoryId: idSchema.optional(),
   brandId: idSchema.optional(),
   /**
+   * Products that have at least one offer from this supplier. Reloadly and
+   * ReSellCodes products are separate rows, so this is how an operator lists
+   * one supplier's catalogue and switches it on product by product.
+   */
+  supplierId: idSchema.optional(),
+  /**
    * The "what still needs an operator" view. There is no separate
    * uncategorised list because no product is left without a category — the ones
    * the rules could not place are in «سایر» with this flag set, which is the

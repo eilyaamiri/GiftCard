@@ -579,13 +579,20 @@ describe('CatalogService public top-up list', () => {
   });
 });
 
+/** The default fixture is a public-catalog row; the admin list reads nested suppliers it lacks. */
+function adminListHarness() {
+  const built = harness();
+  built.product.findMany.mockResolvedValue([]);
+  return built;
+}
+
 describe('CatalogService admin product list', () => {
   /* The imported supplier catalog is ~2,400 products, all switched off. An
    * operator reaches one of them by searching for it, so these assert on the
    * `where` the search builds rather than on rows a mock hands back. */
 
   it('pages from the offset the caller asked for, and reports the page back', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
     product.count.mockResolvedValue(2_406);
 
     const response = await service.adminListProducts({
@@ -599,7 +606,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('searches the product name and the id together', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 1,
@@ -620,7 +627,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('keeps the inactive filter alongside a search term', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 1,
@@ -637,7 +644,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('filters inactive products when the explicit status is inactive', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 1,
@@ -650,8 +657,42 @@ describe('CatalogService admin product list', () => {
     expect(product.count.mock.calls[0]?.[0]?.where).toEqual({ isActive: false });
   });
 
+  it('filters to products that have an offer from one supplier', async () => {
+    const { service, product } = adminListHarness();
+
+    await service.adminListProducts({
+      page: 1,
+      pageSize: 20,
+      includeInactive: true,
+      supplierId: 'sup_rsc',
+    });
+
+    const where = { skus: { some: { supplierOffers: { some: { supplierId: 'sup_rsc' } } } } };
+    expect(product.findMany.mock.calls[0]?.[0]?.where).toEqual(where);
+    expect(product.count.mock.calls[0]?.[0]?.where).toEqual(where);
+  });
+
+  it('names each supplier once per product, without leaking the SKU offers', async () => {
+    const { service, product } = adminListHarness();
+    const reloadly = { id: 's1', code: 'reloadly', name: 'Reloadly' };
+    const resell = { id: 's2', code: 'resellcodes', name: 'ReSellCodes' };
+    product.findMany.mockResolvedValue([
+      {
+        id: 'p1',
+        skus: [
+          { supplierOffers: [{ supplier: resell }, { supplier: reloadly }] },
+          { supplierOffers: [{ supplier: reloadly }] },
+        ],
+      },
+    ]);
+
+    const response = await service.adminListProducts({ page: 1, pageSize: 20, includeInactive: true });
+
+    expect(response.items[0]).toEqual({ id: 'p1', suppliers: [reloadly, resell] });
+  });
+
   it('applies no search clause when the term is empty', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 1,
@@ -665,7 +706,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('narrows to one category, one brand and the review queue at once', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 1,
@@ -686,7 +727,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('lists everything when the review filter is left off', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({ page: 1, pageSize: 20, includeInactive: true });
 
@@ -695,7 +736,7 @@ describe('CatalogService admin product list', () => {
   });
 
   it('counts with the same filter it lists with', async () => {
-    const { service, product } = harness();
+    const { service, product } = adminListHarness();
 
     await service.adminListProducts({
       page: 2,

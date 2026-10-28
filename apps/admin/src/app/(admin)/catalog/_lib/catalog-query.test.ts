@@ -204,4 +204,13 @@ describe("topUpHref", () => {
     );
     expect(topUpHref("/catalog/top-ups", readTopUpQuery({}))).toBe("/catalog/top-ups");
   });
+
+  it("reads the supplier filter, caps it, and carries it into page links", () => {
+    const query = readCatalogQuery({ supplierId: "s".repeat(200) });
+    expect(query.supplierId).toHaveLength(64);
+
+    const picked = readCatalogQuery({ supplierId: "sup_rsc" });
+    expect(catalogHref("/catalog", picked, { page: 2 })).toBe("/catalog?supplierId=sup_rsc&page=2");
+    expect(catalogHref("/catalog", picked, { supplierId: "" })).toBe("/catalog");
+  });
 });

@@ -5,11 +5,13 @@ import {
   adminBrandOptionListSchema,
   adminCategoryListSchema,
   adminProductListSchema,
+  adminSupplierListSchema,
   buildListSearch,
   catalogHref,
   readCatalogQuery,
   type AdminBrandOption,
   type AdminCategory,
+  type AdminSupplier,
 } from "./_lib/catalog-contracts";
 import { formatCount } from "./_lib/format";
 import { CatalogTabs } from "./_components/catalog-tabs";
@@ -29,10 +31,11 @@ export default async function CatalogPage({
   let list;
   let categories: AdminCategory[];
   let brands: AdminBrandOption[];
+  let suppliers: AdminSupplier[];
   try {
     /* Three independent reads. The filters are useless without the taxonomy
      * lists, so they go out together rather than one after the other. */
-    const [products, categoryList, brandList] = await Promise.all([
+    const [products, categoryList, brandList, supplierList] = await Promise.all([
       api.get(
         `/api/admin/catalog/products${buildListSearch({
           page: query.page,
@@ -41,16 +44,19 @@ export default async function CatalogPage({
           ...(query.search ? { search: query.search } : {}),
           ...(query.categoryId ? { categoryId: query.categoryId } : {}),
           ...(query.brandId ? { brandId: query.brandId } : {}),
+          ...(query.supplierId ? { supplierId: query.supplierId } : {}),
           ...(query.needsReview ? { needsReview: true } : {}),
         })}`,
         adminProductListSchema,
       ),
       api.get("/api/admin/catalog/categories", adminCategoryListSchema),
       api.get("/api/admin/catalog/brands/options", adminBrandOptionListSchema),
+      api.get("/api/admin/catalog/suppliers?pageSize=100&includeInactive=true", adminSupplierListSchema),
     ]);
     list = products;
     categories = categoryList.items;
     brands = brandList.items;
+    suppliers = supplierList.items;
   } catch (error) {
     if (!(error instanceof ApiClientError)) throw error;
     return (
@@ -75,6 +81,7 @@ export default async function CatalogPage({
     Boolean(query.search) ||
     Boolean(query.categoryId) ||
     Boolean(query.brandId) ||
+    Boolean(query.supplierId) ||
     query.needsReview === true ||
     query.status !== "ALL";
 
@@ -121,6 +128,17 @@ export default async function CatalogPage({
               {brands.map((brand) => (
                 <option key={brand.id} value={brand.id}>
                   {brand.nameFa}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter" style={INLINE_FILTER}>
+            تامین‌کننده
+            <select name="supplierId" defaultValue={query.supplierId ?? ""} aria-label="فیلتر تامین‌کننده">
+              <option value="">همهٔ تامین‌کننده‌ها</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
                 </option>
               ))}
             </select>

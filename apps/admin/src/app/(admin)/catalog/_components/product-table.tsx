@@ -162,6 +162,7 @@ export function ProductTable({
               <th>محصول</th>
               <th>برند</th>
               <th>دسته‌بندی</th>
+              <th>تامین‌کننده</th>
               <th>تعداد SKU</th>
               <th>وضعیت</th>
               <th>صفحهٔ اول</th>
@@ -199,6 +200,13 @@ export function ProductTable({
                   ) : (
                     product.category
                   )}
+                </td>
+                <td>
+                  {(product.suppliers ?? []).map((supplier) => (
+                    <span key={supplier.id} className="badge badge-wait" style={{ marginInlineEnd: 4 }}>
+                      {supplier.name}
+                    </span>
+                  ))}
                 </td>
                 <td>{formatCount(product._count?.skus ?? 0)}</td>
                 <td>
