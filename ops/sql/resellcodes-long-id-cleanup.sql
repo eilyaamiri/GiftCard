@@ -21,8 +21,14 @@
 --   sudo docker exec -i barat-postgres psql -U barat -d barat -v commit=1 < ops/sql/resellcodes-long-id-cleanup.sql
 --
 -- Then re-run the import (`import-resellcodes-catalog.ts --fetch`), which adds
--- every card back under its short id. Products are not touched: their ids were
--- already short enough.
+-- every card back under its short id.
+--
+-- A product can be over the limit too (its id is `rsc_p_<category>`, and a long
+-- category name is enough): the second query below counts them. This script
+-- does not delete a product; on production the one that existed was removed by
+-- hand once it was seen to be inactive, which cascaded to its SKUs:
+--
+--   DELETE FROM "Product" WHERE id LIKE 'rsc\_p\_%' AND length(id) > 64 AND NOT "isActive";
 
 BEGIN;
 

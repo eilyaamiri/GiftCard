@@ -166,9 +166,33 @@ function imageOf(row: Json): string | null {
   return null;
 }
 
+/**
+ * A country code (`US`, `GB`, `EU`), `GLOBAL`, or the venue's own `CIS`.
+ *
+ * The venue's `region` field is not only regions: it also holds currency codes
+ * ("USD", "BRL") and a product's own word ("ROBUX", "CONQUEROR", "MINECOINS").
+ * Only the first kind is a region we can read; the rest is kept as the venue
+ * wrote it (see `venueRegionText`) and the product is held for review, so
+ * whoever reviews it can see what the venue said and set the real region.
+ */
+const REGION = /^(?:[A-Z]{2}|GLOBAL|CIS)$/u;
+
+/** `Sku.region` is served as 2–8 characters (`@barat/contracts`); a longer one makes the page that lists it fail to load. */
+const MAX_REGION_LENGTH = 8;
+
 function regionOf(value: unknown): string | null {
   const region = text(value)?.toUpperCase() ?? null;
-  return region !== null && /^[A-Z]{2,12}$/u.test(region) ? region : null;
+  return region !== null && REGION.test(region) ? region : null;
+}
+
+/**
+ * What the venue wrote in `region` when it is not one we can read, as a value
+ * `Sku.region` can hold: upper-cased letters, cut to the length the API serves.
+ * Null when it is not letters at all.
+ */
+function venueRegionText(value: unknown): string | null {
+  const region = text(value)?.toUpperCase() ?? null;
+  return region !== null && /^[A-Z]{2,12}$/u.test(region) ? region.slice(0, MAX_REGION_LENGTH) : null;
 }
 
 /** `category_id` -> region, from `/gift-cards/brands`, whichever of two shapes it has. */
@@ -297,7 +321,13 @@ export function planImport(raw: RawCatalog): Plan {
 
     const name = text(category['name']) ?? categoryId;
     const brand = text(category['brand']) ?? name;
-    const region = regionOf(category['region']) ?? brandRegions.get(categoryId) ?? 'GLOBAL';
+    const statedRegion = regionOf(category['region']);
+    const brandRegion = brandRegions.get(categoryId);
+    const region = statedRegion ?? brandRegion ?? venueRegionText(category['region']) ?? 'GLOBAL';
+    // The venue named something that is not a region we can read, and nothing
+    // else tells us one: what is stored is its own word, not an answer, and a
+    // gift card is often locked to a country. Held for review, not orderable.
+    const regionUnreadable = statedRegion === null && brandRegion === undefined && text(category['region']) !== null;
     const productId = boundedKey(PRODUCT_ID_PREFIX, [categoryId], '_');
     const cards = (raw.cards[categoryId] ?? []).flatMap((page) => rowsOf(page, ['offers', 'data', 'cards']));
 
@@ -368,7 +398,8 @@ export function planImport(raw: RawCatalog): Plan {
       category: 'ReSellCodes',
       categorySlug,
       imageUrl,
-      needsReview: imageUrl === null || categorySlug === 'other' || planned.some((sku) => !sku.faceValueFromName),
+      needsReview:
+        imageUrl === null || categorySlug === 'other' || regionUnreadable || planned.some((sku) => !sku.faceValueFromName),
       providerCategoryId: categoryId,
     });
     skus.push(...planned);
