@@ -48,10 +48,20 @@ describe("readCatalogQuery", () => {
   });
 
   it("truncates a hand-typed id to the length the API accepts", () => {
-    const query = readCatalogQuery({ categoryId: "c".repeat(200), brandId: "b".repeat(200) });
+    const query = readCatalogQuery({
+      categoryId: "c".repeat(200),
+      brandId: "b".repeat(200),
+      supplierId: "s".repeat(200),
+    });
 
     expect(query.categoryId).toHaveLength(64);
     expect(query.brandId).toHaveLength(64);
+    expect(query.supplierId).toHaveLength(64);
+  });
+
+  it("reads the supplier filter, and treats a blank one as none", () => {
+    expect(readCatalogQuery({ supplierId: "sup_tillo" }).supplierId).toBe("sup_tillo");
+    expect(readCatalogQuery({ supplierId: "  " }).supplierId).toBeUndefined();
   });
 
   it("reads the review queue only when it was explicitly asked for", () => {
@@ -126,6 +136,17 @@ describe("catalog list URLs", () => {
     const query = readCatalogQuery({ categoryId: "cat_gaming", brandId: "brnd_steam" });
 
     expect(catalogHref("/catalog", query, { brandId: "" })).toBe("/catalog?categoryId=cat_gaming");
+  });
+
+  it("keeps the supplier filter across a page change and clears it on request", () => {
+    const query = readCatalogQuery({ supplierId: "sup_tillo", categoryId: "cat_gaming", page: "2" });
+
+    // Without this, paging through one supplier's products would quietly turn
+    // into paging through everyone's.
+    expect(catalogHref("/catalog", query, { page: 3 })).toBe(
+      "/catalog?categoryId=cat_gaming&supplierId=sup_tillo&page=3",
+    );
+    expect(catalogHref("/catalog", query, { supplierId: "" })).toBe("/catalog?categoryId=cat_gaming");
   });
 
   it("keeps the review queue on the link and drops it when asked", () => {
@@ -203,14 +224,5 @@ describe("topUpHref", () => {
       "/catalog/top-ups?search=free+fire&status=ACTIVE&listed=LISTED",
     );
     expect(topUpHref("/catalog/top-ups", readTopUpQuery({}))).toBe("/catalog/top-ups");
-  });
-
-  it("reads the supplier filter, caps it, and carries it into page links", () => {
-    const query = readCatalogQuery({ supplierId: "s".repeat(200) });
-    expect(query.supplierId).toHaveLength(64);
-
-    const picked = readCatalogQuery({ supplierId: "sup_rsc" });
-    expect(catalogHref("/catalog", picked, { page: 2 })).toBe("/catalog?supplierId=sup_rsc&page=2");
-    expect(catalogHref("/catalog", picked, { supplierId: "" })).toBe("/catalog");
   });
 });

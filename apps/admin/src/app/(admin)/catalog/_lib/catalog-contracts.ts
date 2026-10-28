@@ -290,6 +290,13 @@ const productCategoryRefSchema = z.object({
   nameFa: z.string(),
   iconKey: z.string(),
 });
+/** A supplier as the product list names it. `isActive` is the supplier's own switch. */
+const productSupplierRefSchema = z.object({
+  id: idSchema,
+  code: z.string(),
+  name: z.string(),
+  isActive: z.boolean(),
+});
 
 export const adminProductSchema = z.object({
   id: idSchema,
@@ -318,10 +325,12 @@ export const adminProductSchema = z.object({
     .array(z.object({ category: z.object({ id: idSchema, slug: z.string(), nameFa: z.string() }) }))
     .optional(),
   _count: z.object({ skus: z.number().int() }).optional(),
-  /** The suppliers that have an offer on any of this product's SKUs (list endpoint only). */
-  suppliers: z
-    .array(z.object({ id: idSchema, code: z.string(), name: z.string() }))
-    .optional(),
+  /**
+   * List only: the suppliers with an active offer on one of its SKUs. Absent
+   * wherever a product is nested inside a SKU or an offer, which is why it is
+   * optional rather than defaulted to an empty list that would read as «none».
+   */
+  suppliers: z.array(productSupplierRefSchema).optional(),
 });
 export type AdminProduct = z.infer<typeof adminProductSchema>;
 
@@ -704,6 +713,7 @@ export interface CatalogQuery {
   readonly status: "ALL" | "ACTIVE" | "INACTIVE";
   readonly categoryId?: string;
   readonly brandId?: string;
+  /** Only products this supplier can currently serve (an active offer on a SKU). */
   readonly supplierId?: string;
   /**
    * Set only when the operator asked for the review queue. Absent means "every

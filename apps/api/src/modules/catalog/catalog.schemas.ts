@@ -77,9 +77,9 @@ export const adminProductListSchema = adminCatalogListSchema.extend({
   categoryId: idSchema.optional(),
   brandId: idSchema.optional(),
   /**
-   * Products that have at least one offer from this supplier. Reloadly and
-   * ReSellCodes products are separate rows, so this is how an operator lists
-   * one supplier's catalogue and switches it on product by product.
+   * Only products this supplier can currently serve: at least one of their SKUs
+   * has an active offer from it. An archived offer means the supplier no longer
+   * sells that SKU to us, so it does not count.
    */
   supplierId: idSchema.optional(),
   /**

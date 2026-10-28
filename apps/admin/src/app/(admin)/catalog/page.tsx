@@ -33,8 +33,10 @@ export default async function CatalogPage({
   let brands: AdminBrandOption[];
   let suppliers: AdminSupplier[];
   try {
-    /* Three independent reads. The filters are useless without the taxonomy
-     * lists, so they go out together rather than one after the other. */
+    /* Four independent reads. The filters are useless without the taxonomy
+     * and supplier lists, so they go out together rather than one after the
+     * other. Inactive suppliers are listed too: «what did we sell through the
+     * one we switched off» is a fair question. */
     const [products, categoryList, brandList, supplierList] = await Promise.all([
       api.get(
         `/api/admin/catalog/products${buildListSearch({
@@ -84,6 +86,9 @@ export default async function CatalogPage({
     Boolean(query.supplierId) ||
     query.needsReview === true ||
     query.status !== "ALL";
+  /* A hand-typed or stale `supplierId` is not in the list; the API then simply
+   * matches nothing, and the caption says so rather than naming nobody. */
+  const activeSupplier = query.supplierId ? suppliers.find((supplier) => supplier.id === query.supplierId) : undefined;
 
   return (
     <div>
@@ -91,7 +96,9 @@ export default async function CatalogPage({
         caption={
           items.length === 0
             ? "محصولی یافت نشد"
-            : `نمایش ${formatCount(firstRow)}–${formatCount(lastRow)} از ${formatCount(meta.total)} محصول`
+            : `نمایش ${formatCount(firstRow)}–${formatCount(lastRow)} از ${formatCount(meta.total)} محصول${
+                activeSupplier ? ` از تأمین‌کنندهٔ ${activeSupplier.name}` : ""
+              }`
         }
       />
       <CatalogTabs active="products" />
@@ -133,12 +140,12 @@ export default async function CatalogPage({
             </select>
           </label>
           <label className="filter" style={INLINE_FILTER}>
-            تامین‌کننده
-            <select name="supplierId" defaultValue={query.supplierId ?? ""} aria-label="فیلتر تامین‌کننده">
-              <option value="">همهٔ تامین‌کننده‌ها</option>
+            تأمین‌کننده
+            <select name="supplierId" defaultValue={query.supplierId ?? ""} aria-label="فیلتر تأمین‌کننده">
+              <option value="">همهٔ تأمین‌کننده‌ها</option>
               {suppliers.map((supplier) => (
                 <option key={supplier.id} value={supplier.id}>
-                  {supplier.name}
+                  {supplier.isActive ? supplier.name : `${supplier.name} (غیرفعال)`}
                 </option>
               ))}
             </select>

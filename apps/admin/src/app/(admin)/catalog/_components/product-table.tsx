@@ -162,7 +162,7 @@ export function ProductTable({
               <th>محصول</th>
               <th>برند</th>
               <th>دسته‌بندی</th>
-              <th>تامین‌کننده</th>
+              <th>تأمین‌کننده</th>
               <th>تعداد SKU</th>
               <th>وضعیت</th>
               <th>صفحهٔ اول</th>
@@ -202,11 +202,26 @@ export function ProductTable({
                   )}
                 </td>
                 <td>
-                  {(product.suppliers ?? []).map((supplier) => (
-                    <span key={supplier.id} className="badge badge-wait" style={{ marginInlineEnd: 4 }}>
-                      {supplier.name}
+                  {/* Active offers only — the same rule as the supplier filter.
+                      Empty means nobody can currently serve it, which is worth
+                      seeing: it cannot be bought until an offer is added. */}
+                  {product.suppliers === undefined || product.suppliers.length === 0 ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <span style={{ display: "inline-flex", flexWrap: "wrap", gap: 6 }}>
+                      {product.suppliers.map((supplier) => (
+                        <Link
+                          key={supplier.id}
+                          href={`/catalog?supplierId=${encodeURIComponent(supplier.id)}`}
+                          className={`badge ${supplier.isActive ? "badge-success" : "badge-danger"}`}
+                          title={supplier.isActive ? `فقط محصولات ${supplier.name}` : `${supplier.name} (غیرفعال)`}
+                          style={{ textDecoration: "none" }}
+                        >
+                          {supplier.name}
+                        </Link>
+                      ))}
                     </span>
-                  ))}
+                  )}
                 </td>
                 <td>{formatCount(product._count?.skus ?? 0)}</td>
                 <td>

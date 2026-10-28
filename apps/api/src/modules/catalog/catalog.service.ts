@@ -945,7 +945,7 @@ export class CatalogService {
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.brandId ? { brandId: query.brandId } : {}),
       ...(query.supplierId
-        ? { skus: { some: { supplierOffers: { some: { supplierId: query.supplierId } } } } }
+        ? { skus: { some: { supplierOffers: { some: { supplierId: query.supplierId, isActive: true } } } } }
         : {}),
       ...(query.needsReview === undefined ? {} : { needsReview: query.needsReview }),
       ...(query.search
@@ -965,10 +965,6 @@ export class CatalogService {
           _count: { select: { skus: true } },
           brandRef: { select: { id: true, slug: true, name: true, nameFa: true } },
           categoryRef: { select: { id: true, slug: true, nameFa: true, iconKey: true } },
-          /* Only to name the suppliers behind a row; collapsed below, never returned. */
-          skus: {
-            select: { supplierOffers: { select: { supplier: { select: { id: true, code: true, name: true } } } } },
-          },
         },
         orderBy: [{ sortOrder: 'asc' }, { createdAt: 'desc' }],
         skip: (query.page - 1) * query.pageSize,
@@ -976,16 +972,49 @@ export class CatalogService {
       }),
       this.db.product.count({ where }),
     ]);
+    const suppliers = await this.activeSuppliersByProduct(items.map((item) => item.id));
     return {
-      items: items.map(({ skus, ...product }) => {
-        const suppliers = new Map<string, { id: string; code: string; name: string }>();
-        for (const sku of skus) {
-          for (const offer of sku.supplierOffers) suppliers.set(offer.supplier.id, offer.supplier);
-        }
-        return { ...product, suppliers: [...suppliers.values()].sort((a, b) => a.code.localeCompare(b.code)) };
-      }),
+      items: items.map((item) => ({ ...item, suppliers: suppliers.get(item.id) ?? [] })),
       meta: pageMeta(query.page, query.pageSize, total),
     };
+  }
+
+  /**
+   * Which suppliers can serve each of these products right now: the distinct
+   * suppliers with an active offer on any of its SKUs, the same rule the
+   * `supplierId` filter uses, so a row never shows a supplier the filter would
+   * not have matched it to.
+   *
+   * One query for the whole page rather than an include on the list, which would
+   * ship every SKU and every offer of twenty products just to name a few
+   * suppliers. A supplier that is itself switched off is still named, with its
+   * flag, because «why can't I buy this» is the question this answers.
+   */
+  private async activeSuppliersByProduct(
+    productIds: readonly string[],
+  ): Promise<Map<string, { id: string; code: string; name: string; isActive: boolean }[]>> {
+    const byProduct = new Map<string, Map<string, { id: string; code: string; name: string; isActive: boolean }>>();
+    if (productIds.length === 0) return new Map();
+
+    const offers = await this.db.supplierOffer.findMany({
+      where: { isActive: true, sku: { productId: { in: [...productIds] } } },
+      select: {
+        supplier: { select: { id: true, code: true, name: true, isActive: true } },
+        sku: { select: { productId: true } },
+      },
+    });
+    for (const offer of offers) {
+      const suppliers = byProduct.get(offer.sku.productId) ?? new Map();
+      suppliers.set(offer.supplier.id, offer.supplier);
+      byProduct.set(offer.sku.productId, suppliers);
+    }
+
+    return new Map(
+      [...byProduct].map(([productId, suppliers]) => [
+        productId,
+        [...suppliers.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      ]),
+    );
   }
 
   async adminGetProduct(id: string) {
