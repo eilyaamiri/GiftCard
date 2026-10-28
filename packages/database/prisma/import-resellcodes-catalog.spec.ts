@@ -154,6 +154,59 @@ describe('planImport', () => {
     expect(plan.skus[0]?.code).toBe('RSC-a_b_c-x_1');
     expect(plan.skus[0]?.providerSku).toBe('a/b c:x.1');
   });
+
+  /*
+   * `idSchema` is max(64). A SKU id built from two UUID-length venue ids is
+   * about 80 characters, and one such row made the admin catalog and the offers
+   * list fail to load for everyone.
+   */
+  describe('ids the API can serve', () => {
+    const uuid = (n: number): string => `${String(n).padStart(8, '0')}-aaaa-bbbb-cccc-dddddddddddd`;
+    const long = (): ReturnType<typeof planImport> =>
+      planImport(
+        raw({
+          categories: [{ data: [{ category_id: uuid(1), name: 'Long' }] }],
+          cards: {
+            [uuid(1)]: [
+              {
+                offers: [
+                  { card_id: uuid(2), name: '$5', price_usd: '5.0000' },
+                  { card_id: uuid(3), name: '$10', price_usd: '10.0000' },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+    it('keeps every product id, SKU id and SKU code within 64 characters', () => {
+      const plan = long();
+
+      expect(plan.skus).toHaveLength(2);
+      for (const value of [plan.products[0]?.id, ...plan.skus.flatMap((sku) => [sku.skuId, sku.code])]) {
+        expect(value?.length).toBeLessThanOrEqual(64);
+      }
+    });
+
+    it('still gives every card its own id, under its own prefix', () => {
+      const plan = long();
+
+      expect(new Set(plan.skus.map((sku) => sku.skuId)).size).toBe(2);
+      expect(new Set(plan.skus.map((sku) => sku.code)).size).toBe(2);
+      expect(plan.skus.every((sku) => sku.skuId.startsWith('rsc_s_'))).toBe(true);
+      expect(plan.skus.every((sku) => sku.code.startsWith('RSC-'))).toBe(true);
+    });
+
+    it('derives the same ids on every run, so a re-run finds the rows it wrote', () => {
+      expect(long().skus.map((sku) => sku.skuId)).toEqual(long().skus.map((sku) => sku.skuId));
+    });
+
+    it('leaves the real venue ids that were already short exactly as they were', () => {
+      const plan = planImport(raw());
+
+      expect(plan.skus.map((sku) => sku.skuId)).toEqual(['rsc_s_12_99', 'rsc_s_12_100']);
+    });
+  });
 });
 
 describe('faceValueFromName', () => {
