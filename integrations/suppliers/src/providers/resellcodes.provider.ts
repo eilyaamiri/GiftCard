@@ -980,3 +980,262 @@ export class ResellCodesTopUpSupplierProvider implements SupplierProvider {
     };
   }
 }
+
+/* ============================================================================
+ * Telegram Stars and Premium
+ * ==========================================================================*/
+
+/** The packages we list. The venue sells any Stars quantity from `min` to `max`; the ladder is ours. */
+export const RESELLCODES_TELEGRAM_STARS_QUANTITIES = [50, 100, 200, 250, 500, 750, 1000, 1500, 2000, 3000, 5000, 10000] as const;
+export const RESELLCODES_TELEGRAM_PREMIUM_MONTHS = [3, 6, 12] as const;
+
+export type ResellCodesTelegramSku =
+  | { readonly kind: 'stars'; readonly quantity: number }
+  | { readonly kind: 'premium'; readonly months: number };
+
+/**
+ * `telegram:stars:<quantity>` / `telegram:premium:<months>` — the same shape the
+ * FazerCards Telegram adapter uses, so a catalogue row reads the same whichever
+ * venue backs it.
+ */
+export function parseResellCodesTelegramProviderSku(providerSku: string): ResellCodesTelegramSku {
+  const match = /^telegram:(stars|premium):([1-9]\d*)$/u.exec(providerSku.trim());
+  const kind = match?.[1];
+  const value = Number(match?.[2]);
+  if (kind === 'stars' && (RESELLCODES_TELEGRAM_STARS_QUANTITIES as readonly number[]).includes(value)) {
+    return { kind, quantity: value };
+  }
+  if (kind === 'premium' && (RESELLCODES_TELEGRAM_PREMIUM_MONTHS as readonly number[]).includes(value)) {
+    return { kind, months: value };
+  }
+  throw new ResellCodesSupplierError('INVALID_PROVIDER_SKU', 'Invalid ReSellCodes Telegram provider SKU');
+}
+
+const RATE_SCALE = 7;
+const RATE_UNIT = 10n ** BigInt(RATE_SCALE);
+const RATE_TO_MONEY = RATE_UNIT / MONEY_UNIT;
+
+/**
+ * Cost of `quantity` Stars. `price_per_star` carries seven decimals, so the
+ * product is formed in 10^-7 units and only then rounded UP (ceiling) to the
+ * four places money is held in: rounding each star first would drift, and
+ * rounding down would under-state what the venue charges. No JS number is used.
+ */
+function starsCost(rate: unknown, quantity: number): string {
+  const text = typeof rate === 'string' ? rate.trim() : '';
+  if (!/^\d{1,12}(?:\.\d{1,7})?$/u.test(text)) {
+    throw new ResellCodesSupplierError('INVALID_RESPONSE', 'price_per_star is not a usable amount');
+  }
+  const [whole = '0', fraction = ''] = text.split('.');
+  const scaledRate = BigInt(whole) * RATE_UNIT + BigInt(fraction.padEnd(RATE_SCALE, '0'));
+  return formatAmount((scaledRate * BigInt(quantity) + RATE_TO_MONEY - 1n) / RATE_TO_MONEY);
+}
+
+/** Telegram usernames are 5-32 of [A-Za-z0-9_]; older accounts can be shorter, so the floor is 4. */
+const TELEGRAM_USERNAME_PATTERN = /^[A-Za-z0-9_]{4,32}$/u;
+
+/**
+ * ReSellCodes (resell.codes) Telegram adapter, `Supplier.code = resellcodes-telegram`.
+ *
+ * Stars and Premium have their own endpoints on this venue (`/telegram/stars`,
+ * `/telegram/premium`), apart from `/top-ups`. Same sources and caveats as the
+ * other ReSellCodes adapters: built from the published OpenAPI, nothing
+ * verified against a live response, no sandbox and no idempotency key.
+ *
+ * Prices are read live. Delivery credits the customer's own account, so the
+ * asset is `DIRECT_TOPUP` and carries no secret. The username is sent without a
+ * leading `@`, the form the venue's own example uses.
+ */
+export class ResellCodesTelegramSupplierProvider implements SupplierProvider {
+  readonly key = 'resellcodes-telegram';
+
+  private readonly client: ResellCodesClient;
+  private readonly clock: () => Date;
+  private readonly purchases = new PurchaseMemory();
+
+  constructor(options: ResellCodesSupplierProviderOptions) {
+    this.client = new ResellCodesClient(options);
+    this.clock = options.clock ?? (() => new Date());
+  }
+
+  getBalance(): Promise<SupplierBalance> {
+    return this.client.balance(this.clock);
+  }
+
+  async getCatalog(): Promise<readonly SupplierCatalogItem[]> {
+    const [stars, premium] = await Promise.all([this.fetchStars(), this.fetchPremium()]);
+    return [
+      ...RESELLCODES_TELEGRAM_STARS_QUANTITIES.filter((quantity) => quantity >= stars.min && quantity <= stars.max).map(
+        (quantity): SupplierCatalogItem => ({
+          providerSku: `telegram:stars:${String(quantity)}`,
+          name: `Telegram ${String(quantity)} Stars`,
+          region: 'GLOBAL',
+          faceValue: { amount: starsCost(stars.rate, quantity), currency: 'USD' },
+          assetType: 'DIRECT_TOPUP',
+          requiredAccountFields: ['telegram_username'],
+        }),
+      ),
+      ...RESELLCODES_TELEGRAM_PREMIUM_MONTHS.flatMap((months): SupplierCatalogItem[] => {
+        const price = premium.get(months);
+        return price === undefined
+          ? []
+          : [
+              {
+                providerSku: `telegram:premium:${String(months)}`,
+                name: `Telegram Premium ${String(months)} Months`,
+                region: 'GLOBAL',
+                faceValue: { amount: formatAmount(price), currency: 'USD' },
+                assetType: 'DIRECT_TOPUP',
+                requiredAccountFields: ['telegram_username'],
+              },
+            ];
+      }),
+    ];
+  }
+
+  async getPrice(providerSku: string): Promise<SupplierPrice> {
+    const ref = parseResellCodesTelegramProviderSku(providerSku);
+    let amount: string;
+    if (ref.kind === 'stars') {
+      const stars = await this.fetchStars();
+      if (ref.quantity < stars.min || ref.quantity > stars.max) {
+        throw new ResellCodesSupplierError('OFFER_NOT_FOUND', 'ReSellCodes Telegram Stars quantity is unavailable');
+      }
+      amount = starsCost(stars.rate, ref.quantity);
+    } else {
+      const price = (await this.fetchPremium()).get(ref.months);
+      if (price === undefined) {
+        throw new ResellCodesSupplierError('OFFER_NOT_FOUND', 'ReSellCodes Telegram Premium plan is unavailable');
+      }
+      amount = formatAmount(price);
+    }
+    return { providerSku, cost: { amount, currency: 'USD' }, observedAt: this.clock() };
+  }
+
+  async checkAvailability(providerSku: string): Promise<SupplierAvailabilityResult> {
+    const observedAt = this.clock();
+    let ref: ResellCodesTelegramSku;
+    try {
+      ref = parseResellCodesTelegramProviderSku(providerSku);
+    } catch {
+      return { providerSku, availability: 'UNAVAILABLE', observedAt };
+    }
+    let availability: SupplierAvailability;
+    try {
+      if (ref.kind === 'stars') {
+        const stars = await this.fetchStars();
+        availability = ref.quantity >= stars.min && ref.quantity <= stars.max ? 'AVAILABLE' : 'UNAVAILABLE';
+      } else {
+        availability = (await this.fetchPremium()).has(ref.months) ? 'AVAILABLE' : 'UNAVAILABLE';
+      }
+    } catch {
+      availability = 'UNKNOWN';
+    }
+    return { providerSku, availability, observedAt: this.clock() };
+  }
+
+  async purchase(request: SupplierPurchaseRequest): Promise<SupplierPurchaseResult> {
+    if (request.quantity !== 1) {
+      return { status: 'FAILED', failureCode: 'QUANTITY_NOT_SUPPORTED' };
+    }
+    const identifier = request.idempotencyKey.trim();
+    if (identifier === '') {
+      return { status: 'FAILED', failureCode: 'IDEMPOTENCY_KEY_UNUSABLE' };
+    }
+    const supplied = trimmed(request.accountFields?.['telegram_username']);
+    if (supplied === null) {
+      return { status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_MISSING' };
+    }
+    const username = supplied.replace(/^@/u, '');
+    /* Refused before anything is sent, so nothing is charged for a name that cannot exist. */
+    if (!TELEGRAM_USERNAME_PATTERN.test(username)) {
+      return { status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_INVALID' };
+    }
+    let ref: ResellCodesTelegramSku;
+    try {
+      ref = parseResellCodesTelegramProviderSku(request.providerSku);
+    } catch {
+      return { status: 'FAILED', failureCode: 'INVALID_PROVIDER_SKU' };
+    }
+
+    return this.purchases.run(identifier, async () => {
+      let response: ResellCodesResponse;
+      try {
+        response = await this.client.call({
+          method: 'POST',
+          path: ref.kind === 'stars' ? '/telegram/stars/buy' : '/telegram/premium/buy',
+          body:
+            ref.kind === 'stars'
+              ? { telegram_username: username, quantity: ref.quantity }
+              : { telegram_username: username, months: ref.months },
+        });
+      } catch {
+        /* The request may have reached the venue, and a delivered top-up cannot be taken back. */
+        return { result: { status: 'UNKNOWN', failureCode: 'NETWORK_ERROR' }, sent: true };
+      }
+      if (response.status === 200 || response.status === 201) {
+        return { result: this.settle(response.payload, username), sent: true };
+      }
+      return { result: classifyPostFailure(response), sent: true };
+    });
+  }
+
+  async getPurchaseStatus(providerReference: string): Promise<SupplierPurchaseResult> {
+    const reference = providerReference.trim();
+    if (!ORDER_NUMBER_PATTERN.test(reference)) {
+      return { status: 'UNKNOWN', providerReference, failureCode: 'INVALID_PROVIDER_REFERENCE' };
+    }
+    const { status, order, payload } = await this.client.order(reference);
+    if (status === 404) {
+      return { status: 'UNKNOWN', providerReference, failureCode: 'ORDER_NOT_FOUND' };
+    }
+    if (status !== 200) {
+      return { status: 'UNKNOWN', providerReference, failureCode: normaliseErrorCode(payload, 'STATUS_UNAVAILABLE') };
+    }
+    return this.settle(order, undefined);
+  }
+
+  /** The order echoes the username on Telegram orders; the request's own stands in when it does not. */
+  private settle(payload: unknown, requested: string | undefined): SupplierPurchaseResult {
+    const source = isObject(payload) && isObject(payload['order']) ? payload['order'] : payload;
+    return settleOrder(source, (order): SupplierDeliveryAsset | null => {
+      const accountReference = trimmed(order['telegram_username']) ?? requested ?? 'credited';
+      return { assetType: 'DIRECT_TOPUP', accountReference };
+    });
+  }
+
+  private async fetchStars(): Promise<{ rate: string; min: number; max: number }> {
+    const payload = this.client.expectOk(await this.client.read('/telegram/stars'), 'CATALOG_UNAVAILABLE');
+    if (!isObject(payload)) {
+      throw new ResellCodesSupplierError('INVALID_RESPONSE', 'ReSellCodes Stars pricing payload is unusable');
+    }
+    const rate = payload['price_per_star'];
+    const min = payload['min'];
+    const max = payload['max'];
+    if (typeof rate !== 'string' || typeof min !== 'number' || typeof max !== 'number' ||
+      !Number.isSafeInteger(min) || !Number.isSafeInteger(max) || min < 1 || max < min) {
+      throw new ResellCodesSupplierError('INVALID_RESPONSE', 'ReSellCodes Stars pricing payload is unusable');
+    }
+    starsCost(rate, 1);
+    return { rate, min, max };
+  }
+
+  private async fetchPremium(): Promise<ReadonlyMap<number, bigint>> {
+    const payload = this.client.expectOk(await this.client.read('/telegram/premium'), 'CATALOG_UNAVAILABLE');
+    if (!isObject(payload) || !Array.isArray(payload['plans'])) {
+      throw new ResellCodesSupplierError('INVALID_RESPONSE', 'ReSellCodes Premium pricing payload is unusable');
+    }
+    const plans = new Map<number, bigint>();
+    for (const plan of payload['plans']) {
+      if (
+        !isObject(plan) ||
+        typeof plan['months'] !== 'number' ||
+        !(RESELLCODES_TELEGRAM_PREMIUM_MONTHS as readonly number[]).includes(plan['months'])
+      ) {
+        continue;
+      }
+      plans.set(plan['months'], parseAmount(plan['price_usd'], 'price_usd'));
+    }
+    return plans;
+  }
+}

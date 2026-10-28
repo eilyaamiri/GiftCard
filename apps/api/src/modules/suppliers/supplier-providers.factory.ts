@@ -6,6 +6,7 @@ import {
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
   ResellCodesGiftCardSupplierProvider,
+  ResellCodesTelegramSupplierProvider,
   ResellCodesTopUpSupplierProvider,
   type SupplierProvider,
 } from '@barat/suppliers';
@@ -18,6 +19,7 @@ import {
   readReloadlyEnv,
   readResellCodesCatalogEnv,
   readResellCodesGiftCardEnv,
+  readResellCodesTelegramEnv,
   readResellCodesTopUpEnv,
 } from './suppliers.env';
 import type { TopUpCatalogReader } from './suppliers.types';
@@ -115,6 +117,17 @@ export function buildSupplierProviders(options: {
     logger.log('ReSellCodes top-up registered');
   } else {
     logger.warn('ReSellCodes top-up is not registered; its game top-ups escalate to an operator');
+  }
+
+  /* Telegram is a third ReSellCodes flag: games being live says nothing about whether Stars may spend. */
+  const resellTelegram = readResellCodesTelegramEnv();
+  if (resellTelegram.enabled && !options.isTest) {
+    providers.push(
+      new ResellCodesTelegramSupplierProvider({ apiKey: resellTelegram.apiKey, timeoutMs: resellTelegram.timeoutMs }),
+    );
+    logger.log('ReSellCodes Telegram registered');
+  } else {
+    logger.warn('ReSellCodes Telegram is not registered; its offers can only be fulfilled by an operator');
   }
 
   const reloadly = readReloadlyEnv();

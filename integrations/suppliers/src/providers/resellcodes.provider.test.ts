@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   ResellCodesGiftCardSupplierProvider,
+  ResellCodesTelegramSupplierProvider,
   ResellCodesTopUpSupplierProvider,
   ResellCodesSupplierError,
   parseResellCodesProviderSku,
+  parseResellCodesTelegramProviderSku,
 } from './resellcodes.provider';
 
 const ORIGINAL_FETCH = globalThis.fetch;
@@ -612,5 +614,134 @@ describe('top-up purchase', () => {
     stubFetch({ 'GET /api/v1/top-ups/categories/pubg/offers': TOPUP_OFFERS });
     expect((await topUps().checkAvailability('pubg:60uc')).availability).toBe('AVAILABLE');
     expect((await topUps().checkAvailability('pubg:gone')).availability).toBe('UNAVAILABLE');
+  });
+});
+
+describe('Telegram', () => {
+  const telegram = (): ResellCodesTelegramSupplierProvider =>
+    new ResellCodesTelegramSupplierProvider({ apiKey: KEY, sleep: noSleep });
+
+  const STARS: Route = { body: { object: 'telegram_stars_pricing', price_per_star: '0.0152627', min: 50, max: 10000 } };
+  const PREMIUM: Route = {
+    body: { object: 'telegram_premium_pricing', plans: [{ months: 3, price_usd: '12.1977' }, { months: 12, price_usd: '40.0000' }] },
+  };
+  const request = {
+    providerSku: 'telegram:stars:50',
+    quantity: 1,
+    idempotencyKey: 'tg-1',
+    accountFields: { telegram_username: '@durov' },
+  } as const;
+
+  it('reads its SKUs strictly', () => {
+    expect(parseResellCodesTelegramProviderSku('telegram:stars:50')).toEqual({ kind: 'stars', quantity: 50 });
+    expect(parseResellCodesTelegramProviderSku('telegram:premium:12')).toEqual({ kind: 'premium', months: 12 });
+    for (const bad of ['telegram:stars:51', 'telegram:premium:1', 'stars:50', '12:99']) {
+      expect(() => parseResellCodesTelegramProviderSku(bad)).toThrow(ResellCodesSupplierError);
+    }
+  });
+
+  it('prices Stars from the seven-decimal rate, rounded up to four places', async () => {
+    stubFetch({ 'GET /api/v1/telegram/stars': STARS });
+    // 0.0152627 x 50 = 0.763135 -> 0.7632; x 10000 = 152.627 -> 152.6270
+    expect((await telegram().getPrice('telegram:stars:50')).cost).toEqual({ amount: '0.7632', currency: 'USD' });
+    expect((await telegram().getPrice('telegram:stars:10000')).cost).toEqual({ amount: '152.6270', currency: 'USD' });
+  });
+
+  it('prices Premium from its plan, and refuses a plan the venue does not list', async () => {
+    stubFetch({ 'GET /api/v1/telegram/premium': PREMIUM });
+    expect((await telegram().getPrice('telegram:premium:3')).cost).toEqual({ amount: '12.1977', currency: 'USD' });
+    await expect(telegram().getPrice('telegram:premium:6')).rejects.toMatchObject({ code: 'OFFER_NOT_FOUND' });
+  });
+
+  it('lists only the packages inside the venue range, and only the Premium plans it sells', async () => {
+    stubFetch({
+      'GET /api/v1/telegram/stars': { body: { price_per_star: '0.0152627', min: 100, max: 1000 } },
+      'GET /api/v1/telegram/premium': PREMIUM,
+    });
+    const items = await telegram().getCatalog();
+    expect(items.map((item) => item.providerSku)).toEqual([
+      'telegram:stars:100',
+      'telegram:stars:200',
+      'telegram:stars:250',
+      'telegram:stars:500',
+      'telegram:stars:750',
+      'telegram:stars:1000',
+      'telegram:premium:3',
+      'telegram:premium:12',
+    ]);
+    expect(items.every((item) => item.assetType === 'DIRECT_TOPUP')).toBe(true);
+  });
+
+  it('refuses an unusable pricing payload instead of guessing a price', async () => {
+    stubFetch({ 'GET /api/v1/telegram/stars': { body: { price_per_star: 0.015, min: 50, max: 10000 } } });
+    await expect(telegram().getPrice('telegram:stars:50')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('buys Stars with the username stripped of its @, and reports the credited account', async () => {
+    const { calls } = stubFetch({
+      'POST /api/v1/telegram/stars/buy': { status: 200, body: { number: 12, status: 'completed', charged_usd: '0.7632', telegram_username: 'durov' } },
+    });
+    const result = await telegram().purchase(request);
+    expect(calls[0]?.body).toEqual({ telegram_username: 'durov', quantity: 50 });
+    expect(result).toEqual({
+      status: 'SUCCEEDED',
+      providerReference: '12',
+      cost: { amount: '0.7632', currency: 'USD' },
+      asset: { assetType: 'DIRECT_TOPUP', accountReference: 'durov' },
+    });
+  });
+
+  it('buys Premium by months', async () => {
+    const { calls } = stubFetch({ 'POST /api/v1/telegram/premium/buy': { body: { number: 13, status: 'created' } } });
+    const result = await telegram().purchase({ ...request, providerSku: 'telegram:premium:3', idempotencyKey: 'tg-2' });
+    expect(calls[0]?.body).toEqual({ telegram_username: 'durov', months: 3 });
+    expect(result).toMatchObject({ status: 'PENDING', providerReference: '13' });
+  });
+
+  it('refuses a bad request before anything is sent', async () => {
+    const { calls } = stubFetch({});
+    expect(await telegram().purchase({ ...request, quantity: 2 })).toEqual({ status: 'FAILED', failureCode: 'QUANTITY_NOT_SUPPORTED' });
+    expect(await telegram().purchase({ ...request, accountFields: {} })).toEqual({ status: 'FAILED', failureCode: 'ACCOUNT_FIELDS_MISSING' });
+    expect(await telegram().purchase({ ...request, accountFields: { telegram_username: 'a b' } })).toEqual({
+      status: 'FAILED',
+      failureCode: 'ACCOUNT_FIELDS_INVALID',
+    });
+    expect(await telegram().purchase({ ...request, providerSku: 'telegram:stars:7' })).toEqual({
+      status: 'FAILED',
+      failureCode: 'INVALID_PROVIDER_SKU',
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('never sends the same key twice: the first answer is replayed, an unknown one included', async () => {
+    const stub = stubFetch({ 'POST /api/v1/telegram/stars/buy': { status: 503, body: {} } });
+    const provider = telegram();
+    const first = await provider.purchase(request);
+    const second = await provider.purchase(request);
+    expect(first.status).toBe('UNKNOWN');
+    expect(second).toEqual(first);
+    expect(stub.count('POST /api/v1/telegram/stars/buy')).toBe(1);
+  });
+
+  it('maps a refund to a settled failure and a network drop to unknown', async () => {
+    stubFetch({ 'POST /api/v1/telegram/stars/buy': { body: { number: 14, status: 'refund', fail_code: 'account_problem' } } });
+    expect(await telegram().purchase({ ...request, idempotencyKey: 'tg-3' })).toMatchObject({
+      status: 'FAILED',
+      failureCode: 'RESELL_ACCOUNT_PROBLEM',
+    });
+    stubFetch({ 'POST /api/v1/telegram/stars/buy': { throws: new TypeError('fetch failed') } });
+    expect(await telegram().purchase({ ...request, idempotencyKey: 'tg-4' })).toEqual({
+      status: 'UNKNOWN',
+      failureCode: 'NETWORK_ERROR',
+    });
+  });
+
+  it('reads an order back by number', async () => {
+    stubFetch({ 'GET /api/v1/orders/12': { body: { number: 12, status: 'completed', telegram_username: 'durov' } } });
+    expect(await telegram().getPurchaseStatus('12')).toMatchObject({
+      status: 'SUCCEEDED',
+      providerReference: '12',
+      asset: { assetType: 'DIRECT_TOPUP', accountReference: 'durov' },
+    });
   });
 });
