@@ -1158,6 +1158,22 @@ export const topUpImportResultSchema = z.object({
 });
 export type TopUpImportResult = z.infer<typeof topUpImportResultSchema>;
 
+/**
+ * `POST /operator/suppliers/topup/import/start` and `GET .../import/status` —
+ * pinned to `TopUpImportJob` in `topup-catalog.import.ts`. A venue read takes
+ * minutes, so the screen starts a run and polls instead of holding a request.
+ */
+export const topUpImportJobSchema = z.object({
+  supplierCode: z.string(),
+  dryRun: z.boolean(),
+  startedAt: z.string(),
+  state: z.enum(["RUNNING", "DONE", "FAILED"]),
+  finishedAt: z.string().optional(),
+  result: topUpImportResultSchema.optional(),
+  error: z.string().optional(),
+});
+export type TopUpImportJob = z.infer<typeof topUpImportJobSchema>;
+
 export const TOP_UP_IMPORT_SKIP_LABELS: Record<NonNullable<TopUpImportGame["skipReason"]>, string> = {
   NO_OFFERS: "بسته‌ای برای فروش ندارد",
   NO_ACCOUNT_FIELDS: "فیلد حساب کاربری ندارد",
