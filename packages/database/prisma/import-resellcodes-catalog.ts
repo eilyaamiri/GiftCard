@@ -68,8 +68,10 @@ const REPORT_LIMIT = 20;
 
 /** 30 requests a minute is the venue's limit; one every 2.2 s stays under it. */
 const REQUEST_GAP_MS = 2200;
-const TIMEOUT_MS = 20_000;
+const TIMEOUT_MS = 30_000;
 const MAX_429_RETRIES = 5;
+const MAX_NETWORK_RETRIES = 3;
+const NETWORK_RETRY_WAIT_MS = 5_000;
 /** The category list is one request; its `limit` is capped at 600 (default 200). */
 const CATEGORY_LIMIT = 600;
 /** Where the venue's relative picture paths live. */
@@ -369,15 +371,27 @@ async function fetchCatalog(): Promise<RawCatalog> {
   const base = (process.env['RESELLCODES_BASE_URL'] ?? 'https://resell.codes/api/v1').replace(/\/+$/u, '');
   let lastAt = 0;
 
+  /**
+   * One GET. A timeout or a dropped connection is retried (a GET changes
+   * nothing), because a single slow answer in a twenty-minute read must not
+   * throw the whole read away. Status 0 means every attempt failed.
+   */
   const get = async (path: string): Promise<{ status: number; body: unknown }> => {
     for (let attempt = 0; ; attempt += 1) {
       const wait = lastAt + REQUEST_GAP_MS - Date.now();
       if (wait > 0) await sleep(wait);
       lastAt = Date.now();
-      const response = await fetch(`${base}${path}`, {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-        signal: AbortSignal.timeout(TIMEOUT_MS),
-      });
+      let response: Response;
+      try {
+        response = await fetch(`${base}${path}`, {
+          headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+      } catch {
+        if (attempt >= MAX_NETWORK_RETRIES) return { status: 0, body: null };
+        await sleep(NETWORK_RETRY_WAIT_MS * (attempt + 1));
+        continue;
+      }
       if (response.status === 429 && attempt < MAX_429_RETRIES) {
         const seconds = Number(response.headers.get('retry-after'));
         await sleep((Number.isFinite(seconds) && seconds > 0 ? seconds : 30) * 1000);
@@ -421,11 +435,17 @@ async function fetchCatalog(): Promise<RawCatalog> {
   console.log(`[import] ${String(ids.length)} categories; ~${String(Math.ceil((ids.length * REQUEST_GAP_MS) / 60_000))} min at the venue's rate limit`);
 
   const cards: Record<string, unknown[]> = {};
+  const unreachable: string[] = [];
   for (const [index, id] of ids.entries()) {
     const result = await pages(`/gift-cards/categories/${encodeURIComponent(id)}/cards`);
     cards[id] = result.pages;
+    if (result.status === 0) unreachable.push(id);
     const count = result.pages.flatMap((page) => rowsOf(page, ['offers', 'data', 'cards'])).length;
-    console.log(`[import] [${String(index + 1)}/${String(ids.length)}] ${id}: ${result.status === 200 ? `${String(count)} cards` : `HTTP ${String(result.status)}`}`);
+    const outcome = result.status === 200 ? `${String(count)} cards` : result.status === 0 ? 'no answer (timeout/network)' : `HTTP ${String(result.status)}`;
+    console.log(`[import] [${String(index + 1)}/${String(ids.length)}] ${id}: ${outcome}`);
+  }
+  if (unreachable.length > 0) {
+    console.log(`[import] WARNING: ${String(unreachable.length)} categories never answered and are missing from this read: ${unreachable.join(', ')}. Run it again before importing.`);
   }
 
   return { categories: categories.pages, cards, brands: brands.status === 200 ? brands.pages : [] };
