@@ -145,16 +145,26 @@ describe('planImport', () => {
       expect(plan.products[0]?.needsReview).toBe(false);
     });
 
-    it.each(['CONQUEROR', 'MINECOINS', 'ROBUX', 'USD', 'BRL', 'USDT'])(
-      'does not store %s as a region: GLOBAL, held for review',
-      (region) => {
-        const plan = regionOfCategory(region);
+    it.each([
+      ['USD', 'USD'],
+      ['robux', 'ROBUX'],
+      ['BRL', 'BRL'],
+      ['CONQUEROR', 'CONQUERO'],
+      ['MINECOINS', 'MINECOIN'],
+    ])('keeps what the venue wrote for %s (as %s) so a reviewer can see it, and holds the product', (written, stored) => {
+      const plan = regionOfCategory(written);
 
-        expect(plan.skus.every((sku) => sku.region === 'GLOBAL')).toBe(true);
-        // A fallback is not an answer: the card may be locked to a country.
-        expect(plan.products[0]?.needsReview).toBe(true);
-      },
-    );
+      expect(plan.skus.every((sku) => sku.region === stored)).toBe(true);
+      // Not a region we can read, so not an answer: the card may be locked to a country.
+      expect(plan.products[0]?.needsReview).toBe(true);
+    });
+
+    it('falls back to GLOBAL, held for review, when the venue wrote something that is not letters', () => {
+      const plan = regionOfCategory('12-34');
+
+      expect(plan.skus.every((sku) => sku.region === 'GLOBAL')).toBe(true);
+      expect(plan.products[0]?.needsReview).toBe(true);
+    });
 
     it('keeps every region it stores within what the API serves', () => {
       for (const region of ['CONQUEROR', 'MINECOINS', 'ABCDEFGHIJKL', 'U', 'US']) {

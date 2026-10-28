@@ -171,15 +171,28 @@ function imageOf(row: Json): string | null {
  *
  * The venue's `region` field is not only regions: it also holds currency codes
  * ("USD", "BRL") and a product's own word ("ROBUX", "CONQUEROR", "MINECOINS").
- * Taking any run of letters stored those as a region, and one of them over the
- * 8 characters `Sku.region` is served with made the admin pages fail to load.
- * A value that is not a region is not guessed at.
+ * Only the first kind is a region we can read; the rest is kept as the venue
+ * wrote it (see `venueRegionText`) and the product is held for review, so
+ * whoever reviews it can see what the venue said and set the real region.
  */
 const REGION = /^(?:[A-Z]{2}|GLOBAL|CIS)$/u;
+
+/** `Sku.region` is served as 2–8 characters (`@barat/contracts`); a longer one makes the page that lists it fail to load. */
+const MAX_REGION_LENGTH = 8;
 
 function regionOf(value: unknown): string | null {
   const region = text(value)?.toUpperCase() ?? null;
   return region !== null && REGION.test(region) ? region : null;
+}
+
+/**
+ * What the venue wrote in `region` when it is not one we can read, as a value
+ * `Sku.region` can hold: upper-cased letters, cut to the length the API serves.
+ * Null when it is not letters at all.
+ */
+function venueRegionText(value: unknown): string | null {
+  const region = text(value)?.toUpperCase() ?? null;
+  return region !== null && /^[A-Z]{2,12}$/u.test(region) ? region.slice(0, MAX_REGION_LENGTH) : null;
 }
 
 /** `category_id` -> region, from `/gift-cards/brands`, whichever of two shapes it has. */
@@ -309,11 +322,12 @@ export function planImport(raw: RawCatalog): Plan {
     const name = text(category['name']) ?? categoryId;
     const brand = text(category['brand']) ?? name;
     const statedRegion = regionOf(category['region']);
-    const region = statedRegion ?? brandRegions.get(categoryId) ?? 'GLOBAL';
-    // The venue named something, and it is not a region we can read: `GLOBAL` is
-    // then a fallback, not an answer, and a gift card is often region-locked.
-    const regionUnreadable =
-      statedRegion === null && text(category['region']) !== null && !brandRegions.has(categoryId);
+    const brandRegion = brandRegions.get(categoryId);
+    const region = statedRegion ?? brandRegion ?? venueRegionText(category['region']) ?? 'GLOBAL';
+    // The venue named something that is not a region we can read, and nothing
+    // else tells us one: what is stored is its own word, not an answer, and a
+    // gift card is often locked to a country. Held for review, not orderable.
+    const regionUnreadable = statedRegion === null && brandRegion === undefined && text(category['region']) !== null;
     const productId = boundedKey(PRODUCT_ID_PREFIX, [categoryId], '_');
     const cards = (raw.cards[categoryId] ?? []).flatMap((page) => rowsOf(page, ['offers', 'data', 'cards']));
 
