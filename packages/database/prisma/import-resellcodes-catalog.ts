@@ -44,6 +44,10 @@
  *   --map-out=<file.json>    write the provider-SKU map (SUPPLIER_PROVIDER_SKU_MAP_FILE)
  *   --dry-run                plan and report only; opens no database connection
  *   --create-supplier        add the `resellcodes` Supplier row, inactive, if it is missing
+ *   --topup-keep=<id,id>     keep these venue categories as gift cards (see "Gift card or game currency")
+ *   --remove-topups          write nothing; report which game-currency products an earlier
+ *                            run stored and could be removed (never used, inactive)
+ *   --confirm-remove         with --remove-topups: remove them
  *
  * `--fetch` reads with RESELLCODES_API_KEY (GET requests only, never an order).
  * The key is never printed, and neither is any response body.
@@ -120,10 +124,26 @@ interface PlannedSku {
   readonly faceValueFromName: boolean;
 }
 
+/** A venue category that sells game currency, left out of the gift-card catalogue. */
+export interface TopUpCategory {
+  readonly categoryId: string;
+  /** The product id it would have had (and may still have, from an earlier run). */
+  readonly productId: string;
+  readonly name: string;
+  readonly cards: number;
+  readonly reason: string;
+}
+
 export interface Plan {
   readonly products: readonly PlannedProduct[];
   readonly skus: readonly PlannedSku[];
   readonly skipped: readonly string[];
+  readonly topUps: readonly TopUpCategory[];
+}
+
+export interface PlanOptions {
+  /** Venue category ids to keep as gift cards although they read as game currency. */
+  readonly keepAsGiftCard?: ReadonlySet<string>;
 }
 
 /* ========================================================================== */
@@ -299,6 +319,34 @@ function boundedKey(prefix: string, parts: readonly string[], separator: string)
 }
 
 /* ========================================================================== */
+/* Gift card or game currency                                                 */
+/* ========================================================================== */
+
+/*
+ * The venue's gift-card list also carries game currency ("11000 RP", "60 UC",
+ * "800 Robux"). Those are not gift cards: they belong to the direct top-up
+ * section, which is filled from the venue's own top-up catalogue (admin
+ * `/catalog/top-ups`), never from these rows. A category reads as game
+ * currency when its name is a known game-currency brand, or when most of its
+ * cards are named by a currency unit rather than a money amount. The list is
+ * printed so a person can check it; `--topup-keep` overrides a wrong call.
+ */
+const TOP_UP_BRAND =
+  /\b(?:league of legends|valorant|wild rift|riot|roblox|robux|free ?fire|garena|pubg|bigo|honor of kings|mobile legends|netease|minecoins|genshin|honkai|zenless|call of duty|cod points|v-?bucks|fortnite|apex legends|mycard|telegram stars|clash of clans|clash royale|brawl stars|lords mobile|identity v|arena breakout|delta force|blood strike|ragnarok|lifeafter|undawn|efootball|fc points|fifa points|eafc|ea sports fc)\b/iu;
+const TOP_UP_UNIT =
+  /\d[\d.,]*\s*(?:rp|vp|uc|robux|points?|pts|diamonds?|coins?|gems?|crystals?|shells|stars|v-?bucks|minecoins|cp|tokens?|gold|cash|credits?|primogems?|jades?)\b/iu;
+
+export function topUpReason(name: string, cardNames: readonly string[]): string | null {
+  const brand = TOP_UP_BRAND.exec(name);
+  if (brand !== null) return `game-currency brand "${brand[0]}"`;
+  const units = cardNames.filter((card) => faceValueFromName(card) === null && TOP_UP_UNIT.test(card)).length;
+  if (cardNames.length > 0 && units * 2 > cardNames.length) {
+    return `${String(units)}/${String(cardNames.length)} cards named by a currency unit`;
+  }
+  return null;
+}
+
+/* ========================================================================== */
 /* Planning — pure                                                            */
 /* ========================================================================== */
 
@@ -306,10 +354,11 @@ function boundedKey(prefix: string, parts: readonly string[], separator: string)
  * The whole import, decided before a row is written. A card that cannot be
  * represented is skipped and named; it never aborts the rest.
  */
-export function planImport(raw: RawCatalog): Plan {
+export function planImport(raw: RawCatalog, options: PlanOptions = {}): Plan {
   const products: PlannedProduct[] = [];
   const skus: PlannedSku[] = [];
   const skipped: string[] = [];
+  const topUps: TopUpCategory[] = [];
   const brandRegions = regionsFromBrands(raw.brands);
   const seenCategories = new Set<string>();
 
@@ -330,6 +379,14 @@ export function planImport(raw: RawCatalog): Plan {
     const regionUnreadable = statedRegion === null && brandRegion === undefined && text(category['region']) !== null;
     const productId = boundedKey(PRODUCT_ID_PREFIX, [categoryId], '_');
     const cards = (raw.cards[categoryId] ?? []).flatMap((page) => rowsOf(page, ['offers', 'data', 'cards']));
+
+    const topUp = options.keepAsGiftCard?.has(categoryId)
+      ? null
+      : topUpReason(name, cards.map((card) => text(card['name']) ?? ''));
+    if (topUp !== null) {
+      topUps.push({ categoryId, productId, name, cards: cards.length, reason: topUp });
+      continue;
+    }
 
     const planned: PlannedSku[] = [];
     const seenCards = new Set<string>();
@@ -405,7 +462,7 @@ export function planImport(raw: RawCatalog): Plan {
     skus.push(...planned);
   }
 
-  return { products, skus, skipped };
+  return { products, skus, skipped, topUps };
 }
 
 /* ========================================================================== */
@@ -526,11 +583,17 @@ function reviewPage(plan: Plan): string {
     return `<section>${image}<div><h2>${esc(product.title)}</h2><p>${esc(product.slug)} · ${esc(product.categorySlug)}${product.needsReview ? ' · <b>needs review</b>' : ''}</p><table><tr><th>provider SKU</th><th>card</th><th>face value</th><th>region</th><th>cost USD</th><th>stock</th></tr>${rows}</table></div></section>`;
   });
   const skipped = plan.skipped.map((line) => `<li>${esc(line)}</li>`).join('');
+  const topUps = plan.topUps
+    .map((row) => `<tr><td>${esc(row.categoryId)}</td><td>${esc(row.name)}</td><td>${esc(row.cards)}</td><td>${esc(row.reason)}</td></tr>`)
+    .join('');
   return `<!doctype html><meta charset="utf-8"><title>ReSellCodes gift cards</title>
 <style>body{font-family:system-ui,sans-serif;margin:24px}section{display:flex;gap:16px;border-bottom:1px solid #ddd;padding:12px 0}img,.noimg{width:120px;height:80px;object-fit:contain;flex:none;background:#f4f4f4}.noimg{display:grid;place-items:center;color:#999}table{border-collapse:collapse;font-size:13px}td,th{border:1px solid #ddd;padding:3px 6px;text-align:left}h2{margin:0}</style>
 <h1>ReSellCodes: ${String(plan.products.length)} products, ${String(plan.skus.length)} cards (all inactive)</h1>
 <p>⚠ = face value not stated in the card name; the cost stands in for it.</p>
 ${sections.join('\n')}
+<h2>Game currency, left out of gift cards (${String(plan.topUps.length)})</h2>
+<p>These belong to the direct top-up section. Keep one as a gift card with --topup-keep=&lt;category id&gt;.</p>
+<table><tr><th>category id</th><th>name</th><th>cards</th><th>why</th></tr>${topUps}</table>
 <h2>Skipped (${String(plan.skipped.length)})</h2><ul>${skipped}</ul>`;
 }
 
@@ -695,6 +758,88 @@ async function writeCatalog(prisma: PrismaClient, plan: Plan, createSupplier: bo
   }
 }
 
+/**
+ * Takes the game-currency products an earlier run wrote back out of the
+ * gift-card catalogue. Only a product nobody ever touched goes: inactive, and
+ * with no quote, cart line, delivered asset, review, FAQ or category link on
+ * it or its SKUs. Anything else is financial or curated history (AGENTS.md
+ * 6.6) and stays, reported, for a person to look at. Deleting the product
+ * removes its SKUs and their offers with it (onDelete: Cascade). Without
+ * `confirm` it only reports.
+ */
+async function removeTopUps(prisma: PrismaClient, plan: Plan, confirm: boolean): Promise<void> {
+  const ids = plan.topUps.map((row) => row.productId);
+  const rows = await prisma.product.findMany({
+    where: { id: { in: ids } },
+    select: {
+      id: true,
+      title: true,
+      isActive: true,
+      _count: { select: { reviews: true, faqs: true, categoryLinks: true, extraCategories: true } },
+      skus: {
+        select: {
+          isActive: true,
+          _count: { select: { quotes: true, cartItems: true, giftCardAssets: true } },
+          supplierOffers: { select: { _count: { select: { quotes: true } } } },
+        },
+      },
+    },
+  });
+
+  const removable: string[] = [];
+  const kept: string[] = [];
+  for (const row of rows) {
+    const touched =
+      row.isActive ||
+      Object.values(row._count).some((count) => count > 0) ||
+      row.skus.some(
+        (sku) =>
+          sku.isActive ||
+          Object.values(sku._count).some((count) => count > 0) ||
+          sku.supplierOffers.some((offer) => offer._count.quotes > 0),
+      );
+    if (touched) kept.push(`${row.id} "${row.title}"`);
+    else removable.push(row.id);
+  }
+
+  console.log(
+    `[topups] ${String(ids.length)} game-currency categories; ${String(rows.length)} in the database, ` +
+      `${String(removable.length)} never used and removable, ${String(kept.length)} kept (used or active):`,
+  );
+  for (const line of kept) console.log(`  - kept: ${line}`);
+  if (!confirm) {
+    console.log('[topups] nothing removed — add --confirm-remove to remove the never-used ones.');
+    return;
+  }
+  let removed = 0;
+  await chunked(removable, async (batch) => {
+    // Re-checked inside the delete itself, so a quote created since the read keeps its product.
+    const result = await prisma.product.deleteMany({
+      where: {
+        id: { in: batch },
+        isActive: false,
+        reviews: { none: {} },
+        faqs: { none: {} },
+        categoryLinks: { none: {} },
+        extraCategories: { none: {} },
+        skus: {
+          none: {
+            OR: [
+              { isActive: true },
+              { quotes: { some: {} } },
+              { cartItems: { some: {} } },
+              { giftCardAssets: { some: {} } },
+              { supplierOffers: { some: { quotes: { some: {} } } } },
+            ],
+          },
+        },
+      },
+    });
+    removed += result.count;
+  });
+  console.log(`[topups] removed ${String(removed)} product(s) with their SKUs and offers.`);
+}
+
 /* ========================================================================== */
 /* Entry point                                                                */
 /* ========================================================================== */
@@ -716,6 +861,11 @@ function report(plan: Plan): void {
     for (const line of plan.skipped.slice(0, REPORT_LIMIT)) console.log(`  - ${line}`);
     if (plan.skipped.length > REPORT_LIMIT) console.log(`  ... and ${String(plan.skipped.length - REPORT_LIMIT)} more`);
   }
+  // Printed in full: this is the list a person checks before anything is removed.
+  console.log(`[import] ${String(plan.topUps.length)} game-currency categor(ies) left out of gift cards:`);
+  for (const row of plan.topUps) {
+    console.log(`  - ${row.categoryId} "${row.name}" (${String(row.cards)} cards): ${row.reason}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -735,7 +885,8 @@ async function main(): Promise<void> {
     console.log(`[import] raw catalogue -> ${saveRaw}`);
   }
 
-  const plan = planImport(raw);
+  const keep = new Set((argValue('topup-keep') ?? '').split(',').map((id) => id.trim()).filter((id) => id !== ''));
+  const plan = planImport(raw, { keepAsGiftCard: keep });
   report(plan);
 
   if (reviewOut !== undefined) {
@@ -757,6 +908,10 @@ async function main(): Promise<void> {
   const { createPrismaClient } = (await import('../src/client')) as { createPrismaClient: () => PrismaClient };
   const prisma = createPrismaClient();
   try {
+    if (process.argv.includes('--remove-topups')) {
+      await removeTopUps(prisma, plan, process.argv.includes('--confirm-remove'));
+      return;
+    }
     await writeCatalog(prisma, plan, process.argv.includes('--create-supplier'));
     const [productCount, skuCount, offerCount, activeProducts, activeSkus] = await Promise.all([
       prisma.product.count({ where: { id: { startsWith: PRODUCT_ID_PREFIX } } }),
