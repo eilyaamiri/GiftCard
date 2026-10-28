@@ -14,6 +14,16 @@ import { formatCount } from "../../_lib/format";
 
 const importEnvelopeSchema = z.object({ result: topUpImportResultSchema });
 
+/**
+ * The venues a top-up catalogue can be read from. The API refuses a code it
+ * has no reader for (no key configured), and that answer is shown as is.
+ */
+const TOP_UP_SUPPLIERS = [
+  { code: "fazercards-topup", label: "FazerCards" },
+  { code: "resellcodes-topup", label: "ReSellCodes" },
+] as const;
+type TopUpSupplierCode = (typeof TOP_UP_SUPPLIERS)[number]["code"];
+
 const STATUS_LABELS: Record<TopUpImportGame["status"], string> = {
   NEW: "جدید",
   EXISTING: "موجود",
@@ -34,6 +44,7 @@ const STATUS_LABELS: Record<TopUpImportGame["status"], string> = {
  */
 export function ImportTopUpButton() {
   const router = useRouter();
+  const [supplierCode, setSupplierCode] = useState<TopUpSupplierCode>("fazercards-topup");
   const [pending, setPending] = useState<"preview" | "import" | null>(null);
   const [result, setResult] = useState<TopUpImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +55,7 @@ export function ImportTopUpButton() {
     try {
       const response = await api.post<{ result: TopUpImportResult }>(
         "/api/operator/suppliers/topup/import",
-        { dryRun },
+        { supplierCode, dryRun },
         importEnvelopeSchema,
       );
       setResult(response.result);
@@ -72,6 +83,25 @@ export function ImportTopUpButton() {
       </p>
 
       <div className="save-row" style={{ justifyContent: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <label className="muted" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          تأمین‌کننده
+          <select
+            value={supplierCode}
+            disabled={pending !== null}
+            onChange={(event) => {
+              // A preview belongs to the venue it read; confirming must never import another one.
+              setSupplierCode(event.target.value as TopUpSupplierCode);
+              setResult(null);
+              setError(null);
+            }}
+          >
+            {TOP_UP_SUPPLIERS.map((supplier) => (
+              <option key={supplier.code} value={supplier.code}>
+                {supplier.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           className="secondary-btn"

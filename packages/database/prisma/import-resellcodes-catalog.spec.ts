@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { faceValueFromName, planImport, type RawCatalog } from './import-resellcodes-catalog';
+import { faceValueFromName, planImport, topUpReason, type RawCatalog } from './import-resellcodes-catalog';
 
 /*
  * The import decides what one card costs us (`costAmount`) and which card a
@@ -265,6 +265,69 @@ describe('planImport', () => {
 
       expect(plan.skus.map((sku) => sku.skuId)).toEqual(['rsc_s_12_99', 'rsc_s_12_100']);
     });
+  });
+});
+
+describe('game currency is left out of gift cards', () => {
+  const mixed = raw({
+    categories: [
+      {
+        data: [
+          { category_id: '12', name: 'Steam' },
+          { category_id: '40', name: 'League of Legends EU' },
+          { category_id: '41', name: 'Some Game' },
+        ],
+      },
+    ],
+    cards: {
+      '12': [{ offers: [{ card_id: '1', name: 'Steam $10', price_usd: '9.7500' }] }],
+      '40': [{ offers: [{ card_id: '1', name: '11000 RP', price_usd: '80.0000' }] }],
+      '41': [
+        {
+          offers: [
+            { card_id: '1', name: '100 Diamonds', price_usd: '1.0000' },
+            { card_id: '2', name: '500 Diamonds', price_usd: '5.0000' },
+          ],
+        },
+      ],
+    },
+  });
+
+  it('plans no product, SKU or map entry for a game-currency category, and lists it with a reason', () => {
+    const plan = planImport(mixed);
+
+    expect(plan.products.map((product) => product.id)).toEqual(['rsc_p_12']);
+    expect(plan.skus.map((sku) => sku.skuId)).toEqual(['rsc_s_12_1']);
+    expect(plan.topUps.map((row) => [row.categoryId, row.productId, row.cards])).toEqual([
+      ['40', 'rsc_p_40', 1],
+      ['41', 'rsc_p_41', 2],
+    ]);
+    expect(plan.topUps[0]?.reason).toBe('game-currency brand "League of Legends"');
+    expect(plan.topUps[1]?.reason).toBe('2/2 cards named by a currency unit');
+  });
+
+  it('keeps a category as a gift card when told to', () => {
+    const plan = planImport(mixed, { keepAsGiftCard: new Set(['41']) });
+    expect(plan.products.map((product) => product.id)).toEqual(['rsc_p_12', 'rsc_p_41']);
+    expect(plan.topUps.map((row) => row.categoryId)).toEqual(['40']);
+  });
+
+  it.each([
+    ['Steam', ['Steam $10', 'Steam $20']],
+    ['Razer Gold', ['Razer Gold $10', 'Razer Gold 50 USD']],
+    ['PlayStation', ['PSN 50 GBP', 'PSN 10000 points', 'PSN 25 GBP']],
+    ['Netflix', ['Netflix Gift Card']],
+  ])('does not take the gift card %s for game currency', (name, cards) => {
+    expect(topUpReason(name, cards)).toBeNull();
+  });
+
+  it.each([
+    ['Roblox', []],
+    ['Free Fire Global', []],
+    ['PUBG Mobile', []],
+    ['Unknown Shooter', ['60 UC', '325 UC', 'Bundle']],
+  ])('takes %s for game currency', (name, cards) => {
+    expect(topUpReason(name, cards)).not.toBeNull();
   });
 });
 
