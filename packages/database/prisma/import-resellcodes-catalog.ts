@@ -43,6 +43,7 @@
  *   --review-out=<file.html> a page listing every product with its picture
  *   --map-out=<file.json>    write the provider-SKU map (SUPPLIER_PROVIDER_SKU_MAP_FILE)
  *   --dry-run                plan and report only; opens no database connection
+ *   --create-supplier        add the `resellcodes` Supplier row, inactive, if it is missing
  *
  * `--fetch` reads with RESELLCODES_API_KEY (GET requests only, never an order).
  * The key is never printed, and neither is any response body.
@@ -51,7 +52,7 @@
 
 import { readFile, writeFile } from 'node:fs/promises';
 
-import { Prisma } from '../generated/client';
+import { Prisma, SupplierIntegrationMode } from '../generated/client';
 import type { PrismaClient } from '../generated/client';
 import { CATEGORIES, brandKey, brandSlug, classify } from './taxonomy';
 import type { CategorySlug } from './taxonomy';
@@ -540,10 +541,31 @@ async function resolveBrands(prisma: PrismaClient, products: readonly PlannedPro
   return byKey;
 }
 
-async function writeCatalog(prisma: PrismaClient, plan: Plan): Promise<void> {
+async function writeCatalog(prisma: PrismaClient, plan: Plan, createSupplier: boolean): Promise<void> {
+  if (createSupplier) {
+    /* The same row the seed makes, and switched off: nothing is sellable
+     * through a supplier that is not active. `update: {}` leaves an existing
+     * row exactly as it is. The full seed is a demo-data run and is not
+     * something to point at a live database for one row. */
+    await prisma.supplier.upsert({
+      where: { code: SUPPLIER_CODE },
+      create: {
+        id: 'seed_supplier_resellcodes',
+        code: SUPPLIER_CODE,
+        name: 'ReSellCodes',
+        integrationMode: SupplierIntegrationMode.API,
+        supportsRawCode: true,
+        defaultCurrency: 'USD',
+        isActive: false,
+        notes:
+          'Gift cards via resell.codes. No sandbox and no idempotency key: activate only after a supervised low-value order.',
+      },
+      update: {},
+    });
+  }
   const supplier = await prisma.supplier.findUnique({ where: { code: SUPPLIER_CODE }, select: { id: true } });
   if (supplier === null) {
-    throw new Error(`no supplier with code "${SUPPLIER_CODE}" — run the seed (it creates it inactive) first`);
+    throw new Error(`no supplier with code "${SUPPLIER_CODE}" — pass --create-supplier to add it (inactive)`);
   }
 
   const categories = await resolveCategories(prisma);
@@ -683,7 +705,7 @@ async function main(): Promise<void> {
   const { createPrismaClient } = (await import('../src/client')) as { createPrismaClient: () => PrismaClient };
   const prisma = createPrismaClient();
   try {
-    await writeCatalog(prisma, plan);
+    await writeCatalog(prisma, plan, process.argv.includes('--create-supplier'));
     const [productCount, skuCount, offerCount, activeProducts, activeSkus] = await Promise.all([
       prisma.product.count({ where: { id: { startsWith: PRODUCT_ID_PREFIX } } }),
       prisma.sku.count({ where: { id: { startsWith: SKU_ID_PREFIX } } }),
