@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DELIVERY_ASSET_TYPE_LABELS, skuOfferCount, type AdminSku } from "../_lib/catalog-contracts";
 import { formatCount } from "../_lib/format";
+import { regionDisplay, regionName } from "../_lib/regions";
 import { SkuForm } from "./sku-form";
 import { ToggleActiveButton } from "./toggle-active-button";
 
@@ -22,7 +23,7 @@ export function SkuPanel({ productId, skus }: { productId: string; skus: AdminSk
           <thead>
             <tr>
               <th>کد</th>
-              <th>Region</th>
+              <th>منطقه</th>
               <th>مبلغ</th>
               <th>نوع تحویل</th>
               <th>تعداد Offer</th>
@@ -34,7 +35,19 @@ export function SkuPanel({ productId, skus }: { productId: string; skus: AdminSk
             {skus.map((sku) => (
               <tr key={sku.id}>
                 <td className="bp-ltr">{sku.code}</td>
-                <td className="bp-ltr">{sku.region}</td>
+                <td>
+                  {/* The supplier's own word, when the list has no name for it: shown as it is, flagged, so it is seen and replaced. */}
+                  {regionName(sku.region) === null ? (
+                    <>
+                      <span className="bp-ltr">{sku.region}</span>{" "}
+                      <span className="badge badge-wait" title="این مقدار در فهرست مناطق نیست. با «ویرایش» یک منطقه انتخاب کنید.">
+                        منطقه نامشخص
+                      </span>
+                    </>
+                  ) : (
+                    regionDisplay(sku.region)
+                  )}
+                </td>
                 <td className="bp-ltr">{sku.denominationLabel}</td>
                 <td>{DELIVERY_ASSET_TYPE_LABELS[sku.deliveryAssetType]}</td>
                 <td>{formatCount(skuOfferCount(sku))}</td>
