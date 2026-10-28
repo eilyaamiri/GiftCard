@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { faceValueFromName, planImport, topUpReason, type RawCatalog } from './import-resellcodes-catalog';
+import { brandIdOf, faceValueFromName, planImport, topUpReason, type RawCatalog } from './import-resellcodes-catalog';
 
 /*
  * The import decides what one card costs us (`costAmount`) and which card a
@@ -348,5 +348,32 @@ describe('faceValueFromName', () => {
   it('returns null for a name with no value, or with two different ones', () => {
     expect(faceValueFromName('Steam Wallet')).toBeNull();
     expect(faceValueFromName('Bundle $10 + $20')).toBeNull();
+  });
+});
+
+/*
+ * One brand id of 66 characters ("brnd_plants-vs-zombies-battle-for-…") made the
+ * admin catalog fail to load, the same way a long SKU id did.
+ */
+describe('brandIdOf', () => {
+  it('keeps the id a brand has always had when it fits', () => {
+    expect(brandIdOf('steam')).toBe('brnd_steam');
+    expect(brandIdOf('a'.repeat(59))).toBe(`brnd_${'a'.repeat(59)}`);
+  });
+
+  it('keeps a long slug within 64 characters, and distinct slugs distinct', () => {
+    const slug = 'plants-vs-zombies-battle-for-neighborville-xbox-rainbow-stars';
+    const longer = `${slug}-and-more-words-that-go-on`;
+
+    expect(brandIdOf(slug).length).toBeLessThanOrEqual(64);
+    expect(brandIdOf(longer).length).toBeLessThanOrEqual(64);
+    expect(brandIdOf(slug).startsWith('brnd_')).toBe(true);
+    expect(brandIdOf(slug)).not.toBe(brandIdOf(longer));
+  });
+
+  it('is the same on every run, so a re-run finds the brand it wrote', () => {
+    const slug = 'x'.repeat(90);
+
+    expect(brandIdOf(slug)).toBe(brandIdOf(slug));
   });
 });

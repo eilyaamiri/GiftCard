@@ -634,6 +634,17 @@ async function resolveCategories(prisma: PrismaClient): Promise<Map<string, stri
   return new Map(rows.map((row) => [row.slug, row.id]));
 }
 
+/**
+ * The id of a brand this import creates: `brnd_<slug>`, as the seed and the
+ * Reloadly import make it. A slug is up to 90 characters, so a long game title
+ * ("plants-vs-zombies-battle-for-neighborville-xbox-rainbow-stars") made an id
+ * over the 64 the API serves, and that one brand stopped the admin catalog's
+ * brand and product lists from loading. Past the limit it is a hash of the slug.
+ */
+export function brandIdOf(slug: string): string {
+  return boundedKey('brnd_', [slug], '_');
+}
+
 /** Existing brands are reused by name (taxonomy, not products); new ones are created. */
 async function resolveBrands(prisma: PrismaClient, products: readonly PlannedProduct[]): Promise<Map<string, string>> {
   const existing = await prisma.brand.findMany({ select: { id: true, name: true, slug: true } });
@@ -646,7 +657,7 @@ async function resolveBrands(prisma: PrismaClient, products: readonly PlannedPro
     let slug = brandSlug(product.brand);
     for (let attempt = 2; takenSlugs.has(slug); attempt += 1) slug = `${brandSlug(product.brand)}-${String(attempt)}`;
     takenSlugs.add(slug);
-    const id = `brnd_${slug}`;
+    const id = brandIdOf(slug);
     byKey.set(key, id);
     created.push({ id, slug, name: product.brand, nameFa: product.brand });
   }
