@@ -16,6 +16,7 @@ import {
   readReloadlyEnv,
   readResellCodesCatalogEnv,
   readResellCodesGiftCardEnv,
+  readResellCodesTelegramEnv,
   readResellCodesTopUpEnv,
 } from './suppliers.env';
 
@@ -41,6 +42,7 @@ const KEYS = [
   'FAZERCARDS_TIMEOUT_MS',
   'RESELLCODES_GIFTCARD_ENABLED',
   'RESELLCODES_TOPUP_ENABLED',
+  'RESELLCODES_TELEGRAM_ENABLED',
   'RESELLCODES_API_KEY',
   'RESELLCODES_TIMEOUT_MS',
   'SUPPLIER_PROVIDER_SKU_MAP',
@@ -369,12 +371,22 @@ describe('ReSellCodes wiring', () => {
       'resellcodes',
       'resellcodes-topup',
     ]);
+
+    // Telegram has its own flag: games being live says nothing about Stars.
+    process.env['RESELLCODES_TELEGRAM_ENABLED'] = 'true';
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual([
+      'mock',
+      'resellcodes',
+      'resellcodes-topup',
+      'resellcodes-telegram',
+    ]);
   });
 
   it('never registers under NODE_ENV=test, even fully configured', () => {
     process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
     process.env['RESELLCODES_GIFTCARD_ENABLED'] = 'true';
     process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
+    process.env['RESELLCODES_TELEGRAM_ENABLED'] = 'true';
 
     expect(buildSupplierProviders({ isTest: true }).map((provider) => provider.key)).toEqual(['mock']);
   });
@@ -383,6 +395,9 @@ describe('ReSellCodes wiring', () => {
     process.env['RESELLCODES_TOPUP_ENABLED'] = 'true';
 
     expect(() => readResellCodesTopUpEnv()).toThrow(/RESELLCODES_API_KEY is required/u);
+
+    process.env['RESELLCODES_TELEGRAM_ENABLED'] = 'true';
+    expect(() => readResellCodesTelegramEnv()).toThrow(/RESELLCODES_API_KEY is required/u);
   });
 
   it('refuses a flag it cannot read as a decision, and a nonsense timeout', () => {

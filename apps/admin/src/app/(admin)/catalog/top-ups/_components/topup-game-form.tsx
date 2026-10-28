@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import { toSquareCover } from "@/lib/square-image";
-import type { AdminTopUpGameDetail } from "../../_lib/catalog-contracts";
+import type { AdminGalleryItem, AdminTopUpGameDetail } from "../../_lib/catalog-contracts";
 import { FormError } from "../../_components/form-error";
+import { GalleryPicker } from "../../_components/gallery-picker";
 import { DeliveryTimeSelect } from "../../_components/delivery-time-select";
 
 /**
@@ -27,6 +28,9 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
   const [isActive, setIsActive] = useState(game.isActive);
   const [sortOrder, setSortOrder] = useState(String(game.sortOrder));
   const [coverFile, setCoverFile] = useState<File | null>(null);
+  const [galleryPick, setGalleryPick] = useState<AdminGalleryItem | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const fileInput = useRef<HTMLInputElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(game.imageUrl);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +59,38 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
     }
   }
 
+  /*
+   * A gallery image goes the same way a file from the computer does: read, cut
+   * to the square the game's card frame needs, and uploaded when the form is
+   * saved. A game's image is a square, a gallery image can be any shape, so
+   * copying the file as it is would not fit the frame. The picture is read
+   * from the admin route that serves it (same origin, so it carries the session).
+   */
+  async function onPickFromGallery(item: AdminGalleryItem) {
+    setPickerOpen(false);
+    setError(null);
+    try {
+      const response = await fetch(item.url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error(`gallery image ${String(response.status)}`);
+      const blob = await response.blob();
+      setCoverFile(await toSquareCover(new File([blob], item.name, { type: blob.type })));
+      setGalleryPick(item);
+      if (fileInput.current) fileInput.current.value = "";
+    } catch {
+      setError("خواندن تصویر از گالری ممکن نشد. دوباره تلاش کنید یا از گالری تصویر دیگری انتخاب کنید.");
+    }
+  }
+
+  function onFileChange(file: File | null) {
+    setGalleryPick(null);
+    void onPickCover(file);
+  }
+
+  function clearGalleryPick() {
+    setGalleryPick(null);
+    setCoverFile(null);
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
@@ -72,6 +108,7 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
       if (coverFile) {
         await api.uploadTopUpGameImage(game.id, coverFile);
         setCoverFile(null);
+        setGalleryPick(null);
       }
       router.refresh();
     } catch (caught) {
@@ -110,17 +147,38 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
         <label>
           تصویر بازی (اختیاری)
           <input
+            ref={fileInput}
             type="file"
             accept="image/jpeg,image/png,image/webp,image/gif"
-            onChange={(event) => void onPickCover(event.target.files?.[0] ?? null)}
+            onChange={(event) => onFileChange(event.target.files?.[0] ?? null)}
           />
           <small>
             هر تصویری قابل قبول است؛ خودکار به مربع ۲۵۶×۲۵۶ بریده و کوچک می‌شود تا در کادر کارت بازی جا بگیرد.
           </small>
+        </label>
+        {/* Outside the label above: a button inside it would also activate the file input. */}
+        <div className="gallery-field">
+          <span className="gallery-field-title">یا انتخاب از گالری تصاویر</span>
+          <span style={{ display: "inline-flex", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <button type="button" className="secondary-btn" onClick={() => setPickerOpen(true)}>
+              {galleryPick ? "تغییر تصویر گالری" : "انتخاب از گالری"}
+            </button>
+            {galleryPick ? (
+              <>
+                <span className="muted" title={galleryPick.name}>
+                  {galleryPick.label ?? galleryPick.name}
+                </span>
+                <button type="button" className="filter" onClick={clearGalleryPick}>
+                  لغو انتخاب
+                </button>
+              </>
+            ) : null}
+          </span>
+          <small>تصویری که قبلاً بارگذاری شده را دوباره استفاده کنید. مثل فایل سیستم، به مربع بریده می‌شود و با «ذخیرهٔ تغییرات» ثبت می‌شود.</small>
           {previewUrl ? (
             <img src={previewUrl} alt={`پیش‌نمایش تصویر ${game.nameFa ?? game.name}`} className="product-image-preview" />
           ) : null}
-        </label>
+        </div>
       </div>
       <div className="form-grid" style={{ marginTop: 13 }}>
         <label>
@@ -137,6 +195,12 @@ export function TopUpGameForm({ game }: { game: AdminTopUpGameDetail }) {
           {pending ? "در حال ذخیره…" : "ذخیرهٔ تغییرات"}
         </button>
       </div>
+      <GalleryPicker
+        open={pickerOpen}
+        selectedName={galleryPick?.name ?? null}
+        onPick={(item) => void onPickFromGallery(item)}
+        onClose={() => setPickerOpen(false)}
+      />
     </form>
   );
 }

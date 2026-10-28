@@ -18,7 +18,7 @@ import {
   type ListOffersQuery,
 } from './suppliers.schemas';
 import { SuppliersService } from './suppliers.service';
-import { TopUpCatalogImportService, type TopUpImportResult } from './topup-catalog.import';
+import { TopUpCatalogImportService, type TopUpImportJob, type TopUpImportResult } from './topup-catalog.import';
 import { TopUpCatalogSyncService } from './topup-catalog.sync';
 import type {
   SupplierOfferView,
@@ -159,5 +159,32 @@ export class SuppliersController {
         actor: { id: staff.id, role: staff.role },
       }),
     };
+  }
+
+  /**
+   * The same import, started in the background: a venue read can take minutes,
+   * and the API ends any request after 30 seconds. Poll `topup/import/status`.
+   */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Post('topup/import/start')
+  startTopUpCatalogImport(
+    @Body(zodPipe(importTopUpCatalogBodySchema)) body: ImportTopUpCatalogBody,
+    @Req() request: unknown,
+  ): { job: TopUpImportJob } {
+    const staff = requireStaff(request);
+    return {
+      job: this.topUpImport.startImport({
+        supplierCode: body.supplierCode,
+        dryRun: body.dryRun,
+        actor: { id: staff.id, role: staff.role },
+      }),
+    };
+  }
+
+  /** The last background import: running, done with its result, or failed. `job` is null when none has run. */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Get('topup/import/status')
+  topUpCatalogImportStatus(): { job: TopUpImportJob | null } {
+    return { job: this.topUpImport.currentJob() };
   }
 }
