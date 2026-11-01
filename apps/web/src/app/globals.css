@@ -851,6 +851,7 @@ a { color:inherit; text-decoration:none; }
    * longer beside anything. */
   .faq-layout { grid-template-columns:1fr; gap:22px; }
   .faq-intro { position:static; }
+  .faq-intro .muted { max-width:none; line-height:1.9; text-wrap:pretty; }
   .faq-question { padding:17px 18px; font-size:14px; }
   .faq-answer { padding:0 18px 19px; }
   /* Four buttons no longer fit one row: two equal columns, so the row never
