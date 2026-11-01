@@ -504,6 +504,26 @@ a { color:inherit; text-decoration:none; }
 .shelf-stack { padding-block:30px; }
 .shelf-stack .section { padding-block:22px; }
 .product-grid { grid-template-columns:repeat(4,1fr); }
+/* The brand shelf: every brand as a cover card. Denser than the product shelves
+ * (six across, not four) because it lists the whole set — a brand is a
+ * destination, not a purchase — and the cover is the one the product cards use,
+ * so a brand looks the same here as below. */
+.brand-card-grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:14px; }
+.brand-card { display:flex; flex-direction:column; }
+.brand-card:is(:hover,:focus-visible) { transform:translateY(-3px); box-shadow:var(--shadow-md); }
+.brand-card:focus-visible { outline:2px solid var(--interactive-accent); outline-offset:2px; }
+.brand-card-body { display:grid; gap:2px; padding:10px 12px 12px; }
+.brand-card-body strong { overflow:hidden; color:var(--text-primary); font-size:13.5px; line-height:1.6; text-overflow:ellipsis; white-space:nowrap; }
+.brand-card-body small { color:var(--text-secondary); font-size:11.5px; }
+@media (max-width:1024px) { .brand-card-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (max-width:700px) {
+  /* Three across keeps the whole list short on a phone; the cover shrinks with
+   * the column, and the name is the only line that has to stay readable. */
+  .brand-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; }
+  .brand-card-body { padding:7px 8px 9px; }
+  .brand-card-body strong { font-size:12px; }
+  .brand-card-body small { font-size:10.5px; }
+}
 .product { min-width:0; overflow:hidden; transition:transform .24s cubic-bezier(.2,.8,.2,1), box-shadow .24s ease; }
 .product:is(:hover,:focus-visible),.service-card:is(:hover,:focus-visible) { transform:translateY(-5px); box-shadow:var(--shadow-md); }
 .product:is(:hover,:focus-visible) .catalog-art-plate { transform:translate(-50%,-50%) rotate(-1deg) scale(1.04); }
