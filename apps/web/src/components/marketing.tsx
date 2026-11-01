@@ -2,8 +2,10 @@ import Link from "next/link";
 import { ArrowLeft, Check, Gamepad2, Globe2, LockKeyhole, Send, Sparkles, Zap } from "lucide-react";
 import type { InternationalServiceDto } from "@barat/contracts";
 import { api, ApiClientError } from "@/lib/api";
-import { visibleBrandsQuery } from "@/lib/brand-art";
-import type { CatalogProduct, Category } from "@/lib/catalog";
+import { toPersianDigits } from "@barat/ui";
+import { brandKey, hasBrandArt, visibleBrandsQuery } from "@/lib/brand-art";
+import type { Brand, CatalogProduct, Category } from "@/lib/catalog";
+import { ProductArtwork } from "@/components/catalog-artwork";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { buildCategoryStrip } from "@/lib/category-menu";
 import { CategoryIcon } from "@/components/category-icon";
@@ -161,6 +163,48 @@ async function homeShelves(categories: readonly Category[]): Promise<readonly Sh
   return shelves;
 }
 
+/**
+ * Every brand the storefront shows, for the brand shelf at the top of the page.
+ *
+ * `visibleBrandsQuery` is the same scope the catalog uses, so a brand appears
+ * here exactly when it has cover art and something on sale. Operator order
+ * first (`sortOrder`), then name, so the shelf does not reshuffle between
+ * requests. Degrades like every other row: no brands, no shelf.
+ */
+async function homeBrands(): Promise<readonly Brand[]> {
+  try {
+    const { items } = await api.brands(visibleBrandsQuery());
+    const collator = new Intl.Collator("fa");
+    return items
+      .filter((brand) => brand.productCount > 0 && hasBrandArt(brandKey(brand.name, brand.slug)))
+      .sort((a, b) => a.sortOrder - b.sortOrder || collator.compare(a.nameFa, b.nameFa));
+  } catch (error) {
+    if (error instanceof ApiClientError) return [];
+    throw error;
+  }
+}
+
+/**
+ * One brand: its cover art, its name and how many cards it has. The cover is
+ * the one the product cards draw, so a brand looks the same here as on the
+ * shelves below; the link is the brand filter, the same destination as a tile
+ * on `/brands`.
+ */
+function BrandCard({ brand }: Readonly<{ brand: Brand }>) {
+  return (
+    <Link
+      className="card product brand-card"
+      href={`/gift-cards?brand=${encodeURIComponent(brand.slug)}`}
+    >
+      <ProductArtwork brand={brand.name} brandSlug={brand.slug} label={brand.nameFa} />
+      <span className="brand-card-body">
+        <strong>{brand.nameFa}</strong>
+        <small>{toPersianDigits(brand.productCount)} کارت</small>
+      </span>
+    </Link>
+  );
+}
+
 /** A section head with its own way through to the full list. */
 function ShelfHead({
   eyebrow,
@@ -235,12 +279,13 @@ function TypewriterHeading({
 export async function HomePage() {
   const categories = await homeCategories();
   const stripEntries = buildCategoryStrip(categories);
-  const [shelves, services, faqs, telegramGames, gameTopUps] = await Promise.all([
+  const [shelves, services, faqs, telegramGames, gameTopUps, brands] = await Promise.all([
     homeShelves(categories),
     homeServices(),
     getFaqs(),
     listTelegramGames(),
     listGameTopUps(),
+    homeBrands(),
   ]);
   /* One batch for every shelf; fail-open, so a pricing hiccup only costs the
    * cards their «از ...» label. */
@@ -290,6 +335,14 @@ export async function HomePage() {
         {/* One stack, not six unrelated sections — the shelves share a tighter
             rhythm with each other than a section does with the page. */}
         <div className="shelf-stack">
+          {brands.length > 0 ? (
+            <section className="container section brand-shelf">
+              <ShelfHead eyebrow="خرید بر اساس برند" title="برندها" href="/brands" />
+              <div className="brand-card-grid">
+                {brands.map((brand) => <BrandCard key={brand.id} brand={brand} />)}
+              </div>
+            </section>
+          ) : null}
           {shelves.map((shelf) => (
             <section key={shelf.key} className="container section">
               <ShelfHead eyebrow={shelf.eyebrow} title={shelf.title} href={shelf.href} />
