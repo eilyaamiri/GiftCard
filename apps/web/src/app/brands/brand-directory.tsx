@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { toPersianDigits } from "@barat/ui";
 import type { Brand } from "@/lib/catalog";
+import { brandPath } from "@/lib/seo";
 import { BrandMark } from "../gift-cards/_components/catalog-facets";
 
 /**
@@ -80,7 +81,7 @@ export function BrandDirectory({ brands }: { readonly brands: readonly Brand[] }
 
 function BrandTile({ brand }: { readonly brand: Brand }) {
   return (
-    <Link className="card brand-tile" href={`/gift-cards?brand=${encodeURIComponent(brand.slug)}`}>
+    <Link className="card brand-tile" href={brandPath(brand.slug)}>
       <BrandMark brand={brand} size={40} />
       <span className="brand-tile-copy">
         <strong>{brand.nameFa}</strong>

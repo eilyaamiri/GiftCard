@@ -6,7 +6,7 @@ import { ErrorState } from "@barat/ui";
 import { JsonLd } from "@/components/json-ld";
 import { api, ApiClientError } from "@/lib/api";
 import type { CatalogProductDetail } from "@/lib/catalog";
-import { breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo, type Crumb } from "@/lib/seo";
+import { brandPath, breadcrumbJsonLd, faqJsonLd, pageMetadata, productJsonLd, productSeo, type Crumb } from "@/lib/seo";
 import { ProductDetail } from "./product-detail";
 
 export const dynamic = "force-dynamic";
@@ -74,7 +74,7 @@ export default async function ProductDetailPage({
     { name: "خانه", path: "/" },
     { name: "گیفت‌کارت‌ها", path: "/gift-cards" },
     ...(product.brandSlug !== null && product.brandNameFa !== null
-      ? [{ name: product.brandNameFa, path: `/gift-cards?brand=${encodeURIComponent(product.brandSlug)}` }]
+      ? [{ name: product.brandNameFa, path: brandPath(product.brandSlug) }]
       : []),
     { name: product.titleFa, path },
   ];

@@ -6,6 +6,7 @@ import { catalogQueryString } from "@/lib/catalog";
 import { INTERNATIONAL_PAYMENT_ENABLED, visibleCategoryLinks } from "@/lib/features";
 import { isSteamEntry, isTelegramEntry, listGameTopUps } from "@/lib/game-topups";
 import { getKbContent } from "@/lib/kb";
+import { brandPath } from "@/lib/seo";
 import { fetchAllPages } from "@/lib/paginate";
 
 /* Built from the catalog and the help articles, which admins edit, so it is
@@ -57,7 +58,7 @@ async function brandPaths(): Promise<readonly string[]> {
   const { items } = await api.brands(visibleBrandsQuery());
   return items
     .filter((brand) => brand.productCount > 0)
-    .map((brand) => `/gift-cards?brand=${encodeURIComponent(brand.slug)}`);
+    .map((brand) => brandPath(brand.slug));
 }
 
 async function categoryPaths(): Promise<readonly string[]> {

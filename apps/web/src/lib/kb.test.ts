@@ -5,6 +5,7 @@ import {
   GIFT_CARDS_PAGE_ARTICLE_SLUG,
   HOME_INTRO_ARTICLE_SLUG,
   SITE_CONTENT_CATEGORY_SLUG,
+  brandArticleSlug,
   categoryArticleSlug,
   findSiteArticle,
   withoutSiteContent,
@@ -79,6 +80,10 @@ describe("page article slugs", () => {
     expect(findSiteArticle([content], GAMES_PAGE_ARTICLE_SLUG)?.title).toBe(`title ${GAMES_PAGE_ARTICLE_SLUG}`);
     expect(findSiteArticle([content], "category-games")?.title).toBe("title category-games");
     expect(findSiteArticle([content], "category-other")).toBeNull();
+  });
+
+  it("keys a brand article by the brand slug", () => {
+    expect(brandArticleSlug("apple")).toBe("brand-apple");
   });
 
   it("keys a category article by the category slug", () => {
