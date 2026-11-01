@@ -9,8 +9,8 @@ import { buildCategoryStrip } from "@/lib/category-menu";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
-import { HomeIntroSection } from "@/components/home-intro";
-import { getHomeIntro } from "@/lib/kb";
+import { SiteTextSection } from "@/components/site-text";
+import { HOME_INTRO_ARTICLE_SLUG, getSiteArticle } from "@/lib/kb";
 import { ServiceCard } from "@/components/service-card";
 import { SteamIcon } from "@/components/steam-icon";
 import { getFaqs } from "@/lib/faq";
@@ -241,7 +241,7 @@ export async function HomePage() {
     homeShelves(categories),
     homeServices(),
     getFaqs(),
-    getHomeIntro(),
+    getSiteArticle(HOME_INTRO_ARTICLE_SLUG),
     listTelegramGames(),
     listGameTopUps(),
   ]);
@@ -410,7 +410,7 @@ export async function HomePage() {
             </div>
           </div>
         </section>
-        <HomeIntroSection intro={homeIntro} />
+        <SiteTextSection article={homeIntro} id="home-intro-title" className="container section" />
         {/* The last thing before the footer, because it answers the question a
             visitor is left holding once the page has finished selling. */}
         <FaqSection entries={faqs} />

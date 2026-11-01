@@ -7,6 +7,8 @@ import { visibleBrandsQuery } from "@/lib/brand-art";
 import { categoryLinkHref, type Category } from "@/lib/catalog";
 import { CategoryIcon } from "@/components/category-icon";
 import { visibleCategoryLinks } from "@/lib/features";
+import { categoryArticleSlug, getSiteArticle } from "@/lib/kb";
+import { SiteTextSection } from "@/components/site-text";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
   const category = categories.find((item) => item.slug === slug && item.kind === "SERVICES");
   const links = category === undefined ? [] : visibleCategoryLinks(category.links);
   if (category === undefined || links.length === 0) notFound();
+  const siteText = await getSiteArticle(categoryArticleSlug(category.slug));
 
   return (
     <main className="page container">
@@ -78,6 +81,8 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
           </li>
         ))}
       </ul>
+
+      <SiteTextSection article={siteText} id="category-text-title" className="section" />
     </main>
   );
 }

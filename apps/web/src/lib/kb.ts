@@ -49,8 +49,16 @@ const kbListSchema = z.object({ categories: z.array(kbCategorySchema) });
 export const SITE_CONTENT_CATEGORY_SLUG = "site-content";
 /** The article inside that category rendered as the home page's text section. */
 export const HOME_INTRO_ARTICLE_SLUG = "home-intro";
+/** The text under the gift-card catalogue and the games shelf (unfiltered view). */
+export const GIFT_CARDS_PAGE_ARTICLE_SLUG = "gift-cards-page";
+export const GAMES_PAGE_ARTICLE_SLUG = "games-page";
 
-export type HomeIntro = {
+/** The article shown under a service-list category page, keyed by its slug. */
+export function categoryArticleSlug(categorySlug: string): string {
+  return `category-${categorySlug}`;
+}
+
+export type SiteArticle = {
   readonly title: string;
   readonly content: string;
 };
@@ -60,10 +68,10 @@ export function withoutSiteContent(categories: readonly KbCategory[]): readonly 
   return categories.filter((category) => category.slug !== SITE_CONTENT_CATEGORY_SLUG);
 }
 
-/** The home page's text section, or null when it has not been written. */
-export function findHomeIntro(categories: readonly KbCategory[]): HomeIntro | null {
+/** A page's text from the site-copy category, or null when it has not been written. */
+export function findSiteArticle(categories: readonly KbCategory[], articleSlug: string): SiteArticle | null {
   const category = categories.find((item) => item.slug === SITE_CONTENT_CATEGORY_SLUG);
-  const article = category?.articles.find((item) => item.slug === HOME_INTRO_ARTICLE_SLUG);
+  const article = category?.articles.find((item) => item.slug === articleSlug);
   return article === undefined ? null : { title: article.title, content: article.content };
 }
 
@@ -87,8 +95,8 @@ export async function getKbContent(): Promise<readonly KbCategory[]> {
 }
 
 /** Same fail-open rule: no article, or an API error, simply hides the section. */
-export async function getHomeIntro(): Promise<HomeIntro | null> {
-  return findHomeIntro(await fetchKbCategories());
+export async function getSiteArticle(articleSlug: string): Promise<SiteArticle | null> {
+  return findSiteArticle(await fetchKbCategories(), articleSlug);
 }
 
 export type FlattenedKbArticle = {
