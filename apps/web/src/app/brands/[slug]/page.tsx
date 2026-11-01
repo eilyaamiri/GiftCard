@@ -159,7 +159,9 @@ export default async function BrandPage({ params, searchParams }: Props) {
         </Link>
       </div>
 
-      <RegionPicker regions={regions} filters={filters} idPrefix="brand" pathname={path} />
+      <div className="brand-region">
+        <RegionPicker regions={regions} filters={filters} idPrefix="brand" pathname={path} />
+      </div>
 
       {items.length === 0 ? (
         <p className="muted">برای این منطقه گیفت‌کارتی پیدا نشد. منطقهٔ دیگری را انتخاب کنید.</p>
