@@ -5,6 +5,8 @@ import { api, ApiClientError } from "@/lib/api";
 import { catalogQueryString, type Brand, type Category } from "@/lib/catalog";
 import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
 import { regionLabel, sortRegions } from "@/lib/regions";
+import { GIFT_CARDS_PAGE_ARTICLE_SLUG, getSiteArticle } from "@/lib/kb";
+import { SiteTextSection } from "@/components/site-text";
 import { CATALOG_PAGE_SIZE, catalogHref, hasActiveFilter, readCatalogFilters } from "./_lib/catalog-url";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CatalogBrowser } from "./_components/catalog-browser";
@@ -89,6 +91,10 @@ export default async function GiftCardsPage({
   const activeCategory = categories.find((category) => category.slug === filters.category);
   const activeBrand = brands.find((brand) => brand.slug === filters.brand);
   const filtered = hasActiveFilter(filters);
+  /* Only the plain catalogue carries the text: a filtered view is a different
+   * list under the same URL, and repeating one block across every filter
+   * combination would be duplicate copy. */
+  const siteText = filtered ? null : await getSiteArticle(GIFT_CARDS_PAGE_ARTICLE_SLUG);
   const lastPage = Math.max(meta.totalPages, 1);
   const page = Math.min(meta.page, lastPage);
 
@@ -256,6 +262,8 @@ export default async function GiftCardsPage({
           ) : null}
         </div>
       </div>
+
+      <SiteTextSection article={siteText} id="gift-cards-text-title" className="section" />
     </main>
   );
 }

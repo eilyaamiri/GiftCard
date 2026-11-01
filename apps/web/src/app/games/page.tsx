@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BadgeCheck, Gamepad2, ShieldCheck, Zap } from "lucide-react";
+import { SiteTextSection } from "@/components/site-text";
 import { listGameTopUps } from "@/lib/game-topups";
+import { GAMES_PAGE_ARTICLE_SLUG, getSiteArticle } from "@/lib/kb";
 import { GameGrid } from "./_components/game-grid";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ export const metadata: Metadata = {
  * rate when the customer asks for a quote on the game's own page.
  */
 export default async function GamesPage() {
-  const games = await listGameTopUps();
+  const [games, siteText] = await Promise.all([listGameTopUps(), getSiteArticle(GAMES_PAGE_ARTICLE_SLUG)]);
 
   return (
     <main>
@@ -68,6 +70,8 @@ export default async function GamesPage() {
           </>
         )}
       </section>
+
+      <SiteTextSection article={siteText} id="games-text-title" className="container section" />
     </main>
   );
 }
