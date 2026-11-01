@@ -77,10 +77,13 @@ export function RegionPicker({
   regions,
   filters,
   idPrefix = "catalog",
+  pathname = "/gift-cards",
 }: Readonly<{
   regions: readonly string[];
   filters: CatalogFilters;
   idPrefix?: string;
+  /** The page the form submits to: a brand's own page narrows itself, not the catalogue. */
+  pathname?: string;
 }>) {
   const selectId = `${idPrefix}-region`;
 
@@ -89,7 +92,7 @@ export function RegionPicker({
   }
 
   return (
-    <form action="/gift-cards" method="get" className="catalog-region-form">
+    <form action={pathname} method="get" className="catalog-region-form">
       {filters.category ? <input type="hidden" name="category" value={filters.category} /> : null}
       {filters.brand ? <input type="hidden" name="brand" value={filters.brand} /> : null}
       {filters.q ? <input type="hidden" name="q" value={filters.q} /> : null}
@@ -110,7 +113,7 @@ export function RegionPicker({
         اعمال
       </button>
       {filters.region ? (
-        <Link className="catalog-facet-more" href={catalogHref(filters, { region: undefined })}>
+        <Link className="catalog-facet-more" href={catalogHref(filters, { region: undefined }, pathname)}>
           حذف منطقه
         </Link>
       ) : null}
