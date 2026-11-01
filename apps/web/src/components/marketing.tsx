@@ -9,6 +9,8 @@ import { buildCategoryStrip } from "@/lib/category-menu";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
+import { HomeIntroSection } from "@/components/home-intro";
+import { getHomeIntro } from "@/lib/kb";
 import { ServiceCard } from "@/components/service-card";
 import { SteamIcon } from "@/components/steam-icon";
 import { getFaqs } from "@/lib/faq";
@@ -235,10 +237,11 @@ function TypewriterHeading({
 export async function HomePage() {
   const categories = await homeCategories();
   const stripEntries = buildCategoryStrip(categories);
-  const [shelves, services, faqs, telegramGames, gameTopUps] = await Promise.all([
+  const [shelves, services, faqs, homeIntro, telegramGames, gameTopUps] = await Promise.all([
     homeShelves(categories),
     homeServices(),
     getFaqs(),
+    getHomeIntro(),
     listTelegramGames(),
     listGameTopUps(),
   ]);
@@ -407,6 +410,7 @@ export async function HomePage() {
             </div>
           </div>
         </section>
+        <HomeIntroSection intro={homeIntro} />
         {/* The last thing before the footer, because it answers the question a
             visitor is left holding once the page has finished selling. */}
         <FaqSection entries={faqs} />
