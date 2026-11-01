@@ -181,6 +181,25 @@ export function productJsonLd(input: ProductStructuredDataInput): Record<string,
   };
 }
 
+/** A brand's own page. */
+export function brandPath(slug: string): string {
+  return `/brands/${encodeURIComponent(slug)}`;
+}
+
+/** An `ItemList` of pages, for a page whose job is to list them. */
+export function itemListJsonLd(items: readonly Crumb[]): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "ItemList",
+    itemListElement: items.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      url: absoluteUrl(item.path),
+    })),
+  };
+}
+
 export interface CatalogFilterSeo {
   readonly category?: string | undefined;
   readonly brand?: string | undefined;
@@ -188,13 +207,18 @@ export interface CatalogFilterSeo {
 }
 
 /**
- * The canonical path of a catalogue view. Category and brand are the two
- * filters worth being found by, so each view keeps its own address; search and
- * region are views of the same list and fold into it. A later page keeps its
- * own address too — pointing page 2 at page 1 would tell a search engine the
- * products on page 2 are not there.
+ * The canonical path of a catalogue view. A brand alone has a page of its own
+ * (`/brands/<slug>`), so that view points there; a category keeps its own
+ * address; search and region are views of the same list and fold into it. A
+ * later page keeps its own address too — pointing page 2 at page 1 would tell
+ * a search engine the products on page 2 are not there.
  */
 export function catalogCanonicalPath(filters: CatalogFilterSeo): string {
+  if (filters.brand && !filters.category) {
+    return filters.page !== undefined && filters.page > 1
+      ? `${brandPath(filters.brand)}?page=${filters.page}`
+      : brandPath(filters.brand);
+  }
   const query = new URLSearchParams();
   if (filters.category) query.set("category", filters.category);
   if (filters.brand) query.set("brand", filters.brand);
