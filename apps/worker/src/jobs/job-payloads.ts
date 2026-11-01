@@ -21,16 +21,24 @@ const isoInstant = z
   .string()
   .refine((value) => !Number.isNaN(new Date(value).getTime()), { message: 'invalid `now`' });
 
-/** Resolves the optional pinned clock; rejects one that runs ahead of real time. */
-export function resolveNow(pinned: string | undefined, queue: string): Date {
+/**
+ * Resolves the optional pinned clock; rejects one that runs ahead of real time.
+ * `reference` is what "real time" means for the sweep — this process's clock
+ * unless the sweep reads the database's.
+ */
+export function resolveNow(
+  pinned: string | undefined,
+  queue: string,
+  reference: Date = new Date(),
+): Date {
   if (pinned === undefined) {
-    return new Date();
+    return reference;
   }
   const now = new Date(pinned);
   if (Number.isNaN(now.getTime())) {
     throw new Error(`${queue}: invalid \`now\``);
   }
-  if (now.getTime() > Date.now() + MAX_FUTURE_SKEW_MS) {
+  if (now.getTime() > reference.getTime() + MAX_FUTURE_SKEW_MS) {
     throw new Error(`${queue}: \`now\` may not be in the future`);
   }
   return now;

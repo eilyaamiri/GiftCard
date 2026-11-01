@@ -8,6 +8,7 @@ import type {
   SimulateQuoteResponse,
 } from '@barat/contracts';
 
+import { DomainErrors } from '../../common/errors/domain.exception';
 import { PricingService } from './pricing.service';
 import type { PricingInput, PricingRule } from './pricing.types';
 
@@ -39,28 +40,43 @@ export class SimulatorService {
     suppliedFxSnapshot?: FxRateSnapshot,
   ): SimulateQuoteResponse {
     if (request.supplierCostCurrency !== 'USD') {
-      throw new RangeError('Only USD supplier costs are supported by this pricing engine');
+      throw DomainErrors.validation([
+        {
+          path: 'supplierCostCurrency',
+          message: 'Only USD supplier costs are supported by this pricing engine',
+        },
+      ]);
     }
 
     const fx = suppliedFxSnapshot ?? buildSimulatorFxSnapshot(request.marketFxRate);
     const input: PricingInput = {
       supplierCostUsd: new Decimal(request.supplierCostForeign),
       /*
-       * GAP: `simulateQuoteRequestSchema` in the frozen `@barat/contracts` has
-       * no field for what the customer is buying — it predates the split
-       * between face value and supplier cost. Until the Foundation agent adds
-       * one, the simulator prices a hypothetical card whose face value equals
-       * its cost, so it answers "what would this rule charge on a zero-discount
-       * purchase?" rather than reproducing a real SKU's quote.
+       * What one unit is worth to the customer. With it, the simulator
+       * reproduces a real SKU's quote; without it, it prices a hypothetical
+       * card whose face value equals its cost ("what would this rule charge on
+       * a zero-discount purchase?").
        */
-      customerForeignAmount: new Decimal(request.supplierCostForeign),
+      customerForeignAmount: new Decimal(request.customerForeignAmount ?? request.supplierCostForeign),
       quantity: request.quantity,
       ...(request.discountIrr === undefined
         ? {}
         : { discountIrr: BigInt(request.discountIrr) }),
     };
     const rule = contractRuleToEngineRule(request.rule);
-    const breakdown = this.pricingService.computeQuote(input, rule, fx);
+
+    let breakdown: ReturnType<PricingService['computeQuote']>;
+    try {
+      breakdown = this.pricingService.computeQuote(input, rule, fx);
+    } catch (error) {
+      /* The engine throws RangeError on an input it refuses to price (a
+       * discount larger than the subtotal, a zero rounding step). That is the
+       * admin's input, not a server fault: answer 400, not 500. */
+      if (error instanceof RangeError) {
+        throw DomainErrors.validation([{ path: '', message: error.message }]);
+      }
+      throw error;
+    }
 
     return {
       breakdown: this.pricingService.toWirePricingBreakdown(breakdown),

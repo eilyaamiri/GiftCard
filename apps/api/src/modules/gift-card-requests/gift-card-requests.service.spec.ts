@@ -62,6 +62,10 @@ interface HarnessOptions {
   readonly alreadyFulfilled?: boolean;
   /** The asset row the purchase claims to have created. */
   readonly asset?: { id: string; assetType: string } | null;
+  /** Supplier purchase attempts still IN_FLIGHT / UNKNOWN for the order. */
+  readonly unsettledAttempts?: number;
+  /** Open UNKNOWN_OUTCOME / SUPPLIER_PENDING tasks for the order. */
+  readonly openAmbiguityTasks?: number;
 }
 
 function harness(options: HarnessOptions = {}) {
@@ -96,7 +100,11 @@ function harness(options: HarnessOptions = {}) {
   const create = vi.fn(async (args: { data: Record<string, unknown> }) => requestRow(args.data));
 
   const db = {
-    workItem: { findUnique: vi.fn(async () => WORK_ITEM) },
+    workItem: {
+      findUnique: vi.fn(async () => WORK_ITEM),
+      count: vi.fn(async () => (options.openAmbiguityTasks ?? 0)),
+    },
+    supplierPurchaseAttempt: { count: vi.fn(async () => (options.unsettledAttempts ?? 0)) },
     giftCardAsset: {
       findUnique: vi.fn(async () =>
         options.asset === undefined ? { id: 'asset-1', assetType: 'CODE_PIN' } : options.asset,
@@ -282,5 +290,145 @@ describe('supplier-first code request', () => {
 
     expect(view.id).toBe('gcr-concurrent');
     expect(h.create).not.toHaveBeenCalled();
+  });
+});
+
+/** FUL-1: no admin is asked for a code while an earlier purchase may have charged us. */
+describe('code request while a supplier purchase is unsettled', () => {
+  const unsold = async (): Promise<AutoFulfillmentOutcome> => ({
+    decision: 'NOT_ELIGIBLE',
+    workItemId: WORK_ITEM.id,
+    assetId: null,
+    reason: 'PREVIOUS_PURCHASE_UNSETTLED',
+  } as AutoFulfillmentOutcome);
+
+  it.each([
+    ['an unsettled purchase attempt', { unsettledAttempts: 1 }],
+    ['an open unknown-outcome task', { openAmbiguityTasks: 1 }],
+  ])('refuses to open an admin request while there is %s', async (_label, state) => {
+    const h = harness({ attempt: unsold, ...state });
+
+    await expect(request(h)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(h.create).not.toHaveBeenCalled();
+  });
+
+  it('opens the admin request as before once nothing is unsettled', async () => {
+    const h = harness({ attempt: unsold });
+
+    await request(h);
+
+    expect(h.create).toHaveBeenCalledTimes(1);
+    expect(h.create.mock.calls[0]?.[0].data).toMatchObject({ openWorkItemKey: WORK_ITEM.id });
+  });
+});
+
+describe('admin fulfilment while a supplier purchase is unsettled (FUL-1)', () => {
+  it('refuses to take a code before anything is decrypted or stored', async () => {
+    const audit = new AuditService({ append: async () => undefined });
+    const loadContextByWorkItem = vi.fn();
+    const db = {
+      giftCardCodeRequest: { findUnique: vi.fn(async () => requestRow({ status: 'OPEN' })) },
+      order: { findUnique: vi.fn(async () => ({ id: 'order-1', status: 'PAID' })) },
+      supplierPurchaseAttempt: { count: vi.fn(async () => 1) },
+      workItem: { count: vi.fn(async () => 0) },
+    };
+    const service = new GiftCardRequestsService(
+      db as never,
+      { loadContextByWorkItem } as unknown as FulfillmentStore,
+      audit,
+      {} as unknown as AutoFulfillmentService,
+    );
+
+    await expect(
+      service.fulfill({
+        staff: { staffId: 'staff-admin', role: 'OPS_MANAGER' } as AuthenticatedStaff,
+        requestId: 'gcr-1',
+        code: 'AAAA-BBBB-CCCC-DDDD',
+      }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(loadContextByWorkItem).not.toHaveBeenCalled();
+  });
+});
+
+describe('FUL-10: replacing an order\'s card', () => {
+  function fulfilHarness(live: { id: string } | null) {
+    process.env['GIFT_CARD_ENCRYPTION_KEY'] = Buffer.alloc(32, 9).toString('base64');
+    const writes: Array<{ op: string; args: Record<string, unknown> }> = [];
+    const tx = {
+      giftCardCodeRequest: {
+        updateMany: vi.fn(async () => ({ count: 1 })),
+        update: vi.fn(async () => ({})),
+        findUniqueOrThrow: vi.fn(async () => requestRow({ status: 'FULFILLED', giftCardAssetId: 'asset-new' })),
+      },
+      giftCardAsset: {
+        findUnique: vi.fn(async () => live),
+        update: vi.fn(async (args: Record<string, unknown>) => {
+          writes.push({ op: 'update', args });
+          return {};
+        }),
+        create: vi.fn(async (args: Record<string, unknown>) => {
+          writes.push({ op: 'create', args });
+          return { id: 'asset-new', assetType: 'CODE', maskedCode: 'XXXX' };
+        }),
+      },
+    };
+    const db = {
+      giftCardCodeRequest: { findUnique: vi.fn(async () => requestRow({ status: 'OPEN' })) },
+      order: { findUnique: vi.fn(async () => ({ id: 'order-1', status: 'FULFILLMENT_PENDING' })) },
+      supplierPurchaseAttempt: { count: vi.fn(async () => 0) },
+      workItem: { count: vi.fn(async () => 0) },
+      $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx),
+    };
+    const store = {
+      loadContextByWorkItem: vi.fn(async () => ({
+        orderId: 'order-1',
+        hasVerifiedPayment: true,
+        fulfillment: { id: 'fulfillment-1' },
+      })),
+    } as unknown as FulfillmentStore;
+    const service = new GiftCardRequestsService(
+      db as never,
+      store,
+      new AuditService({ append: async () => undefined }),
+      {} as unknown as AutoFulfillmentService,
+    );
+    const admin = { staffId: 'staff-admin', role: 'OPS_MANAGER' } as AuthenticatedStaff;
+    return { service, writes, admin };
+  }
+
+  it('refuses a second card without a stated reason', async () => {
+    const h = fulfilHarness({ id: 'asset-old' });
+
+    await expect(
+      h.service.fulfill({ staff: h.admin, requestId: 'gcr-1', code: 'NEWC-ODE1-2345' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(h.writes).toHaveLength(0);
+  });
+
+  it('supersedes the old card before the new one takes the live slot', async () => {
+    const h = fulfilHarness({ id: 'asset-old' });
+
+    await h.service.fulfill({
+      staff: h.admin,
+      requestId: 'gcr-1',
+      code: 'NEWC-ODE1-2345',
+      replacementReason: 'customer reports the first code was already redeemed',
+    });
+
+    expect(h.writes.map((write) => write.op)).toEqual(['update', 'create', 'update']);
+    expect(h.writes[0]?.args).toMatchObject({
+      where: { id: 'asset-old' },
+      data: { liveOrderKey: null, replacementApprovedByStaffId: 'staff-admin' },
+    });
+    expect((h.writes[1]?.args['data'] as Record<string, unknown>)['liveOrderKey']).toBe('order-1');
+    expect(h.writes[2]?.args).toMatchObject({ where: { id: 'asset-old' }, data: { supersededByAssetId: 'asset-new' } });
+  });
+
+  it('a first card needs no reason and takes the slot', async () => {
+    const h = fulfilHarness(null);
+
+    await h.service.fulfill({ staff: h.admin, requestId: 'gcr-1', code: 'FIRS-TCOD-E123' });
+
+    expect(h.writes.map((write) => write.op)).toEqual(['create']);
   });
 });

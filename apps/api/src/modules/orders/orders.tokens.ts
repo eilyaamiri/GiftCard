@@ -30,7 +30,8 @@ export interface OrdersDatabase extends OrdersDatabaseCore {
  * The payments module must be able to advance an order when a payment is
  * verified server-side, but `orders -> payments -> orders` would be a module
  * cycle. So orders publishes an interface plus an injection token; payments
- * injects the token and never imports `OrdersService`.
+ * injects the token and never imports `OrdersService`. Payments never writes
+ * `order.status` itself.
  *
  * This mirrors `FULFILLMENT_TRIGGER` in the payments module, which fulfillment
  * consumes the same way.
@@ -50,6 +51,17 @@ export interface OrderTransitionResult {
 }
 
 /**
+ * How a bridge call is applied.
+ *
+ * `db` runs the transition inside the caller's interactive transaction, so the
+ * payment row and the order row change together or not at all. Without it the
+ * bridge opens its own transaction.
+ */
+export interface OrderBridgeOptions {
+  readonly db?: OrdersDatabaseCore;
+}
+
+/**
  * The only order operations the payments module is allowed to perform.
  *
  * Every method is idempotent and every state change goes through the order
@@ -58,10 +70,29 @@ export interface OrderTransitionResult {
  */
 export interface OrderPaymentBridge {
   /** A payment session was opened: AWAITING_PAYMENT -> PAYMENT_PENDING. */
-  markPaymentPending(orderId: string, paymentId: string): Promise<OrderTransitionResult>;
+  markPaymentPending(
+    orderId: string,
+    paymentId: string,
+    options?: OrderBridgeOptions,
+  ): Promise<OrderTransitionResult>;
 
-  /** A payment was verified server-side: -> PAID. */
-  markPaid(orderId: string, paymentId: string): Promise<OrderTransitionResult>;
+  /** A payment was verified server-side: AWAITING_PAYMENT / PAYMENT_PENDING -> PAID. */
+  markPaid(orderId: string, paymentId: string, options?: OrderBridgeOptions): Promise<OrderTransitionResult>;
+
+  /**
+   * A payment the gateway verified for an order that was closed (CANCELLED or
+   * FAILED) while its outcome was still unknown: -> PAID.
+   *
+   * The customer paid the quoted amount, so the order is delivered as normal
+   * rather than left holding their money. This is the ONLY way out of a closed
+   * status, and only the payments module, after a server-side verification with
+   * the exact amount, may call it.
+   */
+  markPaidAfterClosure(
+    orderId: string,
+    paymentId: string,
+    options?: OrderBridgeOptions,
+  ): Promise<OrderTransitionResult>;
 
   /**
    * A payment failed or was cancelled: -> FAILED.

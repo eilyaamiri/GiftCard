@@ -2,7 +2,6 @@
  * constructor-injected; emitDecoratorMetadata needs the runtime class value. */
 import { Inject, Injectable } from '@nestjs/common';
 import { promises as fs } from 'node:fs';
-import path from 'node:path';
 import Decimal from 'decimal.js';
 import { Prisma } from '@barat/database';
 import { QUOTABLE_COST_CURRENCIES } from '@barat/contracts';
@@ -22,6 +21,7 @@ import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
 import { topUpProviderSku } from '../suppliers/topup-provider-sku';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
+import { IMAGE_VARIANTS, imagePath, writeImage } from './catalog-images';
 import type {
   AdminProductFaqDto,
   CatalogProductDto,
@@ -279,17 +279,6 @@ export interface TopUpQuoteTarget {
 
 type DecimalLike = { toFixed(decimalPlaces?: number): string };
 
-const IMAGE_VARIANTS = [
-  { extension: 'jpg', contentType: 'image/jpeg' },
-  { extension: 'png', contentType: 'image/png' },
-  { extension: 'webp', contentType: 'image/webp' },
-  { extension: 'gif', contentType: 'image/gif' },
-] as const;
-
-function imagePath(root: string, key: string, extension: string): string {
-  return path.join(root, `${key}.${extension}`);
-}
-
 /** Brand logos share the product image directory, so their keys must not
  * collide with a product id. */
 function brandImageKey(brandId: string): string {
@@ -298,19 +287,6 @@ function brandImageKey(brandId: string): string {
 
 function topUpGameImageKey(gameId: string): string {
   return `topup-${gameId}`;
-}
-
-function imageExtension(file: { mimetype: string; buffer: Buffer }): (typeof IMAGE_VARIANTS)[number]['extension'] | null {
-  const signatures: Record<string, readonly number[]> = {
-    'image/jpeg': [0xff, 0xd8, 0xff],
-    'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-    'image/gif': [0x47, 0x49, 0x46, 0x38],
-    'image/webp': [0x52, 0x49, 0x46, 0x46],
-  };
-  const signature = signatures[file.mimetype];
-  if (!signature || signature.some((byte, index) => file.buffer[index] !== byte)) return null;
-  if (file.mimetype === 'image/webp' && file.buffer.toString('ascii', 8, 12) !== 'WEBP') return null;
-  return IMAGE_VARIANTS.find((variant) => variant.contentType === file.mimetype)?.extension ?? null;
 }
 
 @Injectable()
@@ -944,6 +920,9 @@ export class CatalogService {
       ...(status === 'INACTIVE' ? { isActive: false } : {}),
       ...(query.categoryId ? { categoryId: query.categoryId } : {}),
       ...(query.brandId ? { brandId: query.brandId } : {}),
+      ...(query.supplierId
+        ? { skus: { some: { supplierOffers: { some: { supplierId: query.supplierId, isActive: true } } } } }
+        : {}),
       ...(query.needsReview === undefined ? {} : { needsReview: query.needsReview }),
       ...(query.search
         ? {
@@ -969,7 +948,49 @@ export class CatalogService {
       }),
       this.db.product.count({ where }),
     ]);
-    return { items, meta: pageMeta(query.page, query.pageSize, total) };
+    const suppliers = await this.activeSuppliersByProduct(items.map((item) => item.id));
+    return {
+      items: items.map((item) => ({ ...item, suppliers: suppliers.get(item.id) ?? [] })),
+      meta: pageMeta(query.page, query.pageSize, total),
+    };
+  }
+
+  /**
+   * Which suppliers can serve each of these products right now: the distinct
+   * suppliers with an active offer on any of its SKUs, the same rule the
+   * `supplierId` filter uses, so a row never shows a supplier the filter would
+   * not have matched it to.
+   *
+   * One query for the whole page rather than an include on the list, which would
+   * ship every SKU and every offer of twenty products just to name a few
+   * suppliers. A supplier that is itself switched off is still named, with its
+   * flag, because «why can't I buy this» is the question this answers.
+   */
+  private async activeSuppliersByProduct(
+    productIds: readonly string[],
+  ): Promise<Map<string, { id: string; code: string; name: string; isActive: boolean }[]>> {
+    const byProduct = new Map<string, Map<string, { id: string; code: string; name: string; isActive: boolean }>>();
+    if (productIds.length === 0) return new Map();
+
+    const offers = await this.db.supplierOffer.findMany({
+      where: { isActive: true, sku: { productId: { in: [...productIds] } } },
+      select: {
+        supplier: { select: { id: true, code: true, name: true, isActive: true } },
+        sku: { select: { productId: true } },
+      },
+    });
+    for (const offer of offers) {
+      const suppliers = byProduct.get(offer.sku.productId) ?? new Map();
+      suppliers.set(offer.supplier.id, offer.supplier);
+      byProduct.set(offer.sku.productId, suppliers);
+    }
+
+    return new Map(
+      [...byProduct].map(([productId, suppliers]) => [
+        productId,
+        [...suppliers.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      ]),
+    );
   }
 
   async adminGetProduct(id: string) {
@@ -1736,24 +1757,9 @@ export class CatalogService {
     return this.readImage(id, 'product image');
   }
 
-  /** Writes one variant and removes the others, so a re-upload cannot leave the
-   * previous format behind for `readImage` to find first. */
+  /** Writes one variant and removes the others (see `writeImage`). */
   private async storeImage(key: string, file: { mimetype: string; buffer: Buffer }): Promise<void> {
-    const extension = imageExtension(file);
-    if (!extension) {
-      throw DomainErrors.validation([
-        { path: 'file', message: 'تصویر باید یک فایل معتبر JPG، PNG، WebP یا GIF باشد.' },
-      ]);
-    }
-
-    const root = this.config.productImageDir;
-    await fs.mkdir(root, { recursive: true });
-    await Promise.all(
-      IMAGE_VARIANTS.filter((variant) => variant.extension !== extension).map((variant) =>
-        fs.rm(imagePath(root, key, variant.extension), { force: true }),
-      ),
-    );
-    await fs.writeFile(imagePath(root, key, extension), file.buffer, { mode: 0o640 });
+    await writeImage(this.config.productImageDir, key, file);
   }
 
   private async readImage(

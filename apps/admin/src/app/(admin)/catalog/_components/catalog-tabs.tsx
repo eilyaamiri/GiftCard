@@ -12,6 +12,8 @@ const TABS = [
   /* A separate catalogue with its own models, but the same question — what is
    * on sale — so it belongs in this strip rather than a fourth sidebar entry. */
   { key: "topups", href: "/catalog/top-ups", label: "شارژ مستقیم" },
+  /* Not a catalogue of its own: every image uploaded to any of the above. */
+  { key: "gallery", href: "/catalog/gallery", label: "گالری تصاویر" },
 ] as const;
 
 export type CatalogTab = (typeof TABS)[number]["key"];

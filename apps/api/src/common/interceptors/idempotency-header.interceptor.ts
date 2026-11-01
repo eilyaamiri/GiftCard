@@ -10,8 +10,8 @@ import type { Observable } from 'rxjs';
 /** Header carrying the caller-supplied idempotency key. */
 export const IDEMPOTENCY_HEADER = 'idempotency-key';
 
-/** Same shape as `idempotencyKeySchema` in @barat/contracts. */
-const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{16,64}$/u;
+/** Same shape as `idempotencyKeySchema` in @barat/contracts (16 to 128 URL-safe characters). */
+const IDEMPOTENCY_KEY_PATTERN = /^[A-Za-z0-9_-]{16,128}$/u;
 
 /**
  * Methods that mutate state and therefore may carry an idempotency key.

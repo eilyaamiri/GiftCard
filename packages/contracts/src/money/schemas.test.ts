@@ -7,6 +7,7 @@ import {
   irrStringSchema,
   positiveIrrStringSchema,
   signedBpsSchema,
+  strictlyPositiveDecimalStringSchema,
 } from './schemas';
 
 describe('IRR wire values', () => {
@@ -56,6 +57,14 @@ describe('Decimal(18,6) wire values', () => {
     expect(fxRateStringSchema.safeParse('0.000000').success).toBe(false);
     expect(fxRateStringSchema.safeParse('0.000001').success).toBe(true);
     expect(fxRateStringSchema.safeParse('1920000.000000').success).toBe(true);
+  });
+
+  it('refuses zero and negative requested amounts at the edge', () => {
+    expect(strictlyPositiveDecimalStringSchema.safeParse('0').success).toBe(false);
+    expect(strictlyPositiveDecimalStringSchema.safeParse('0.000000').success).toBe(false);
+    expect(strictlyPositiveDecimalStringSchema.safeParse('-1').success).toBe(false);
+    expect(strictlyPositiveDecimalStringSchema.safeParse('0.01').success).toBe(true);
+    expect(strictlyPositiveDecimalStringSchema.safeParse('25').success).toBe(true);
   });
 });
 

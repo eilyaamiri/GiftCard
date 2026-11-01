@@ -1,8 +1,12 @@
 import { z } from "zod";
 import {
+  PRICING_RULE_MAX_BPS,
+  PRICING_RULE_MAX_FIXED_IRR,
+  PRICING_RULE_MAX_ROUNDING_STEP_IRR,
   PRICING_RULE_SCOPE_VALUES,
   idSchema,
   isoDateTimeSchema,
+  pricingRuleLimitViolations,
   pricingRuleScopeSchema,
   pricingRuleSnapshotSchema,
 } from "@barat/contracts";
@@ -120,8 +124,44 @@ export const putPricingRuleRequestSchema = pricingRuleSnapshotSchema
         message: "پلهٔ گرد کردن باید مضربی از ۱۰ ریال (یک تومان کامل) باشد.",
       });
     }
+    /* The API's ceilings (ORD-7), shown next to the field in Persian. */
+    for (const violation of pricingRuleLimitViolations(value)) {
+      context.addIssue({
+        code: "custom",
+        path: [violation.path],
+        message:
+          violation.path === "roundingStepIrr"
+            ? `پلهٔ گرد کردن حداکثر ${PRICING_RULE_MAX_ROUNDING_STEP_IRR.toString()} ریال است.`
+            : violation.path.endsWith("Bps")
+              ? `حداکثر مقدار مجاز ${PRICING_RULE_MAX_BPS} bps (۵۰٪) است.`
+              : `حداکثر مقدار مجاز ${PRICING_RULE_MAX_FIXED_IRR.toString()} ریال است.`,
+      });
+    }
   });
 export type PutPricingRuleRequest = z.input<typeof putPricingRuleRequestSchema>;
+
+/** PUT answers with the new rule, or 202 with a proposal awaiting a second approver. */
+export const pendingPricingRuleSchema = z.object({
+  status: z.literal("PENDING_APPROVAL"),
+  proposalId: z.string().uuid(),
+  reasons: z.array(z.string()),
+});
+export const putPricingRuleResponseSchema = z.union([pendingPricingRuleSchema, wirePricingRuleSchema]);
+
+export const pricingRuleProposalSchema = z.object({
+  proposalId: z.string().uuid(),
+  proposedByStaffId: z.string(),
+  proposedBy: z.string(),
+  createdAt: isoDateTimeSchema,
+  reasons: z.array(z.string()),
+  request: z.object({
+    name: z.string(),
+    scope: pricingRuleScopeSchema,
+    targetId: z.string().nullable(),
+  }).passthrough(),
+});
+export type PricingRuleProposal = z.infer<typeof pricingRuleProposalSchema>;
+export const pricingRuleProposalListSchema = z.array(pricingRuleProposalSchema);
 
 export const deactivatePricingRuleRequestSchema = z.object({
   id: idSchema,

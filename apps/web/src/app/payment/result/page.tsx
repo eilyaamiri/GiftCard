@@ -9,6 +9,7 @@ import { api, ApiClientError } from "@/lib/api";
 import {
   clearPendingPayment,
   recallPendingPayment,
+  resetPaymentAttempt,
   tomanFromIrr,
   verifyPayment,
   type PendingPayment,
@@ -88,7 +89,11 @@ function ResultContent() {
 
   const settled = payment !== null && payment.status === "PAID";
   const failed = payment !== null && (payment.status === "FAILED" || payment.status === "CANCELLED");
-  const undecided = !settled && !failed;
+  /* A second payment for an order that was already paid (or closed) is not
+   * kept: it is on its way back. Neither "failed" (nothing to retry) nor
+   * "undecided" (there is nothing left to decide). */
+  const returning = payment !== null && (payment.status === "REFUND_PENDING" || payment.status === "REFUNDED");
+  const undecided = !settled && !failed && !returning;
 
   /* The stored ids exist to survive the trip through the gateway. Once the
    * outcome is settled they are stale, and a later visit to this page should
@@ -96,8 +101,8 @@ function ResultContent() {
    * payment keeps them, because that is exactly the case this page is asked
    * about again. */
   useEffect(() => {
-    if (settled || failed) clearPendingPayment();
-  }, [settled, failed]);
+    if (settled || failed || returning) clearPendingPayment();
+  }, [settled, failed, returning]);
 
   return (
     <main className="page container" style={{ maxWidth: 560 }}>
@@ -111,7 +116,7 @@ function ResultContent() {
         ) : (
           <>
             {settled ? <CheckCircle2 size={44} style={{ color: "var(--green)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : failed ? <XCircle size={44} style={{ color: "var(--danger)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" /> : <HelpCircle size={44} style={{ color: "var(--amber)", marginInline: "auto", marginBlockEnd: 18 }} aria-hidden="true" />}
-            <h1 className="h2">{settled ? "پرداخت شما تأیید شد" : failed ? "پرداخت انجام نشد" : "نتیجهٔ پرداخت هنوز قطعی نشده است"}</h1>
+            <h1 className="h2">{settled ? "پرداخت شما تأیید شد" : failed ? "پرداخت انجام نشد" : returning ? "مبلغ این پرداخت بازگردانده می‌شود" : "نتیجهٔ پرداخت هنوز قطعی نشده است"}</h1>
             {payment !== null ? (
               <Badge tone={paymentStatusView(payment.status).tone} style={{ marginBlockEnd: 12 }}>
                 {paymentStatusView(payment.status).label}
@@ -160,6 +165,12 @@ function ResultContent() {
           </p>
         ) : null}
 
+        {undecided && payment !== null && !checking ? (
+          <p className="muted" style={{ fontSize: 12, marginBlockStart: 14 }}>
+            اگر مبلغ از حساب شما کسر شده است دوباره پرداخت نکنید؛ نتیجه پس از بررسی بانک اعلام می‌شود. اگر پرداخت را کامل نکرده یا از آن انصراف داده‌اید، پس از حدود دو دقیقه می‌توانید دوباره پرداخت کنید.
+          </p>
+        ) : null}
+
         <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", marginBlockStart: 20 }}>
           {/* Offered only when there is a payment to ask about. Without one the
             * button would call an endpoint with nothing and leave the screen
@@ -169,9 +180,20 @@ function ResultContent() {
               <RefreshCw size={16} aria-hidden="true" /> بررسی دوباره
             </button>
           ) : null}
-          {failed && orderNumber !== null ? (
-            <Link className="btn btn-primary" href={`/checkout/${orderNumber}`}>
-              تلاش دوباره برای پرداخت
+          {(failed || undecided) && !checking && orderNumber !== null ? (
+            /* A new attempt needs a new idempotency key. The stored token is
+             * stable for the order, so without clearing it the API would replay
+             * this very payment and the customer would land back on this page.
+             * For an undecided payment the API decides whether a new session may
+             * open yet, and says so in words if it may not. */
+            <Link
+              className="btn btn-primary"
+              href={`/checkout/${orderNumber}`}
+              onClick={() => {
+                if (order !== null) resetPaymentAttempt(order.id);
+              }}
+            >
+              {failed ? "تلاش دوباره برای پرداخت" : "پرداخت دوباره"}
             </Link>
           ) : null}
           {orderNumber !== null ? (

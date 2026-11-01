@@ -9,18 +9,25 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
+  Header,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { z } from 'zod';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Roles } from '../identity';
+import { CatalogGalleryService } from './catalog-gallery.service';
 import { CatalogService } from './catalog.service';
 import {
   adminBrandListSchema,
   adminCatalogListSchema,
+  adminGalleryListSchema,
+  assignGalleryImageSchema,
+  galleryNameParamSchema,
   adminProductListSchema,
   assignCategorySchema,
   bulkSetProductActiveSchema,
@@ -58,12 +65,14 @@ import {
 import type {
   AdminBrandListInput,
   AdminCatalogListInput,
+  AdminGalleryListInput,
   AdminProductListInput,
   AdminServiceFieldListInput,
   AdminSkuListInput,
   AdminSupplierOfferListInput,
   AdminTopUpGameListInput,
   AssignCategoryInput,
+  AssignGalleryImageInput,
   BulkSetProductActiveInput,
   BulkSetTopUpGameActiveInput,
   CreateBrandInput,
@@ -97,6 +106,15 @@ const idParamSchema = z.object({ id: z.string().min(1).max(64) });
 type IdParam = z.infer<typeof idParamSchema>;
 
 /**
+ * What one gallery page needs from `GET gallery/files/:name`: a page is up to a
+ * hundred thumbnails (the list's `pageSize` cap; the panel asks for forty), so
+ * the second-level cap covers a whole page and the minute-level one several in
+ * a row. The API's global caps are 10 and 120.
+ */
+export const GALLERY_THUMBNAILS_PER_SECOND = 100;
+export const GALLERY_THUMBNAILS_PER_MINUTE = 600;
+
+/**
  * Catalog administration.
  *
  * Suppliers, offers and costs are edited here and nowhere else. The role list is
@@ -107,7 +125,10 @@ type IdParam = z.infer<typeof idParamSchema>;
 @Controller('admin/catalog')
 @Roles('ADMIN', 'OPS_MANAGER')
 export class CatalogAdminController {
-  constructor(@Inject(CatalogService) private readonly catalog: CatalogService) {}
+  constructor(
+    @Inject(CatalogService) private readonly catalog: CatalogService,
+    @Inject(CatalogGalleryService) private readonly gallery: CatalogGalleryService,
+  ) {}
 
   @Get('products')
   listProducts(@Query(zodPipe(adminProductListSchema)) query: AdminProductListInput) {
@@ -352,6 +373,67 @@ export class CatalogAdminController {
       throw new BadRequestException('A valid image file is required');
     }
     return this.catalog.adminUploadProductImage(params.id, file);
+  }
+
+  /* ---------------------------------------------------------- image gallery */
+
+  /** Every image uploaded so far — products', brands', games' and the gallery's own. */
+  @Get('gallery')
+  listGallery(@Query(zodPipe(adminGalleryListSchema)) query: AdminGalleryListInput) {
+    return this.gallery.list(query);
+  }
+
+  @Post('gallery')
+  @UseInterceptors(
+    FileInterceptor('image', {
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_request, file, callback) => {
+        callback(null, ['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.mimetype));
+      },
+    }),
+  )
+  uploadGalleryImage(
+    @UploadedFile() file: { mimetype: string; buffer: Buffer; originalname?: string } | undefined,
+  ) {
+    if (!file) {
+      throw new BadRequestException('A valid image file is required');
+    }
+    return this.gallery.upload(file);
+  }
+
+  /**
+   * The bytes of one gallery file, for the panel's own thumbnails. Behind the
+   * admin guard rather than public: an image that is only in the gallery is not
+   * on the storefront yet, and should not be reachable from it.
+   *
+   * Throttled more loosely than the rest of the API, on purpose. One gallery
+   * page is forty `<img>` tags, each its own request, and the browser sends them
+   * together; under the global 10 a second the first ten loaded and the other
+   * thirty came back 429 and showed as broken pictures. This only reads a file
+   * the caller is already signed in as an admin to see, so the headroom is for a
+   * page of thumbnails and a few pages turned quickly.
+   */
+  @Get('gallery/files/:name')
+  @Throttle({ short: { ttl: 1_000, limit: GALLERY_THUMBNAILS_PER_SECOND }, medium: { ttl: 60_000, limit: GALLERY_THUMBNAILS_PER_MINUTE } })
+  @Header('Cache-Control', 'private, max-age=0, must-revalidate')
+  @Header('X-Content-Type-Options', 'nosniff')
+  async galleryFile(@Param(zodPipe(galleryNameParamSchema)) params: { name: string }) {
+    const image = await this.gallery.read(params.name);
+    return new StreamableFile(image.buffer, { type: image.contentType });
+  }
+
+  @Delete('gallery/files/:name')
+  removeGalleryImage(@Param(zodPipe(galleryNameParamSchema)) params: { name: string }) {
+    return this.gallery.remove(params.name);
+  }
+
+  /** Gives a product a copy of a gallery image as its own. */
+  @Post('products/:id/image/from-gallery')
+  useGalleryImage(
+    @Param(zodPipe(idParamSchema)) params: IdParam,
+    @Body(zodPipe(assignGalleryImageSchema)) body: AssignGalleryImageInput,
+  ) {
+    return this.gallery.useForProduct(params.id, body.name);
   }
 
   @Post('skus')

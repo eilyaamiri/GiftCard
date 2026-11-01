@@ -2,7 +2,24 @@
 
 ## وضعیت
 
-این سند فقط طراحی و دستورالعمل پیاده‌سازی است؛ هنوز هیچ اتصال ReSellCodes، تغییری در دیتابیس، یا تغییر UI انجام نشده است.
+**پیاده‌سازی adapter انجام شده و غیرفعال است (2026-10-27).** دو adapter در `integrations/suppliers/src/providers/resellcodes.provider.ts` ساخته شد: `resellcodes` (گیفت‌کارت) و `resellcodes-topup` (Game Top-up)، هر دو با تست‌های mock. دو ردیف `Supplier` با `isActive: false` در seed اضافه شد. هیچ تماس واقعی با API زده نشده؛ همه‌ی شکل پاسخ‌ها از مستندات استنباط شده‌اند (به‌ویژه شکل `codes[]` و اینکه order داخل `order` پیچیده شده یا نه).
+
+تفاوت با طرح اولیه‌ی پایین‌تر: به‌جای یک فلگ `RESELLCODES_ENABLED`، دو فلگ مستقل (مثل FazerCards) و یک کلید مشترک:
+
+```
+RESELLCODES_GIFTCARD_ENABLED=false
+RESELLCODES_TOPUP_ENABLED=false
+RESELLCODES_API_KEY=
+RESELLCODES_TIMEOUT_MS=20000
+```
+
+Idempotency: adapter فقط خرید هم‌زمان با یک کلید را یکی می‌کند و نتیجه‌ی هر درخواستِ ارسال‌شده را در حافظه‌ی همان process نگه می‌دارد. هر پاسخ مبهم (timeout، 5xx، بدنه‌ی نامعتبر) `UNKNOWN` است و هرگز خودکار دوباره ارسال نمی‌شود؛ بعد از restart چیزی در حافظه نیست، پس مسیر `UNKNOWN` باید به اپراتور برسد. لایه‌ی «تلاش خرید» پایدار در دیتابیس (بخش پایین) هنوز ساخته نشده و قبل از فعال‌سازی خرید واقعی لازم است.
+
+اولین مرحله‌ی بعد: کلید API در env سرور قرار بگیرد، سپس فقط read-only (`getBalance`, import کاتالوگ top-up) تست شود.
+
+## وضعیت قبلی (طراحی)
+
+این سند در ابتدا فقط طراحی و دستورالعمل پیاده‌سازی بود.
 
 هدف، اضافه‌کردن ReSellCodes به‌عنوان یک `SupplierProvider` جدید در [integrations/suppliers](integrations/suppliers/src/supplier-provider.interface.ts) است — هم برای گیفت‌کارت (مسیر موجود) و هم برای Game Top-up (همان مدل تحویل `DIRECT_TOPUP` که در [docs/fazercards-game-topup.md](fazercards-game-topup.md) طراحی شده و باید بازاستفاده شود، نه از نو ساخته شود).
 

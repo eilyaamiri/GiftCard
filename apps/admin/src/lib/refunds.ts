@@ -1,6 +1,51 @@
 import { z } from "zod";
-import { isoDateTimeSchema } from "@barat/contracts";
+import {
+  isoDateTimeSchema,
+  listRefundsResponseSchema,
+  staffRefundDtoSchema,
+  type RefundStatus,
+  type StaffRefundDto,
+  type StaffRole,
+} from "@barat/contracts";
 import { api } from "@/lib/api";
+
+/**
+ * Who works the refund queue. Mirrors `@Roles` on the API's RefundsController:
+ * returning money is a finance decision, not an operator's.
+ */
+export const REFUND_QUEUE_ROLES = ["ADMIN", "FINANCE"] as const satisfies readonly StaffRole[];
+
+export const REFUND_STATUS_LABEL: Record<RefundStatus, string> = {
+  REQUESTED: "در انتظار تأیید",
+  APPROVED: "تأییدشده — در انتظار واریز",
+  PROCESSING: "در حال پردازش",
+  COMPLETED: "بازگردانده شد",
+  REJECTED: "ردشده",
+  FAILED: "ناموفق",
+};
+
+/** Reasons the payments module files on its own, in words finance reads. */
+export const REFUND_REASON_LABEL: Record<string, string> = {
+  DUPLICATE_PAYMENT_FOR_ORDER: "پرداخت تکراری برای سفارشی که پیش‌تر پرداخت شده بود",
+  PAYMENT_FOR_CLOSED_ORDER: "پرداخت برای سفارش بسته‌شده",
+};
+
+/** Client for the finance refund queue, `/api/admin/refunds`. */
+export const refundQueue = {
+  list: async (status?: RefundStatus): Promise<StaffRefundDto[]> =>
+    (
+      await api.get(
+        `/api/admin/refunds${status ? `?status=${encodeURIComponent(status)}` : ""}`,
+        listRefundsResponseSchema,
+      )
+    ).items,
+  approve: (id: string) =>
+    api.post(`/api/admin/refunds/${encodeURIComponent(id)}/approve`, {}, staffRefundDtoSchema),
+  complete: (id: string, bankReference: string) =>
+    api.post(`/api/admin/refunds/${encodeURIComponent(id)}/complete`, { bankReference }, staffRefundDtoSchema),
+  reject: (id: string, reason: string) =>
+    api.post(`/api/admin/refunds/${encodeURIComponent(id)}/reject`, { reason }, staffRefundDtoSchema),
+};
 
 /**
  * Client for `GET /api/admin/finance/refunds`.

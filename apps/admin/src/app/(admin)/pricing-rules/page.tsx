@@ -2,7 +2,13 @@ import { getFxRateResponseSchema, type GetFxRateResponse } from "@barat/contract
 import { ApiClientError, FINANCIAL_WRITE_ROLES, api } from "@/lib/api";
 import { requireRole } from "@/lib/session";
 import { PricingRuleEditor } from "./pricing-rule-editor";
-import { wirePricingRuleListSchema, type WirePricingRule } from "./pricing-rule-schema";
+import {
+  pricingRuleProposalListSchema,
+  wirePricingRuleListSchema,
+  type PricingRuleProposal,
+  type WirePricingRule,
+} from "./pricing-rule-schema";
+import { PricingProposalsPanel } from "./proposals-panel";
 
 export const metadata = { title: "قواعد قیمت‌گذاری | پنل ادمین سنتو" };
 
@@ -18,6 +24,11 @@ export default async function PricingRulesPage() {
   } catch (error) {
     loadError = error instanceof ApiClientError ? error.message : "دریافت قواعد قیمت‌گذاری ممکن نشد.";
   }
+
+  /* Not fatal: the rules stay editable even if the proposal list cannot load. */
+  const proposals: readonly PricingRuleProposal[] = await api
+    .get<PricingRuleProposal[]>("/api/pricing/rules/proposals", pricingRuleProposalListSchema)
+    .catch(() => []);
 
   const active = rules.filter((rule) => rule.isActive);
   const referenceFxRate = await loadReferenceFxRate();
@@ -37,6 +48,8 @@ export default async function PricingRulesPage() {
           <p className="warning" style={{ marginBlockStart: 0 }}>{loadError}</p>
         </div>
       ) : null}
+
+      <PricingProposalsPanel proposals={proposals} />
 
       {!loadError && active.length === 0 ? (
         <div className="card panel">

@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@barat/database';
 
 import { QUEUE_NAMES } from '../queues';
+import { readDatabaseClock } from './database-clock';
 import { parsePayload, quoteExpiryPayloadSchema, resolveNow } from './job-payloads';
 import type { JobHandler, JobResult, QuoteExpiryJobData } from './job-types';
 
@@ -17,17 +18,24 @@ const DEFAULT_BATCH_SIZE = 500;
  * A quote whose checkout has started is an immutable financial snapshot
  * (AGENTS.md rule 10); expiring it under a customer who is mid-payment would
  * change the amount they are being charged.
+ *
+ * "Now" is the database's clock, not this process's (WRK-7): `expiresAt` is
+ * compared inside the database, and a worker host whose clock runs ahead would
+ * otherwise expire quotes that are still valid for the customer.
  */
 export class QuoteExpiryHandler implements JobHandler<QuoteExpiryJobData> {
   readonly queueName = QUEUE_NAMES.QUOTE_EXPIRY;
 
-  constructor(private readonly db: Pick<PrismaClient, 'quote'>) {}
+  constructor(private readonly db: Pick<PrismaClient, 'quote' | '$queryRaw'>) {}
 
   async handle(raw: QuoteExpiryJobData = {}): Promise<JobResult> {
     const data = parsePayload(quoteExpiryPayloadSchema, raw, this.queueName);
+    const databaseNow = await readDatabaseClock(this.db);
     // A pinned `now` ahead of real time would expire quotes that are still
     // valid for the customer, so it is refused rather than honoured.
-    const now = resolveNow(data.now, this.queueName);
+    const now = resolveNow(data.now, this.queueName, databaseNow);
+    // Logged with the counts, so a drifting worker host is visible early.
+    const clockSkewSeconds = Math.round((Date.now() - databaseNow.getTime()) / 1_000);
     const batchSize = data.batchSize ?? DEFAULT_BATCH_SIZE;
 
     const candidates = await this.db.quote.findMany({
@@ -38,7 +46,7 @@ export class QuoteExpiryHandler implements JobHandler<QuoteExpiryJobData> {
     });
 
     if (candidates.length === 0) {
-      return { changed: 0, skipped: 0 };
+      return { changed: 0, skipped: 0, details: { queue: this.queueName, clockSkewSeconds } };
     }
 
     const ids = candidates.map((row) => row.id);
@@ -54,7 +62,7 @@ export class QuoteExpiryHandler implements JobHandler<QuoteExpiryJobData> {
     return {
       changed: result.count,
       skipped: ids.length - result.count,
-      details: { queue: this.queueName, scannedAt: now.toISOString() },
+      details: { queue: this.queueName, scannedAt: now.toISOString(), clockSkewSeconds },
     };
   }
 }

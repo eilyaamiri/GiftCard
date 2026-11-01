@@ -7,7 +7,7 @@ import type {
   SupplierTopUpUnreadableGame,
 } from '@barat/suppliers';
 
-import { DomainErrors } from '../../common/errors/domain.exception';
+import { BaratDomainException, DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import {
   TOP_UP_CATALOG_IMPORT_STORE,
@@ -344,11 +344,33 @@ export function planTopUpImport(input: {
   };
 }
 
+/**
+ * One import run started from the admin screen. A full read of a venue like
+ * ReSellCodes is one request per game under a 30-a-minute limit, so it takes
+ * minutes — far past the API's 30-second request ceiling. The screen therefore
+ * starts the run and asks for its state, instead of holding a request open.
+ *
+ * Kept in memory, for the last run only: a restart forgets it, which is fine
+ * because a finished import has already written what it was going to write and
+ * a preview is cheap to ask for again.
+ */
+export interface TopUpImportJob {
+  readonly supplierCode: string;
+  readonly dryRun: boolean;
+  readonly startedAt: string;
+  readonly state: 'RUNNING' | 'DONE' | 'FAILED';
+  readonly finishedAt?: string;
+  readonly result?: TopUpImportResult;
+  /** Persian and safe to show; never a provider message. */
+  readonly error?: string;
+}
+
 @Injectable()
 export class TopUpCatalogImportService {
   private readonly logger = new Logger(TopUpCatalogImportService.name);
   private readonly readers: ReadonlyMap<string, TopUpCatalogReader>;
   private running = false;
+  private job: TopUpImportJob | null = null;
   /**
    * The last preview's read, per supplier. The import that follows reuses it
    * instead of reading the venue a second time: a full read is one request per
@@ -370,6 +392,56 @@ export class TopUpCatalogImportService {
   /** The supplier codes an import can read, for the admin screen. */
   get supplierCodes(): readonly string[] {
     return [...this.readers.keys()];
+  }
+
+  /**
+   * Starts an import in the background and returns at once. Refused while any
+   * run is going, exactly as `import` is. The outcome is read with `currentJob`.
+   */
+  startImport(input: {
+    readonly supplierCode: string;
+    readonly dryRun: boolean;
+    readonly actor: { readonly id: string; readonly role: string };
+  }): TopUpImportJob {
+    if (!this.readers.has(input.supplierCode)) {
+      throw DomainErrors.featureDisabled(`top-up catalogue import for ${input.supplierCode}`);
+    }
+    if (this.running) {
+      throw DomainErrors.conflict('یک ورود کاتالوگ در حال اجراست؛ چند لحظه بعد دوباره تلاش کنید.');
+    }
+    const started: TopUpImportJob = {
+      supplierCode: input.supplierCode,
+      dryRun: input.dryRun,
+      startedAt: new Date().toISOString(),
+      state: 'RUNNING',
+    };
+    this.job = started;
+    const settle = (outcome: Pick<TopUpImportJob, 'state' | 'result' | 'error'>): void => {
+      /* A newer run may have replaced this one; never overwrite it. */
+      if (this.job === started) {
+        this.job = { ...started, ...outcome, finishedAt: new Date().toISOString() };
+      }
+    };
+    /* `import` takes the running flag synchronously, before its first await. */
+    void this.import(input).then(
+      (result) => settle({ state: 'DONE', result }),
+      (error: unknown) => {
+        const message =
+          error instanceof BaratDomainException
+            ? error.safeMessage
+            : 'ورود کاتالوگ ناموفق بود. گزارش سرور را ببینید.';
+        if (!(error instanceof BaratDomainException)) {
+          this.logger.error(`top-up catalogue import failed for ${input.supplierCode}: ${(error as Error).message}`);
+        }
+        settle({ state: 'FAILED', error: message });
+      },
+    );
+    return started;
+  }
+
+  /** The last run started with `startImport`, or null when none has been since the API started. */
+  currentJob(): TopUpImportJob | null {
+    return this.job;
   }
 
   /**

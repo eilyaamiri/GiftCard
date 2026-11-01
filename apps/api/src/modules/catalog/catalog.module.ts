@@ -3,6 +3,7 @@ import { prisma } from '@barat/database';
 
 import { CatalogAdminController } from './catalog-admin.controller';
 import { CatalogController } from './catalog.controller';
+import { CatalogGalleryService } from './catalog-gallery.service';
 import { CatalogService } from './catalog.service';
 import { CATALOG_DATABASE } from './catalog.tokens';
 
@@ -15,7 +16,7 @@ import { CATALOG_DATABASE } from './catalog.tokens';
  */
 @Module({
   controllers: [CatalogController, CatalogAdminController],
-  providers: [{ provide: CATALOG_DATABASE, useValue: prisma }, CatalogService],
+  providers: [{ provide: CATALOG_DATABASE, useValue: prisma }, CatalogService, CatalogGalleryService],
   exports: [CatalogService],
 })
 export class CatalogModule {}

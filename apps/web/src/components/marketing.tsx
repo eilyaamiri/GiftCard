@@ -6,11 +6,14 @@ import { toPersianDigits } from "@barat/ui";
 import { brandKey, hasBrandArt, visibleBrandsQuery } from "@/lib/brand-art";
 import type { Brand, CatalogProduct, Category } from "@/lib/catalog";
 import { ProductArtwork } from "@/components/catalog-artwork";
+import { brandPath } from "@/lib/seo";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { buildCategoryStrip } from "@/lib/category-menu";
 import { CategoryIcon } from "@/components/category-icon";
 import { CategoryScroller } from "@/components/category-scroller";
 import { FaqSection } from "@/components/faq";
+import { SiteTextSection } from "@/components/site-text";
+import { HOME_INTRO_ARTICLE_SLUG, getSiteArticle } from "@/lib/kb";
 import { ServiceCard } from "@/components/service-card";
 import { SteamIcon } from "@/components/steam-icon";
 import { getFaqs } from "@/lib/faq";
@@ -187,15 +190,12 @@ async function homeBrands(): Promise<readonly Brand[]> {
 /**
  * One brand: its cover art, its name and how many cards it has. The cover is
  * the one the product cards draw, so a brand looks the same here as on the
- * shelves below; the link is the brand filter, the same destination as a tile
- * on `/brands`.
+ * shelves below; the link is the brand's own page, the same destination as a
+ * tile on `/brands`.
  */
 function BrandCard({ brand }: Readonly<{ brand: Brand }>) {
   return (
-    <Link
-      className="card product brand-card"
-      href={`/gift-cards?brand=${encodeURIComponent(brand.slug)}`}
-    >
+    <Link className="card product brand-card" href={brandPath(brand.slug)}>
       <ProductArtwork brand={brand.name} brandSlug={brand.slug} label={brand.nameFa} />
       <span className="brand-card-body">
         <strong>{brand.nameFa}</strong>
@@ -279,10 +279,11 @@ function TypewriterHeading({
 export async function HomePage() {
   const categories = await homeCategories();
   const stripEntries = buildCategoryStrip(categories);
-  const [shelves, services, faqs, telegramGames, gameTopUps, brands] = await Promise.all([
+  const [shelves, services, faqs, homeIntro, telegramGames, gameTopUps, brands] = await Promise.all([
     homeShelves(categories),
     homeServices(),
     getFaqs(),
+    getSiteArticle(HOME_INTRO_ARTICLE_SLUG),
     listTelegramGames(),
     listGameTopUps(),
     homeBrands(),
@@ -460,6 +461,7 @@ export async function HomePage() {
             </div>
           </div>
         </section>
+        <SiteTextSection article={homeIntro} id="home-intro-title" className="container section" />
         {/* The last thing before the footer, because it answers the question a
             visitor is left holding once the page has finished selling. */}
         <FaqSection entries={faqs} />

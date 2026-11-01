@@ -123,7 +123,6 @@ function purchaseInput() {
     workItemId: WORK_ITEM_ID,
     offerId: OFFER_ID,
     quantity: 1,
-    idempotencyKey: 'purchase-key-0001',
   };
 }
 
@@ -175,13 +174,12 @@ describe('unknown supplier outcome', () => {
     h.provider.setNextPurchaseResult({ status: 'UNKNOWN', failureCode: 'GATEWAY_TIMEOUT' });
 
     const first = await h.service.purchase(purchaseInput());
-    const second = await h.service.purchase(purchaseInput());
+    // The unknown attempt still holds the order's purchase slot (FUL-2): a
+    // replay is refused before it reaches the supplier at all.
+    await expect(h.service.purchase(purchaseInput())).rejects.toMatchObject({ code: 'CONFLICT' });
 
     expect(first.status).toBe('UNKNOWN');
-    expect(second.status).toBe('UNKNOWN');
     expect(h.workItems.rows.size).toBe(1);
-    // The mock provider is idempotent on the key, so the second call is a cache
-    // hit — no second real purchase was attempted.
     expect(h.provider.getPurchaseInvocationCount()).toBe(1);
   });
 

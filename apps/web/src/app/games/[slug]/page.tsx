@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
@@ -6,22 +7,29 @@ import { gameImageUrl, gameMonogram, gameTitle, getGameTopUp, regionLabel } from
 import { productTabs } from "@/components/product-description";
 import { ProductInfoTabs } from "@/components/product-info-tabs";
 import { RatingBadge } from "@/components/star-rating";
+import { JsonLd } from "@/components/json-ld";
 import { api } from "@/lib/api";
+import { breadcrumbJsonLd, pageMetadata, productJsonLd } from "@/lib/seo";
 import { GameOrderForm } from "../_components/game-order-form";
 
 export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ slug: string }> };
 
+/* The page and `generateMetadata` both need the game; `cache` shares one lookup. */
+const loadGame = cache((slug: string) => getGameTopUp(slug));
+
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;
-  const lookup = await getGameTopUp(slug);
+  const lookup = await loadGame(slug);
   if (lookup.kind !== "game") return { title: "شارژ مستقیم بازی" };
   const title = gameTitle(lookup.game);
-  return {
+  return pageMetadata({
     title: `شارژ مستقیم ${title}`,
     description: `شارژ مستقیم ${title} روی حساب خودتان با شناسهٔ بازیکن؛ قیمت نهایی پیش از پرداخت.`,
-  };
+    path: `/games/${encodeURIComponent(lookup.game.slug)}`,
+    imageUrl: gameImageUrl(lookup.game),
+  });
 }
 
 /**
@@ -36,7 +44,7 @@ export default async function GamePage({ params }: Params) {
   /* Started alongside the game lookup; a failure costs only the reviews/FAQs. */
   const reviewsPromise = api.reviews("TOPUP_GAME", slug).catch(() => null);
   const faqsPromise = api.faqs("TOPUP_GAME", slug).catch(() => null);
-  const lookup = await getGameTopUp(slug);
+  const lookup = await loadGame(slug);
   if (lookup.kind === "telegram") redirect("/telegram");
   if (lookup.kind === "steam") redirect("/steam");
   if (lookup.kind === "missing") notFound();
@@ -55,8 +63,28 @@ export default async function GamePage({ params }: Params) {
   });
   const hasDescription = (game.descriptionFa?.trim() ?? "") !== "";
 
+  const path = `/games/${encodeURIComponent(game.slug)}`;
+  const description = `شارژ مستقیم ${title} روی حساب خودتان با شناسهٔ بازیکن؛ قیمت نهایی پیش از پرداخت.`;
+
   return (
     <main className="page container tg-order-page">
+      <JsonLd
+        data={productJsonLd({
+          name: `شارژ مستقیم ${title}`,
+          description,
+          path,
+          imageUrl: image,
+          brand: game.brandName,
+          summary: reviews?.summary ?? null,
+        })}
+      />
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "خانه", path: "/" },
+          { name: "شارژ بازی", path: "/games" },
+          { name: title, path },
+        ])}
+      />
       <nav className="tg-breadcrumb" aria-label="مسیر صفحه">
         <Link href="/games">شارژ بازی</Link>
         <span aria-hidden="true">/</span>

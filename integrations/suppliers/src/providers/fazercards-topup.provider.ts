@@ -388,6 +388,8 @@ async function mapWithConcurrency<T, R>(
  */
 export class FazerCardsTopUpSupplierProvider implements SupplierProvider {
   readonly key = 'fazercards-topup';
+  /** The venue honours `Idempotency-Key` on order creation (see class doc). */
+  readonly idempotentPurchases = true;
 
   private readonly apiKey: string;
   private readonly baseUrl: string;

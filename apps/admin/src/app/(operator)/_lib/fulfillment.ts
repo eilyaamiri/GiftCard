@@ -65,7 +65,8 @@ export const giftCardAssetViewSchema = z.object({
   maskedCode: z.string().nullable(),
   hasPin: z.boolean(),
   serialNumber: z.string().nullable(),
-  deliveryUrl: z.string().nullable(),
+  /* The link itself is read through the reveal path, like a code (FUL-5). */
+  hasDeliveryUrl: z.boolean(),
   recipientEmailMasked: z.string().nullable(),
   expiryDate: nullableIsoDateTime,
   supplierReference: z.string().nullable(),
@@ -110,6 +111,7 @@ export const SEND_BLOCKER_VALUES = [
   "ACTUAL_COST_MISSING",
   "CHECKLIST_INCOMPLETE",
   "DELIVERY_EMAIL_MISSING",
+  "COST_VARIANCE_UNAPPROVED",
 ] as const;
 export type SendBlocker = (typeof SEND_BLOCKER_VALUES)[number];
 
@@ -310,6 +312,8 @@ export const SEND_BLOCKER_LABEL: Record<SendBlocker, string> = {
   ACTUAL_COST_MISSING: "هزینهٔ واقعی تأمین‌کننده ثبت نشده است.",
   CHECKLIST_INCOMPLETE: "موارد الزامی چک‌لیست هنوز تکمیل نشده‌اند.",
   DELIVERY_EMAIL_MISSING: "ایمیل تحویل مشتری ثبت نشده است.",
+  COST_VARIANCE_UNAPPROVED:
+    "هزینهٔ واقعی بیش از دو برابر حد مجاز با استعلام فاصله دارد یا واحد پولش متفاوت است؛ ارسال تا تأیید مدیر متوقف است.",
 };
 
 export const COST_VARIANCE_REASON_LABEL: Record<CostVarianceReason, string> = {

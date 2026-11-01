@@ -1205,6 +1205,50 @@ async function seedCatalog(): Promise<{ skuIds: string[]; skuDefs: (SkuDef & { i
 }
 
 // ============================================================================
+// 5b. ReSellCodes — gift cards + game top-ups, both seeded inactive
+// ============================================================================
+
+/**
+ * Two rows because the adapter keys are two (`resellcodes`, `resellcodes-topup`)
+ * and `Supplier.code` must equal the adapter key. Both stay inactive: the
+ * adapters are also off by env, and turning either on is a release decision.
+ */
+async function seedResellCodesSuppliers(): Promise<void> {
+  await prisma.supplier.upsert({
+    where: { code: 'resellcodes' },
+    create: {
+      id: 'seed_supplier_resellcodes',
+      code: 'resellcodes',
+      name: 'ReSellCodes',
+      integrationMode: SupplierIntegrationMode.API,
+      // The venue returns the raw code on the order, as Tillo does.
+      supportsRawCode: true,
+      defaultCurrency: 'USD',
+      isActive: false,
+      notes:
+        'Gift cards via resell.codes. No sandbox and no idempotency key: activate only after a supervised low-value order.',
+    },
+    update: {},
+  });
+
+  await prisma.supplier.upsert({
+    where: { code: 'resellcodes-topup' },
+    create: {
+      id: 'seed_supplier_resellcodes_topup',
+      code: 'resellcodes-topup',
+      name: 'ReSellCodes Top-up',
+      integrationMode: SupplierIntegrationMode.API,
+      supportsRawCode: false,
+      defaultCurrency: 'USD',
+      isActive: false,
+      notes:
+        'Game top-ups via resell.codes. Import the catalogue from the admin top-up page, then enable games one by one.',
+    },
+    update: {},
+  });
+}
+
+// ============================================================================
 // 5. Suppliers — Tillo (raw code) + Reloadly (no raw code)
 // ============================================================================
 
@@ -2041,6 +2085,7 @@ async function main(): Promise<void> {
   const { tilloId, tilloOfferBySkuId } = await seedSuppliers(skuDefs);
   await seedTelegramTopUpCatalog();
   await seedSteamTopUpCatalog();
+  await seedResellCodesSuppliers();
   const customerIds = await seedCustomers();
 
   const anomalyIds = await seedFunnel({

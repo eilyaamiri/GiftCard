@@ -32,19 +32,15 @@ export const CANCELLABLE_ORDER_STATUSES: readonly OrderStatus[] = ['AWAITING_PAY
 /**
  * Payment statuses that mean money may still be in flight at the gateway.
  *
- * Nothing cancels an order while one of these exists. The customer chose
- * "a verified payment always wins", and the only way to guarantee that is to
- * never close an order whose outcome the gateway has not yet reported —
- * `PaymentsService.commitSuccessfulPayment` writes `status: 'PAID'` on the
- * order by id without re-checking the status it is overwriting, so an order
- * cancelled underneath a live session would silently come back as PAID with a
- * `cancelledAt` still set.
+ * Nothing cancels an order while one of these exists: an order whose outcome
+ * the gateway has not yet reported is never closed underneath its payment.
  *
- * The cost of this rule is a known gap: an order whose customer opened a
- * gateway session and then walked away stays open until that payment is
- * resolved by verification or reconciliation. That is the safe direction to
- * fail in — an order left open can be cancelled later, a card handed out
- * against a cancelled-then-paid order cannot be un-issued.
+ * Such a session does not hold the order open for ever (ORD-10). The payments
+ * module's reconciliation scanner asks the gateway about any session older than
+ * twenty minutes and closes it on a definite answer, after which this window's
+ * sweep cancels the order on its next pass. And should a payment be verified
+ * for an order closed regardless, the payments module reopens it through the
+ * state machine's one late-payment edge rather than writing the status itself.
  */
 export const LIVE_PAYMENT_STATUSES: readonly PaymentStatus[] = ['CREATED', 'REDIRECTED', 'PENDING'];
 

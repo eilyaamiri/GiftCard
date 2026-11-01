@@ -65,9 +65,15 @@ export default async function SuppliersPage() {
                     </span>
                   </td>
                   <td>
-                    <Link href={`/suppliers/${supplier.id}`} className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
-                      مدیریت
-                    </Link>
+                    <span style={{ display: "inline-flex", gap: 8 }}>
+                      <Link href={`/suppliers/${supplier.id}`} className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                        مدیریت
+                      </Link>
+                      {/* The catalog list filtered to this supplier: which products it can serve. */}
+                      <Link href={`/catalog?supplierId=${encodeURIComponent(supplier.id)}`} className="secondary-btn" style={{ display: "inline-flex", alignItems: "center", textDecoration: "none" }}>
+                        محصولات
+                      </Link>
+                    </span>
                   </td>
                 </tr>
               ))}

@@ -1,42 +1,13 @@
 import 'reflect-metadata';
 
+import { disconnectPrisma, prisma } from '@barat/database';
 import { Logger, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Queue } from 'bullmq';
 import IORedis, { type Redis } from 'ioredis';
-import { z } from 'zod';
 
-/* ============================================================================
- * Environment
- *
- * The worker validates its own environment and fails fast, exactly like the API.
- * It needs strictly less than the API does — no gateway credentials, because a
- * background job never talks to a payment gateway on a customer's behalf.
- * ==========================================================================*/
-
-const workerEnvSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'staging', 'production']).default('development'),
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
-  /** How many jobs one worker process handles at once. */
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
-});
-
-export type WorkerEnv = z.infer<typeof workerEnvSchema>;
-
-function loadEnv(): WorkerEnv {
-  const result = workerEnvSchema.safeParse(process.env);
-
-  if (!result.success) {
-    const problems = result.error.issues
-      .map((issue) => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
-      .join('\n');
-    // Names only, never values — an env dump is a secret leak.
-    throw new Error(`Invalid worker environment. Refusing to start.\n${problems}`);
-  }
-
-  return result.data;
-}
+import { loadEnv } from './env';
+import { startSweepWorkers } from './runtime';
 
 /* ============================================================================
  * Queue registry
@@ -82,8 +53,8 @@ export const DEFAULT_JOB_OPTIONS = {
 /* ============================================================================
  * Root module
  *
- * Domain workstreams register their processors by importing their own modules
- * here. Kept deliberately empty so the worker boots before they exist.
+ * The sweep processors are plain BullMQ workers started in `bootstrap()` via
+ * `startSweepWorkers`; the Nest context only provides lifecycle hooks.
  * ==========================================================================*/
 
 @Module({})
@@ -131,15 +102,31 @@ async function bootstrap(): Promise<void> {
     return queue;
   });
 
+  /* The sweeps: quote expiry, abandonment and delivery retry. They used to run
+   * only from a separate entry point that production never started, so none
+   * of them ran there (WRK-1). The shared Prisma client is disconnected on
+   * shutdown, after the sweeps have finished writing. */
+  const sweeps = await startSweepWorkers({
+    connection,
+    prisma,
+    concurrency: env.WORKER_CONCURRENCY,
+    logger: { log: (message) => logger.log(message), error: (message) => logger.error(message) },
+    apiBaseUrl: env.INTERNAL_API_URL,
+    ...(env.INTERNAL_SERVICE_TOKEN === undefined
+      ? { deliveryRetry: false }
+      : { internalServiceToken: env.INTERNAL_SERVICE_TOKEN }),
+  });
+
   logger.log(
     `CENTO worker started — environment=${env.NODE_ENV} concurrency=${String(
       env.WORKER_CONCURRENCY,
-    )} queues=${queues.length}`,
+    )} queues=${queues.length} sweeps=${sweeps.workers.length}`,
   );
 
   /* ---- graceful shutdown -------------------------------------------------
-   * Close the queues before the Redis connection, and only then exit, so an
-   * in-flight job is not abandoned mid-write.
+   * Drain the sweep workers first so an in-flight sweep finishes its write
+   * before the database connection goes, then close the queues before the
+   * Redis connection, and only then exit.
    * --------------------------------------------------------------------- */
   let shuttingDown = false;
 
@@ -151,6 +138,8 @@ async function bootstrap(): Promise<void> {
     logger.log(`Received ${signal} — draining queues`);
 
     try {
+      await sweeps.close();
+      await disconnectPrisma();
       await Promise.all(queues.map((queue) => queue.close()));
       await connection.quit();
       await app.close();

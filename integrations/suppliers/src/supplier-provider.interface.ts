@@ -205,6 +205,15 @@ export interface SupplierProvider {
   /** Stable logical key matching Supplier.code, e.g. `mock` or `tillo`. */
   readonly key: string;
 
+  /**
+   * True only when the VENUE honours `SupplierPurchaseRequest.idempotencyKey`
+   * across processes and restarts: replaying a key returns the order it first
+   * created instead of placing a second one. A purchase whose answer was lost
+   * may then be recovered by sending it again with the same key. An adapter
+   * whose de-duplication is only process-local must leave this unset.
+   */
+  readonly idempotentPurchases?: boolean;
+
   getCatalog(): Promise<readonly SupplierCatalogItem[]>;
   getPrice(providerSku: string): Promise<SupplierPrice>;
   checkAvailability(providerSku: string): Promise<SupplierAvailabilityResult>;

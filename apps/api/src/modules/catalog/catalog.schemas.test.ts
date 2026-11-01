@@ -5,6 +5,8 @@ import {
   createProductSchema,
   updateInternationalServiceSchema,
   updateProductSchema,
+  updateSkuSchema,
+  updateSupplierOfferSchema,
   updateTopUpGameSchema,
 } from './catalog.schemas';
 
@@ -59,5 +61,16 @@ describe('deliveryTimeLabelFa', () => {
 
   it('shows nothing rather than inventing wording for a non-preset value', () => {
     expect(deliveryTimeLabelFa(45)).toBeNull();
+  });
+});
+
+/** ORD-8: a zero face value or supplier cost is never a real price. */
+describe('zero prices on admin writes', () => {
+  it('refuses a zero supplier cost and a zero face value, on create and on patch', () => {
+    expect(updateSupplierOfferSchema.safeParse({ costAmount: '0' }).success).toBe(false);
+    expect(updateSupplierOfferSchema.safeParse({ costAmount: '0.000000' }).success).toBe(false);
+    expect(updateSupplierOfferSchema.safeParse({ costAmount: '0.01' }).success).toBe(true);
+    expect(updateSkuSchema.safeParse({ faceValue: '0' }).success).toBe(false);
+    expect(updateSkuSchema.safeParse({ faceValue: '25' }).success).toBe(true);
   });
 });

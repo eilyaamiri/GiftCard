@@ -122,6 +122,51 @@ describe('redactAlertContext', () => {
 
     expect(result).toEqual(input);
   });
+
+  it('matches credential names whatever their case or separator', () => {
+    const result = redactAlertContext({
+      accessToken: 'a',
+      ACCESS_TOKEN: 'b',
+      'refresh-token': 'c',
+      otp: '123456',
+      Authority: 'A000',
+      cardNumber: '6037',
+      iban: 'IR00',
+      merchant_id: 'm',
+    });
+
+    expect(Object.values(result ?? {}).every((value) => value === '[REDACTED]')).toBe(true);
+  });
+
+  it('redacts amounts by suffix', () => {
+    expect(redactAlertContext({ finalAmountIrr: '1', totalAmount: 2, supplierCostUsd: '3' })).toEqual({
+      finalAmountIrr: '[REDACTED]',
+      totalAmount: '[REDACTED]',
+      supplierCostUsd: '[REDACTED]',
+    });
+  });
+
+  it('keeps diagnostic codes and rates visible while hiding a bare code or rate', () => {
+    expect(
+      redactAlertContext({ code: 'GIFT', rate: '1', errorCode: 'TIMEOUT', supplierCode: 'tillo', errorRate: 0.2 }),
+    ).toEqual({
+      code: '[REDACTED]',
+      rate: '[REDACTED]',
+      errorCode: 'TIMEOUT',
+      supplierCode: 'tillo',
+      errorRate: 0.2,
+    });
+  });
+
+  it('walks arrays, including objects inside them', () => {
+    expect(
+      redactAlertContext({ items: [{ code: 'X', orderId: 'o1' }, 'plain'], tokens: ['a', 'b'], orderIds: ['o1'] }),
+    ).toEqual({
+      items: [{ code: '[REDACTED]', orderId: 'o1' }, 'plain'],
+      tokens: '[REDACTED]',
+      orderIds: ['o1'],
+    });
+  });
 });
 
 describe('AlertLogger history and redaction', () => {

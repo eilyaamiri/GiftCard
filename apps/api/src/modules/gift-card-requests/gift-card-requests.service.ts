@@ -24,6 +24,7 @@ import {
 const OPERATOR_ROLES = new Set(['OPERATOR']);
 const ADMIN_ROLES = new Set(['ADMIN', 'MANAGEMENT', 'OPS_MANAGER']);
 const PAYABLE_ORDER_STATUSES = new Set(['PAID', 'FULFILLMENT_PENDING', 'FULFILLING']);
+const GIFT_CARD_ASSET_REPLACED = 'GIFT_CARD_ASSET_REPLACED';
 
 @Injectable()
 export class GiftCardRequestsService {
@@ -96,6 +97,17 @@ export class GiftCardRequestsService {
       reason: input.reason,
     });
     if (automatic !== null) return automatic;
+
+    /* FUL-1: an earlier automated purchase whose outcome is still unknown may
+     * already have charged us for this card. Sending the request to an admin
+     * now invites them to buy it again by hand, so it is not sent until a
+     * person has closed that question. */
+    if (await this.hasUnsettledPurchase(item.orderId)) {
+      throw DomainErrors.conflict(
+        'نتیجهٔ خرید خودکار قبلی این سفارش هنوز مشخص نیست. ابتدا تسک «نتیجهٔ نامشخص خرید» را بررسی و ببندید، سپس دوباره درخواست کد دهید.',
+        `order ${item.orderId} has an unsettled supplier purchase; no admin request opened`,
+      );
+    }
 
     let created: GiftCardRequestRow;
     try {
@@ -260,11 +272,34 @@ export class GiftCardRequestsService {
     return this.toView(created);
   }
 
+  /**
+   * True while the order has a supplier purchase nobody has settled: an
+   * attempt still IN_FLIGHT or UNKNOWN, or an open UNKNOWN_OUTCOME / pending
+   * follow-up task.
+   */
+  private async hasUnsettledPurchase(orderId: string): Promise<boolean> {
+    const [attempts, tasks] = await Promise.all([
+      this.db.supplierPurchaseAttempt.count({
+        where: { orderId, status: { in: ['IN_FLIGHT', 'UNKNOWN'] } },
+      }),
+      this.db.workItem.count({
+        where: {
+          orderId,
+          status: { notIn: ['COMPLETED', 'FAILED', 'CANCELLED'] },
+          OR: [{ type: 'UNKNOWN_OUTCOME' }, { code: { startsWith: 'SUPPLIER_PENDING:' } }],
+        },
+      }),
+    ]);
+    return attempts > 0 || tasks > 0;
+  }
+
   async fulfill(input: {
     staff: AuthenticatedStaff;
     requestId: string;
     code: string;
     pin?: string;
+    /** Required when the order already has a live card: this one replaces it (FUL-10). */
+    replacementReason?: string;
   }): Promise<GiftCardRequestView> {
     if (!ADMIN_ROLES.has(input.staff.role)) {
       throw DomainErrors.forbidden(`role ${input.staff.role} may not fulfill credential requests`);
@@ -285,6 +320,14 @@ export class GiftCardRequestsService {
 
     const order = await this.db.order.findUnique({ where: { id: request.orderId }, select: { id: true, status: true } });
     if (order === null) throw DomainErrors.notFound(`order ${request.orderId}`);
+    /* FUL-1: the same question can open after the request was made. Entering
+     * a code while it is open is how one payment becomes two cards. */
+    if (await this.hasUnsettledPurchase(request.orderId)) {
+      throw DomainErrors.conflict(
+        'برای این سفارش یک خرید خودکار با نتیجهٔ نامشخص باز است. تا بسته شدن آن، کد وارد نکنید.',
+        `order ${request.orderId} has an unsettled supplier purchase`,
+      );
+    }
     if (!PAYABLE_ORDER_STATUSES.has(order.status)) {
       throw DomainErrors.conflict('این سفارش هنوز پرداخت‌شده نیست.', `order ${order.id} has status ${order.status}`);
     }
@@ -329,15 +372,34 @@ export class GiftCardRequestsService {
         );
       }
 
-      const existingAsset = await tx.giftCardAsset.findFirst({
-        where: { fulfillmentId: fulfillment.id },
+      /*
+       * FUL-10: an order has one live card. When it already has one, this is a
+       * replacement — a defective card swapped under a manager's hand (only
+       * managers fulfil requests) and with a stated reason. The old card is
+       * kept for audit, marked superseded, and stops being shown; the slot is
+       * freed before the new card takes it, in this same transaction.
+       */
+      const live = await tx.giftCardAsset.findUnique({
+        where: { liveOrderKey: request.orderId },
         select: { id: true },
       });
-      if (existingAsset !== null) {
+      const replacementReason = input.replacementReason?.trim();
+      if (live !== null && (replacementReason === undefined || replacementReason === '')) {
         throw DomainErrors.conflict(
-          'برای این تسک قبلاً دارایی گیفت‌کارت ثبت شده است.',
-          `fulfillment ${fulfillment.id} already has asset ${existingAsset.id}`,
+          'این سفارش کارت فعال دارد. برای ثبت کارت جایگزین، دلیل جایگزینی را وارد کنید.',
+          `order ${request.orderId} already has live asset ${live.id}; a replacement needs a reason`,
         );
+      }
+      if (live !== null) {
+        await tx.giftCardAsset.update({
+          where: { id: live.id },
+          data: {
+            liveOrderKey: null,
+            supersededAt: now,
+            replacementReason: replacementReason ?? null,
+            replacementApprovedByStaffId: input.staff.staffId,
+          },
+        });
       }
 
       const asset = await tx.giftCardAsset.create({
@@ -352,9 +414,13 @@ export class GiftCardRequestsService {
           enteredByUserId: input.staff.staffId,
           enteredAt: now,
           encryptionKeyVersion: 1,
+          liveOrderKey: request.orderId,
         },
         select: { id: true, assetType: true, maskedCode: true },
       });
+      if (live !== null) {
+        await tx.giftCardAsset.update({ where: { id: live.id }, data: { supersededByAssetId: asset.id } });
+      }
       await tx.giftCardCodeRequest.update({
         where: { id: request.id },
         data: { giftCardAssetId: asset.id },
@@ -363,8 +429,24 @@ export class GiftCardRequestsService {
         where: { id: request.id },
         include: GIFT_CARD_REQUEST_INCLUDE,
       });
-      return { asset, fulfilledRequest };
+      return { asset, fulfilledRequest, replacedAssetId: live?.id ?? null };
     });
+
+    if (transactionResult.replacedAssetId !== null) {
+      await this.audit.record({
+        actor: input.staff.staffId,
+        actorType: 'STAFF',
+        actorRole: input.staff.role,
+        action: GIFT_CARD_ASSET_REPLACED,
+        entity: 'GiftCardAsset',
+        entityId: transactionResult.replacedAssetId,
+        after: {
+          orderId: request.orderId,
+          replacedByAssetId: transactionResult.asset.id,
+          reason: input.replacementReason?.trim() ?? null,
+        },
+      });
+    }
 
     await this.audit.record({
       actor: input.staff.staffId,

@@ -24,6 +24,8 @@ import { simulateQuoteAction } from "./actions";
 interface Draft {
   quantity: string;
   supplierCostForeign: string;
+  /** Face value of one unit. Blank prices a card whose face value equals its cost. */
+  customerForeignAmount: string;
   marketFxRate: string;
   discountIrr: string;
   quoteTtlSeconds: string;
@@ -39,6 +41,7 @@ function draftFrom(rule: WirePricingRule, marketFxRate: string): Draft {
   return {
     quantity: "1",
     supplierCostForeign: "50.00",
+    customerForeignAmount: "",
     marketFxRate,
     discountIrr: "0",
     quoteTtlSeconds: String(rule.quoteTtlSeconds),
@@ -75,13 +78,17 @@ export function SimulatorForm({
         ...draftFrom(rule, current.marketFxRate),
         quantity: current.quantity,
         supplierCostForeign: current.supplierCostForeign,
+        customerForeignAmount: current.customerForeignAmount,
         discountIrr: current.discountIrr,
       }));
     }
     setResponse(null);
   }
 
-  function setField(key: "quantity" | "supplierCostForeign" | "marketFxRate" | "discountIrr" | "quoteTtlSeconds", value: string) {
+  function setField(
+    key: "quantity" | "supplierCostForeign" | "customerForeignAmount" | "marketFxRate" | "discountIrr" | "quoteTtlSeconds",
+    value: string,
+  ) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
@@ -94,6 +101,13 @@ export function SimulatorForm({
 
     if (quantity === null || supplierCostForeign === null || marketFxRate === null || discountIrr === null || quoteTtlSeconds === null) {
       setError("تعداد، هزینهٔ تأمین‌کننده، نرخ بازار، تخفیف و مدت اعتبار باید مقادیر معتبری داشته باشند.");
+      return;
+    }
+
+    const faceValueText = draft.customerForeignAmount.trim();
+    const customerForeignAmount = faceValueText === "" ? undefined : parseDecimalText(faceValueText);
+    if (customerForeignAmount === null) {
+      setError("ارزش اسمی واحد باید عددی بزرگ‌تر از صفر باشد، یا خالی بماند.");
       return;
     }
 
@@ -125,6 +139,7 @@ export function SimulatorForm({
         quantity,
         supplierCostForeign,
         supplierCostCurrency: "USD",
+        ...(customerForeignAmount === undefined ? {} : { customerForeignAmount }),
         marketFxRate,
         discountIrr,
         rule: {
@@ -174,6 +189,10 @@ export function SimulatorForm({
           <label>
             هزینهٔ واحد تأمین‌کننده (USD)
             <input className="bp-ltr" inputMode="decimal" value={draft.supplierCostForeign} onChange={(event) => setField("supplierCostForeign", event.target.value)} />
+          </label>
+          <label>
+            ارزش اسمی واحد (USD)
+            <input className="bp-ltr" inputMode="decimal" value={draft.customerForeignAmount} onChange={(event) => setField("customerForeignAmount", event.target.value)} placeholder="خالی = برابر هزینهٔ تأمین" />
           </label>
           <label>
             نرخ بازار USD/IRR
@@ -346,6 +365,7 @@ function emptyDraft(marketFxRate: string): Draft {
   return {
     quantity: "1",
     supplierCostForeign: "50.00",
+    customerForeignAmount: "",
     marketFxRate,
     discountIrr: "0",
     quoteTtlSeconds: "600",

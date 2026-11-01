@@ -5,6 +5,7 @@ import { listTelegramGames, telegramProductOf, type TelegramProduct } from "@/li
 
 export const metadata: Metadata = {
   title: "استارز و پرمیوم تلگرام",
+  alternates: { canonical: "/telegram" },
   description:
     "خرید استارز و اشتراک پرمیوم تلگرام با حساب کاربری خودتان؛ قیمت شفاف و تحویل مستقیم روی همان حساب.",
 };

@@ -279,8 +279,10 @@ export interface WorkItemStore {
     allowedTypes: readonly WorkItemType[];
     note: string;
     amountIrr: bigint;
+    /** What becomes of a bought-but-unsent card. Required, from a manager, when one exists (FUL-4). */
+    cardDisposition?: RefundCardDisposition;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }>;
+  }): Promise<ConvertToRefundResult>;
   /** Atomic compare-and-set across a set of allowed source statuses. */
   transitionIfOwned(input: {
     workItemId: string;
@@ -292,4 +294,18 @@ export interface WorkItemStore {
     /** Terminal transitions release `activeOrderKey`. */
     releaseOrderLock: boolean;
   }): Promise<boolean>;
+}
+
+/** What becomes of a card that was bought but not sent when its order is refunded (FUL-4). */
+export type RefundCardDisposition = 'VOIDED' | 'RESELLABLE';
+
+/** Roles that may refund an order whose card was already bought. */
+export const MANAGER_REFUND_ROLES: ReadonlySet<string> = new Set(['ADMIN', 'OPS_MANAGER', 'MANAGEMENT']);
+
+export interface ConvertToRefundResult {
+  readonly changed: boolean;
+  readonly orderId: string | null;
+  readonly refundId?: string;
+  /** Why the conversion was refused because of a card, when it was. */
+  readonly blockedBy?: 'ASSET_SENT' | 'ASSET_NEEDS_MANAGER';
 }

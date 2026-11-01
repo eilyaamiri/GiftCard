@@ -265,6 +265,8 @@ export class ReloadlyGiftCardSupplierProvider implements SupplierProvider {
   private token: { readonly value: string; readonly expiresAt: number } | null = null;
   /** Collapses concurrent purchases onto one token request. */
   private tokenInFlight: Promise<string> | null = null;
+  /** Purchases currently between the adoption search and the order, by identifier. */
+  private readonly inFlightPurchases = new Map<string, Promise<SupplierPurchaseResult>>();
 
   constructor(options: ReloadlyGiftCardSupplierProviderOptions) {
     const clientId = options.clientId.trim();
@@ -425,7 +427,27 @@ export class ReloadlyGiftCardSupplierProvider implements SupplierProvider {
    * Purchase
    * ========================================================================*/
 
+  /**
+   * One purchase per identifier at a time, in this process (FUL-11).
+   *
+   * The adoption step below searches for an existing transaction and only then
+   * orders. Two calls with the same key racing between those two steps would
+   * both find nothing and both order. The service layer already serialises
+   * purchases per order; this is the second, adapter-level layer, so the
+   * guarantee does not rest on every caller remembering to.
+   */
   async purchase(request: SupplierPurchaseRequest): Promise<SupplierPurchaseResult> {
+    const identifier = request.idempotencyKey.trim();
+    const inFlight = this.inFlightPurchases.get(identifier);
+    if (inFlight !== undefined) return inFlight;
+    const attempt = this.purchaseOnce(request).finally(() => {
+      this.inFlightPurchases.delete(identifier);
+    });
+    this.inFlightPurchases.set(identifier, attempt);
+    return attempt;
+  }
+
+  private async purchaseOnce(request: SupplierPurchaseRequest): Promise<SupplierPurchaseResult> {
     /*
      * Everything that can be refused without spending money is refused before
      * the first call. A rejection here costs nothing; the same rejection after

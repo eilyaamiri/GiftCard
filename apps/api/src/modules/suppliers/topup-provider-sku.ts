@@ -15,7 +15,9 @@
  */
 const TOP_UP_SKU_NAMESPACE_BY_SUPPLIER: Readonly<Record<string, string>> = {
   'fazercards-steam': 'steam',
+  'resellcodes-steam': 'steam',
   'fazercards-telegram': 'telegram',
+  'resellcodes-telegram': 'telegram',
 };
 
 export function topUpProviderSku(

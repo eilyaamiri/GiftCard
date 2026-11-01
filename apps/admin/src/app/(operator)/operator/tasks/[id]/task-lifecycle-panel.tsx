@@ -34,6 +34,9 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
   const [converting, setConverting] = useState(false);
   const [confirmedConvert, setConfirmedConvert] = useState(false);
   const [refundToman, setRefundToman] = useState("");
+  /* Only asked for when the order already has a card (FUL-4); the API decides
+   * whether one exists and refuses an operator, so this stays optional here. */
+  const [cardDisposition, setCardDisposition] = useState<"" | "VOIDED" | "RESELLABLE">("");
   const [, startTransition] = useTransition();
 
   const isClosed = TERMINAL_STATUSES.includes(item.status);
@@ -69,8 +72,14 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
     }
     setBusy("convert");
     try {
-      await workItems.convertToRefund(item.id, note.trim(), amountIrr.toString());
+      await workItems.convertToRefund(
+        item.id,
+        note.trim(),
+        amountIrr.toString(),
+        cardDisposition === "" ? undefined : cardDisposition,
+      );
       setConverting(false);
+      setCardDisposition("");
       setConfirmedConvert(false);
       setNote("");
       setRefundToman("");
@@ -206,6 +215,17 @@ export function TaskLifecyclePanel({ item, isMine }: { item: WorkItemSummary; is
           </label>
           <p className="muted" style={{ margin: 0, fontSize: 12 }}>
             مبلغ واردشده از حساب واریزی کم می‌شود. در گزارش مالی یک سرفصل جداگانه نشان داده می‌شود.
+          </p>
+          <label style={{ display: "grid", gap: 6, fontSize: 13 }}>
+            وضعیت کارت خریداری‌شده (اگر برای این سفارش کارتی خریده شده)
+            <select value={cardDisposition} onChange={(e) => setCardDisposition(e.target.value as typeof cardDisposition)}>
+              <option value="">کارتی خریداری نشده است</option>
+              <option value="VOIDED">کارت باطل می‌شود</option>
+              <option value="RESELLABLE">کارت قابل فروش مجدد است</option>
+            </select>
+          </label>
+          <p className="muted" style={{ margin: 0, fontSize: 12 }}>
+            اگر کارت برای مشتری ارسال شده باشد، بازگشت وجه ممکن نیست. برای کارتی که خریده ولی ارسال نشده، فقط مدیر می‌تواند بازگشت وجه را ثبت کند.
           </p>
           <Checkbox
             checked={confirmedConvert}

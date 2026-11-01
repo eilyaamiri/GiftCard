@@ -2,10 +2,17 @@ import Decimal from 'decimal.js';
 import { z } from 'zod';
 
 import { deliveryAssetTypeSchema, deliveryMinutesInputSchema } from '@barat/contracts';
+import { IMAGE_FILE_NAME_PATTERN } from './catalog-images';
 
 const idSchema = z.string().min(1).max(64);
 const currencySchema = z.string().regex(/^[A-Z]{3}$/u);
 const decimalSchema = z.string().regex(/^\d+(?:\.\d{1,6})?$/u);
+/**
+ * A face value or a supplier cost of zero is never real (ORD-8): it is a broken
+ * sync row or a slip of the keyboard, and the cheapest-offer rule would pick
+ * it, inflating the recorded margin and selling the card for the fees alone.
+ */
+const positiveDecimalSchema = decimalSchema.refine((value) => /[1-9]/u.test(value), 'Must be greater than zero');
 const nonNegativeDecimalSchema = z.string().regex(/^\d+(?:\.\d{1,6})?$/u);
 
 /* ============================================================================
@@ -71,6 +78,12 @@ export const adminProductListSchema = adminCatalogListSchema.extend({
   categoryId: idSchema.optional(),
   brandId: idSchema.optional(),
   /**
+   * Only products this supplier can currently serve: at least one of their SKUs
+   * has an active offer from it. An archived offer means the supplier no longer
+   * sells that SKU to us, so it does not count.
+   */
+  supplierId: idSchema.optional(),
+  /**
    * The "what still needs an operator" view. There is no separate
    * uncategorised list because no product is left without a category — the ones
    * the rules could not place are in «سایر» with this flag set, which is the
@@ -96,10 +109,29 @@ export const adminSupplierOfferListSchema = adminCatalogListSchema.extend({
   skuId: idSchema.optional(),
 });
 
+/**
+ * The image gallery lists whatever is in the image directory, so its page is
+ * larger than the other lists: it is a grid of thumbnails, not a table.
+ */
+export const GALLERY_SOURCES = ['ALL', 'PRODUCT', 'BRAND', 'TOPUP', 'GALLERY'] as const;
+export const adminGalleryListSchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(40),
+  search: z.string().trim().max(120).optional(),
+  source: z.enum(GALLERY_SOURCES).default('ALL'),
+});
+
+/** A stored file name as the gallery lists it; also the only form a path param may take. */
+export const galleryNameSchema = z.string().regex(IMAGE_FILE_NAME_PATTERN);
+export const galleryNameParamSchema = z.object({ name: galleryNameSchema });
+export const assignGalleryImageSchema = z.object({ name: galleryNameSchema });
+
 export const adminServiceFieldListSchema = z.object({
   serviceId: idSchema,
 });
 
+export type AdminGalleryListInput = z.infer<typeof adminGalleryListSchema>;
+export type AssignGalleryImageInput = z.infer<typeof assignGalleryImageSchema>;
 export type AdminCatalogListInput = z.infer<typeof adminCatalogListSchema>;
 export type AdminBrandListInput = z.infer<typeof adminBrandListSchema>;
 export type AdminProductListInput = Omit<z.infer<typeof adminProductListSchema>, 'status'> & {
@@ -261,13 +293,27 @@ export type MergeBrandsInput = z.infer<typeof mergeBrandsSchema>;
 
 /* -------------------------------------------------------------- product */
 
+/**
+ * What `imageUrl` may hold: an absolute URL (a supplier's own picture, pasted
+ * by an operator) or the same-origin path of an image uploaded here, which is
+ * how every upload and every gallery pick is stored.
+ *
+ * Without the second branch the edit form could not be saved for any product
+ * that already has an uploaded image: the form sends the stored value back, and
+ * a relative path is not a URL. The path form is matched exactly rather than
+ * loosely accepted, so this does not open `imageUrl` to arbitrary strings.
+ */
+const STORED_IMAGE_PATH =
+  /^\/api\/catalog\/(?:products\/[A-Za-z0-9_-]+\/image|brands\/[A-Za-z0-9_-]+\/logo|top-ups\/[A-Za-z0-9_-]+\/image)$/u;
+const imageUrlSchema = z.union([z.url().max(2_000), z.string().max(2_000).regex(STORED_IMAGE_PATH)]);
+
 const productShape = {
   slug: z.string().trim().min(1).max(120),
   title: z.string().trim().min(1).max(240),
   titleFa: z.string().trim().min(1).max(240),
   description: z.string().max(4_000).nullable().optional(),
   descriptionFa: z.string().max(4_000).nullable().optional(),
-  imageUrl: z.url().max(2_000).nullable().optional(),
+  imageUrl: imageUrlSchema.nullable().optional(),
   redemptionNotesFa: z.string().max(4_000).nullable().optional(),
   /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
   deliveryMinutes: deliveryMinutesInputSchema.optional(),
@@ -321,7 +367,7 @@ const skuMutableShape = {
   code: z.string().trim().min(1).max(120),
   region: z.string().trim().min(2).max(8),
   currency: currencySchema.default('USD'),
-  faceValue: decimalSchema,
+  faceValue: positiveDecimalSchema,
   denominationLabel: z.string().trim().min(1).max(120),
   deliveryAssetType: deliveryAssetTypeSchema.default('CODE'),
   isActive: z.boolean().default(true),
@@ -369,7 +415,7 @@ export const updateSupplierSchema = patchSchema(supplierShape);
 /** `supplierId` / `skuId` identify the offer; changing either is a new offer. */
 const supplierOfferMutableShape = {
   costCurrency: currencySchema.default('USD'),
-  costAmount: decimalSchema,
+  costAmount: positiveDecimalSchema,
   discountBps: z.number().int().min(0).max(10_000).default(0),
   availability: z.enum(['AVAILABLE', 'UNAVAILABLE']).default('AVAILABLE'),
   priority: z.number().int().min(0).default(100),
@@ -424,7 +470,7 @@ const topUpGameMutableShape = {
   brandName: z.string().trim().min(1).max(240).nullable(),
   descriptionFa: z.string().max(4_000).nullable(),
   providerNote: z.string().max(4_000).nullable(),
-  imageUrl: z.url().max(2_000).nullable(),
+  imageUrl: imageUrlSchema.nullable(),
   /** One of DELIVERY_TIME_PRESETS, or null to show no delivery line. */
   deliveryMinutes: deliveryMinutesInputSchema,
   isActive: z.boolean().default(false),

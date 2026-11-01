@@ -26,8 +26,8 @@ export const orderDeliveryDtoSchema = z.object({
   assetType: deliveryAssetTypeSchema,
   status: deliveryStatusSchema,
   maskedCode: z.string().nullable(),
-  /** Redemption link for `URL` assets. */
-  deliveryUrl: z.string().nullable(),
+  /** Redemption link for `URL` assets; http(s) only. */
+  deliveryUrl: z.url({ protocol: /^https?$/u }).nullable(),
   /** Masked recipient for `PROVIDER_DIRECT_EMAIL`, e.g. `a***@gmail.com`. */
   recipientEmailMasked: z.string().nullable(),
   expiryDate: isoDateTimeSchema.nullable(),

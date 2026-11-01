@@ -5,9 +5,11 @@ import { useState, type FormEvent } from "react";
 import type { DeliveryAssetType } from "@barat/contracts";
 import { ApiClientError, api } from "@/lib/api";
 import { DELIVERY_ASSET_TYPE_LABELS, type AdminSku } from "../_lib/catalog-contracts";
+import { regionDisplay, regionName, regionOptions } from "../_lib/regions";
 import { FormError } from "./form-error";
 
 const DELIVERY_ASSET_TYPES = Object.keys(DELIVERY_ASSET_TYPE_LABELS) as DeliveryAssetType[];
+const REGION_OPTIONS = regionOptions();
 
 export function SkuForm({ productId, sku, onDone }: { productId: string; sku?: AdminSku; onDone: () => void }) {
   const router = useRouter();
@@ -63,8 +65,24 @@ export function SkuForm({ productId, sku, onDone }: { productId: string; sku?: A
           <input value={code} onChange={(event) => setCode(event.target.value)} required maxLength={120} dir="ltr" />
         </label>
         <label>
-          Region
-          <input value={region} onChange={(event) => setRegion(event.target.value)} required minLength={2} maxLength={8} className="bp-ltr" />
+          منطقه
+          {/* A list, not a free code: the name is what a person recognises, and the code is what is stored. */}
+          <select value={region} onChange={(event) => setRegion(event.target.value)} required>
+            <option value="" disabled>
+              انتخاب منطقه…
+            </option>
+            {/* A value the list does not hold (the supplier's own word, or an alias) is kept as it is until a region is chosen. */}
+            {region !== "" && !REGION_OPTIONS.some((option) => option.code === region) ? (
+              <option value={region}>
+                {regionName(region) === null ? `${region} — نامشخص، یک منطقه انتخاب کنید` : regionDisplay(region)}
+              </option>
+            ) : null}
+            {REGION_OPTIONS.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.name} ({option.code})
+              </option>
+            ))}
+          </select>
         </label>
         <label>
           ارز

@@ -350,7 +350,16 @@ export function PricingRuleEditor({
     const values = validation.values;
     startTransition(async () => {
       const result = await savePricingRuleAction(values);
-      if (result.ok) {
+      if (result.ok && "pending" in result) {
+        setMessage({
+          tone: "ok",
+          text: "این تغییر بزرگ است و تا تأیید یک همکار دیگر اعمال نمی‌شود. پیشنهاد در فهرست «در انتظار تأیید» بالای همین صفحه ثبت شد.",
+        });
+        setStage("edit");
+        setConfirmed(false);
+        setImpact(null);
+        router.refresh();
+      } else if (result.ok) {
         setMessage({
           tone: "ok",
           text: `قاعده با نسخهٔ ${toPersianDigits(result.rule.version)} ثبت شد و از این لحظه بر همهٔ استعلام‌های جدید اعمال می‌شود.`,

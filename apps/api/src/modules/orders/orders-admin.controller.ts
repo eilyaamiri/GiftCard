@@ -33,6 +33,8 @@ export class OrdersAdminController {
     readonly revenueIrr: string;
     readonly marginIrr: string;
     readonly collectedFeesIrr: string;
+    readonly refundedOrders: number;
+    readonly refundedIrr: string;
   }> {
     return this.orders.adminFinancialSummary();
   }

@@ -32,7 +32,7 @@ export const QUOTABLE_COST_CURRENCIES: readonly string[] = FX_PAIR_VALUES.map(
  * ==========================================================================*/
 
 /**
- * The 14 mismatch classes the reconciliation engine detects. Values are
+ * The mismatch classes the reconciliation engine detects. Values are
  * snake_case because they are also used as report row keys and metric labels.
  */
 export const RECONCILIATION_ISSUE_TYPE_VALUES = [
@@ -50,6 +50,10 @@ export const RECONCILIATION_ISSUE_TYPE_VALUES = [
   'sent_not_fulfilled',
   'delivery_failed',
   'missing_actual_supplier_cost',
+  /** The gateway answered "already verified" for a payment our row does not hold as PAID. */
+  'provider_already_verified_mismatch',
+  /** The gateway verified a payment whose local row could not take it. */
+  'gateway_verified_local_closed',
 ] as const;
 
 export const ReconciliationIssueType = enumFrom(RECONCILIATION_ISSUE_TYPE_VALUES);
@@ -70,3 +74,26 @@ export const RECONCILIATION_STATUS_VALUES = [
 export const ReconciliationStatus = enumFrom(RECONCILIATION_STATUS_VALUES);
 export type ReconciliationStatus = (typeof RECONCILIATION_STATUS_VALUES)[number];
 export const reconciliationStatusSchema = z.enum(RECONCILIATION_STATUS_VALUES);
+
+/* ============================================================================
+ * Refunds
+ * ==========================================================================*/
+
+/**
+ * A refund's life: requested (by an operator, or by the payments module for a
+ * second capture), approved by a second person, then completed once finance
+ * has actually sent the money back. REJECTED closes a request that will not be
+ * paid. PROCESSING and FAILED are reserved for a gateway refund API.
+ */
+export const REFUND_STATUS_VALUES = [
+  'REQUESTED',
+  'APPROVED',
+  'PROCESSING',
+  'COMPLETED',
+  'REJECTED',
+  'FAILED',
+] as const;
+
+export const RefundStatus = enumFrom(REFUND_STATUS_VALUES);
+export type RefundStatus = (typeof REFUND_STATUS_VALUES)[number];
+export const refundStatusSchema = z.enum(REFUND_STATUS_VALUES);

@@ -9,9 +9,15 @@ export {
 } from './fulfillment.service';
 export {
   InternalFulfillmentController,
+  INTERNAL_REPORT_DELIVERY_PROBLEM_PATH,
   INTERNAL_RETRY_DELIVERY_PATH,
   INTERNAL_SERVICE_TOKEN_HEADER,
 } from './internal-fulfillment.controller';
+export {
+  DeliveryProblemService,
+  DELIVERY_PROBLEM_ISSUE_TYPES,
+  STUCK_SENDING_AFTER_MS,
+} from './delivery-problem.service';
 export { ChecklistService, isChecklistLocked, type ChecklistState } from './checklist.service';
 export {
   GiftCardAssetService,

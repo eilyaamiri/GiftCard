@@ -16,6 +16,7 @@ import {
   sumIrr,
   tomanToIrr,
 } from './money';
+import { BaratDomainException } from '../../common/errors/domain.exception';
 import { computeQuote, PricingService } from './pricing.service';
 import type { PricingInput, PricingRule } from './pricing.types';
 import { SimulatorService } from './simulator.service';
@@ -1180,17 +1181,49 @@ describe('SimulatorService', () => {
   });
 
   it('refuses a non-USD supplier cost rather than pricing it at the USD rate', () => {
-    expect(() =>
+    const error = captureError(() =>
       simulator.simulate({ ...request, supplierCostCurrency: 'EUR' } as typeof request),
-    ).toThrow(/Only USD supplier costs/u);
+    );
+    expect(error).toBeInstanceOf(BaratDomainException);
+    expect((error as BaratDomainException).status).toBe(400);
+    expect((error as BaratDomainException).details?.[0]?.message).toMatch(/Only USD supplier costs/u);
   });
 
-  it('propagates an engine rejection instead of returning a plausible number', () => {
-    expect(() =>
+  it('answers an engine rejection with a 400 instead of returning a plausible number', () => {
+    const error = captureError(() =>
       simulator.simulate({
         ...request,
         rule: { ...request.rule, roundingStepIrr: '0' },
       } as typeof request),
-    ).toThrow(/greater than zero/u);
+    );
+    expect(error).toBeInstanceOf(BaratDomainException);
+    expect((error as BaratDomainException).status).toBe(400);
+    expect((error as BaratDomainException).details?.[0]?.message).toMatch(/greater than zero/u);
+  });
+
+  it('reproduces a real SKU quote when the face value differs from the cost', () => {
+    const simulated = simulator.simulate({ ...request, customerForeignAmount: '100' } as typeof request);
+    const direct = pricing.toWirePricingBreakdown(
+      pricing.computeQuote(
+        input({ supplierCostUsd: new Decimal('96.50'), customerForeignAmount: new Decimal('100') }),
+        rule(),
+        fxAt('1920000'),
+      ),
+    );
+    const costOnly = simulator.simulate(request);
+
+    expect(simulated.breakdown.finalAmountIrr).toBe(direct.finalAmountIrr);
+    expect(simulated.breakdown.components).toEqual(direct.components);
+    // Fees are bps of the face value, so a higher face value is a different price.
+    expect(simulated.breakdown.finalAmountIrr).not.toBe(costOnly.breakdown.finalAmountIrr);
   });
 });
+
+function captureError(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected the call to throw');
+}

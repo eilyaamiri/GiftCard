@@ -103,6 +103,23 @@ describe('PrismaFulfillmentStore.createAsset', () => {
     expect(lock.values).toEqual(['order-1']);
   });
 
+  it('takes the order live-card slot and counts only live cards (Z-FUL-1)', async () => {
+    const calls: Call[] = [];
+    const store = await storeWith({
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(assetTx(0, calls)),
+    });
+
+    const view = await store.createAsset(ASSET_INPUT);
+
+    const count = calls.find((call) => call.op === 'count')?.args as { where: unknown };
+    expect(count.where).toEqual({ orderId: 'order-1', liveOrderKey: { not: null } });
+    const create = calls.find((call) => call.op === 'create')?.args as { data: Record<string, unknown> };
+    expect(create.data['liveOrderKey']).toBe('order-1');
+    /* FUL-5: the workspace view says a link exists, never what it is. */
+    expect(view).toHaveProperty('hasDeliveryUrl', false);
+    expect(view).not.toHaveProperty('deliveryUrl');
+  });
+
   it('refuses a second asset for the order instead of writing a duplicate', async () => {
     const calls: Call[] = [];
     const store = await storeWith({

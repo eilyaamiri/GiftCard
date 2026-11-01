@@ -153,6 +153,12 @@ export const api = {
       body: form,
     });
   },
+  /** Adds an image to the gallery on its own; the response is the new gallery entry. */
+  uploadGalleryImage: <T>(file: File, schema?: z.ZodType<T>) => {
+    const form = new FormData();
+    form.append("image", file);
+    return request<T>("/api/admin/catalog/gallery", { method: "POST", body: form }, schema);
+  },
   uploadBrandLogo: (brandId: string, file: File) => {
     const form = new FormData();
     form.append("image", file);

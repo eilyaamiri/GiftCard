@@ -578,6 +578,100 @@ describe('TopUpCatalogImportService — audit, failures and guards', () => {
   });
 });
 
+describe('TopUpCatalogImportService — background job', () => {
+  const START = { supplierCode: CODE, dryRun: true, actor: ACTOR } as const;
+  const settled = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
+
+  it('answers at once while the venue is still being read, then reports the result', async () => {
+    let release: (result: SupplierTopUpCatalogRead) => void = () => undefined;
+    const service = new TopUpCatalogImportService(
+      new InMemoryTopUpCatalogImportStore(),
+      [
+        {
+          supplierCode: CODE,
+          supplierName: 'FazerCards Top-up',
+          defaultCurrency: 'USD',
+          readCatalog: () => new Promise((resolve) => (release = resolve)),
+        },
+      ],
+      new AuditService({ append: async () => undefined }),
+    );
+
+    expect(service.currentJob()).toBeNull();
+    const started = service.startImport(START);
+    expect(started).toMatchObject({ supplierCode: CODE, dryRun: true, state: 'RUNNING' });
+    expect(service.currentJob()).toMatchObject({ state: 'RUNNING' });
+
+    release(read(PUBG));
+    await settled();
+    expect(service.currentJob()).toMatchObject({
+      state: 'DONE',
+      startedAt: started.startedAt,
+      result: { dryRun: true, totals: { newGames: 1 } },
+    });
+    expect(service.currentJob()?.finishedAt).toBeDefined();
+  });
+
+  it('refuses a second start while one runs, and by the same guard as a direct import', async () => {
+    let release: (result: SupplierTopUpCatalogRead) => void = () => undefined;
+    const service = new TopUpCatalogImportService(
+      new InMemoryTopUpCatalogImportStore(),
+      [
+        {
+          supplierCode: CODE,
+          supplierName: 'FazerCards Top-up',
+          defaultCurrency: 'USD',
+          readCatalog: () => new Promise((resolve) => (release = resolve)),
+        },
+      ],
+      new AuditService({ append: async () => undefined }),
+    );
+
+    service.startImport(START);
+    expect(() => service.startImport(START)).toThrow(expect.objectContaining({ status: 409 }));
+    await expect(service.import(START)).rejects.toMatchObject({ status: 409 });
+
+    release(read(PUBG));
+    await settled();
+    expect(service.startImport(START).state).toBe('RUNNING');
+  });
+
+  it('records a failed read with its safe Persian message and no provider text', async () => {
+    const h = harness(new Error('Bearer rsc_live_secret exploded'));
+
+    h.service.startImport(START);
+    await settled();
+
+    const job = h.service.currentJob();
+    expect(job).toMatchObject({ state: 'FAILED' });
+    expect(job?.result).toBeUndefined();
+    expect(JSON.stringify(job)).not.toContain('rsc_live_secret');
+    expect(job?.error).toMatch(/دریافت کاتالوگ/u);
+  });
+
+  it('saves nothing on a preview, and saves on a real run started the same way', async () => {
+    const h = harness();
+
+    h.service.startImport(START);
+    await settled();
+    expect(h.store.games).toHaveLength(0);
+
+    h.service.startImport({ ...START, dryRun: false });
+    await settled();
+    expect(h.service.currentJob()).toMatchObject({ state: 'DONE', dryRun: false });
+    expect(h.store.games.length).toBeGreaterThan(0);
+  });
+
+  it('refuses a supplier it has no reader for, without starting anything', () => {
+    const h = harness();
+
+    expect(() => h.service.startImport({ ...START, supplierCode: 'reloadly' })).toThrow(
+      expect.objectContaining({ status: 503 }),
+    );
+    expect(h.service.currentJob()).toBeNull();
+  });
+});
+
 describe('slugs', () => {
   it.each([
     ['PUBG Mobile (Global)', 'pubg_mobile', 'pubg-mobile-global'],

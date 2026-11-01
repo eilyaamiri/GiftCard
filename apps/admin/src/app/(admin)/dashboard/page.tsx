@@ -94,7 +94,11 @@ export default async function DashboardPage() {
             icon={<Wallet size={16} />}
             label="حاشیهٔ قیمت‌گذاری ثبت‌شده"
             value={formatIrrStringAsExactToman(data.financial.marginIrr)}
-            trend={`بر اساس پیش‌فاکتور ${toPersianDigits(String(data.financial.paidOrders))} سفارش پرداخت‌شده`}
+            trend={
+              data.financial.refundedOrders > 0
+                ? `بر اساس ${toPersianDigits(String(data.financial.paidOrders))} سفارش پرداخت‌شده؛ ${toPersianDigits(String(data.financial.refundedOrders))} سفارش بازگشت وجه جدا شمرده شد`
+                : `بر اساس پیش‌فاکتور ${toPersianDigits(String(data.financial.paidOrders))} سفارش پرداخت‌شده`
+            }
             trendKind="neutral"
           />
         )}

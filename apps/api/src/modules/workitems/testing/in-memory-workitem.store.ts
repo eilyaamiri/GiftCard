@@ -4,9 +4,12 @@ import {
   ACTIVE_OPERATOR_STATUSES,
   DEFAULT_QUEUE_BY_WORK_ITEM_TYPE,
   DEFAULT_TITLE_BY_WORK_ITEM_TYPE,
+  MANAGER_REFUND_ROLES,
   type ClaimingStaff,
+  type ConvertToRefundResult,
   type CreateWorkItemRecord,
   type OrderQuoteTarget,
+  type RefundCardDisposition,
   type WorkItemStore,
   type WorkItemSummary,
 } from '../workitems.types';
@@ -302,6 +305,9 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   /** Track orders and their status for convert-to-refund tests. */
   readonly orders = new Map<string, { status: string; totalAmountIrr: bigint }>();
 
+  /** The live card's delivery status per order, when one exists (FUL-4). */
+  readonly assetStatuses = new Map<string, string>();
+
   /** Track refunds created by convertToRefundIfOwned. */
   readonly refunds = new Map<string, { orderId: string; amountIrr: bigint; reason: string; status: string }>();
 
@@ -315,8 +321,9 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     allowedTypes: readonly WorkItemType[];
     note: string;
     amountIrr: bigint;
+    cardDisposition?: RefundCardDisposition;
     at: Date;
-  }): Promise<{ changed: boolean; orderId: string | null; refundId?: string }> {
+  }): Promise<ConvertToRefundResult> {
     const row = this.rows.get(input.workItemId);
     if (
       row === undefined ||
@@ -336,6 +343,13 @@ export class InMemoryWorkItemStore implements WorkItemStore {
     }
     if (input.amountIrr <= 0n || input.amountIrr > order.totalAmountIrr) {
       return { changed: false, orderId: row.orderId };
+    }
+    const asset = this.assetStatuses.get(row.orderId);
+    if (asset === 'SENDING' || asset === 'SENT') {
+      return { changed: false, orderId: row.orderId, blockedBy: 'ASSET_SENT' };
+    }
+    if (asset !== undefined && (!MANAGER_REFUND_ROLES.has(input.staffRole) || input.cardDisposition === undefined)) {
+      return { changed: false, orderId: row.orderId, blockedBy: 'ASSET_NEEDS_MANAGER' };
     }
 
     order.status = 'REFUND_PENDING';

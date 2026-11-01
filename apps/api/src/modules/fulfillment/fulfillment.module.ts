@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
+import { prisma } from '@barat/database';
 
 import { AuditModule } from '../audit/audit.module';
 import { IdentityModule } from '../identity/identity.module';
 import { WorkItemsModule } from '../workitems/workitems.module';
 import { ChecklistService } from './checklist.service';
+import { DELIVERY_PROBLEM_DATABASE, DeliveryProblemService } from './delivery-problem.service';
 import { FulfillmentController } from './fulfillment.controller';
 import { FulfillmentService } from './fulfillment.service';
 import { InternalFulfillmentController } from './internal-fulfillment.controller';
@@ -34,6 +36,8 @@ import { EmailAssetDeliveryTransport } from './transports/email-asset-delivery.t
     GiftCardAssetService,
     PaymentReceiptService,
     FulfillmentService,
+    DeliveryProblemService,
+    { provide: DELIVERY_PROBLEM_DATABASE, useValue: prisma },
   ],
   exports: [
     FulfillmentService,

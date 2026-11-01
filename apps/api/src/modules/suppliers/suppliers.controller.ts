@@ -1,4 +1,10 @@
 import { Body, Controller, Get, Inject, Post, Query, Req } from '@nestjs/common';
+import {
+  closeSupplierPurchaseAttemptRequestSchema,
+  operatorSupplierPurchaseRequestSchema,
+  type CloseSupplierPurchaseAttemptRequest,
+  type OperatorSupplierPurchaseRequest,
+} from '@barat/contracts';
 
 import { zodPipe } from '../../common/pipes/zod-validation.pipe';
 import { Roles } from '../identity/rbac/roles.decorator';
@@ -7,14 +13,12 @@ import {
   checkPurchaseStatusBodySchema,
   importTopUpCatalogBodySchema,
   listOffersQuerySchema,
-  purchaseBodySchema,
   type CheckPurchaseStatusBody,
   type ImportTopUpCatalogBody,
   type ListOffersQuery,
-  type PurchaseBody,
 } from './suppliers.schemas';
 import { SuppliersService } from './suppliers.service';
-import { TopUpCatalogImportService, type TopUpImportResult } from './topup-catalog.import';
+import { TopUpCatalogImportService, type TopUpImportJob, type TopUpImportResult } from './topup-catalog.import';
 import { TopUpCatalogSyncService } from './topup-catalog.sync';
 import type {
   SupplierOfferView,
@@ -64,12 +68,12 @@ export class SuppliersController {
   /**
    * A purchase an operator triggers by hand. Bound to the caller's own claim,
    * the order's own SKU and quantity, and an order with no card yet — see
-   * `SuppliersService.purchaseForStaff`. `customerId` in the body is ignored in
-   * favour of the order's.
+   * `SuppliersService.purchaseForStaff`. The customer, the quantity and the
+   * supplier idempotency key all come from the order, never from the body.
    */
   @Post('purchase')
   async purchase(
-    @Body(zodPipe(purchaseBodySchema)) body: PurchaseBody,
+    @Body(zodPipe(operatorSupplierPurchaseRequestSchema)) body: OperatorSupplierPurchaseRequest,
     @Req() request: unknown,
   ): Promise<{ outcome: SupplierPurchaseOutcome }> {
     const staff = requireStaff(request);
@@ -78,11 +82,29 @@ export class SuppliersController {
       orderId: body.orderId,
       workItemId: body.workItemId,
       offerId: body.offerId,
-      quantity: body.quantity,
-      idempotencyKey: body.idempotencyKey,
+      ...(body.retry === undefined ? {} : { retry: body.retry }),
       ...(body.recipientEmail === undefined ? {} : { recipientEmail: body.recipientEmail }),
     });
     return { outcome };
+  }
+
+  /**
+   * A manager's answer to "did the supplier charge us?" for an unsettled
+   * purchase. Manager roles only — enforced in the service, because the class
+   * admits operators.
+   */
+  @Post('purchase-attempts/close')
+  async closePurchaseAttempt(
+    @Body(zodPipe(closeSupplierPurchaseAttemptRequestSchema)) body: CloseSupplierPurchaseAttemptRequest,
+    @Req() request: unknown,
+  ): Promise<{ generation: number; status: 'FAILED' | 'SUCCEEDED' }> {
+    const staff = requireStaff(request);
+    return this.suppliers.closePurchaseAttempt({
+      staff,
+      orderId: body.orderId,
+      outcome: body.outcome,
+      reason: body.reason,
+    });
   }
 
   /**
@@ -137,5 +159,32 @@ export class SuppliersController {
         actor: { id: staff.id, role: staff.role },
       }),
     };
+  }
+
+  /**
+   * The same import, started in the background: a venue read can take minutes,
+   * and the API ends any request after 30 seconds. Poll `topup/import/status`.
+   */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Post('topup/import/start')
+  startTopUpCatalogImport(
+    @Body(zodPipe(importTopUpCatalogBodySchema)) body: ImportTopUpCatalogBody,
+    @Req() request: unknown,
+  ): { job: TopUpImportJob } {
+    const staff = requireStaff(request);
+    return {
+      job: this.topUpImport.startImport({
+        supplierCode: body.supplierCode,
+        dryRun: body.dryRun,
+        actor: { id: staff.id, role: staff.role },
+      }),
+    };
+  }
+
+  /** The last background import: running, done with its result, or failed. `job` is null when none has run. */
+  @Roles('ADMIN', 'OPS_MANAGER')
+  @Get('topup/import/status')
+  topUpCatalogImportStatus(): { job: TopUpImportJob | null } {
+    return { job: this.topUpImport.currentJob() };
   }
 }

@@ -92,7 +92,8 @@ export const revealDeliveryResponseSchema = z.object({
    */
   code: z.string().nullable(),
   pin: z.string().nullable(),
-  deliveryUrl: z.url().nullable(),
+  /** http(s) only; the service drops any other stored value (WEB-3). */
+  deliveryUrl: z.url({ protocol: /^https?$/u }).nullable(),
   expiryDate: z.iso.datetime({ offset: true }).nullable(),
 });
 export type RevealDeliveryResponse = z.infer<typeof revealDeliveryResponseSchema>;

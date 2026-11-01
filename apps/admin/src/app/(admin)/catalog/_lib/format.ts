@@ -31,3 +31,10 @@ export function formatCount(value: number): string {
 export function formatDateTime(value: string): string {
   return formatJalaliDate(value);
 }
+
+/** A file size in the unit a person reads: «۲۴۰ کیلوبایت», not a byte count. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${toPersianDigits(String(bytes))} بایت`;
+  if (bytes < 1024 * 1024) return `${toPersianDigits(String(Math.round(bytes / 1024)))} کیلوبایت`;
+  return `${toPersianDigits((bytes / (1024 * 1024)).toFixed(1))} مگابایت`;
+}

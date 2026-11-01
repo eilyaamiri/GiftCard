@@ -65,3 +65,27 @@ describe('QuotesController — anonymous quoting with a broken session cookie', 
     );
   });
 });
+
+/** ORD-5: reading a quote never creates or re-binds a commerce session. */
+describe('QuotesController — GET is read-only for commerce sessions', () => {
+  it('looks the session token up instead of upserting it', async () => {
+    const quotes = {
+      resolveCommerceSession: vi.fn(),
+      findCommerceSession: vi.fn().mockResolvedValue('existing-session'),
+      getQuote: vi.fn().mockResolvedValue({ quote: {} }),
+    } as unknown as QuotesService;
+    const auth = {
+      resolve: () => Promise.resolve({ type: 'CUSTOMER', customerId: 'cust_1', sessionId: 's_1' }),
+    } as unknown as AuthContextService;
+    const controller = new QuotesController(quotes, auth);
+
+    await controller.getQuote({ id: 'quote_1' }, { headers: { 'x-commerce-session': 'b'.repeat(32) } });
+
+    expect(quotes.resolveCommerceSession).not.toHaveBeenCalled();
+    expect(quotes.findCommerceSession).toHaveBeenCalledWith('b'.repeat(32));
+    expect(quotes.getQuote).toHaveBeenCalledWith('quote_1', {
+      customerId: 'cust_1',
+      commerceSessionId: 'existing-session',
+    });
+  });
+});

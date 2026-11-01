@@ -15,8 +15,11 @@ interface Call {
   readonly args: unknown;
 }
 
-function recordingTx(orderClaimCount: number, calls: Call[]) {
+function recordingTx(orderClaimCount: number, calls: Call[], assetStatuses: readonly string[] = []) {
   return {
+    giftCardAsset: {
+      findMany: async () => assetStatuses.map((status) => ({ status })),
+    },
     workItem: {
       findUnique: async () => ({
         orderId: 'order-1',
@@ -51,13 +54,13 @@ function recordingTx(orderClaimCount: number, calls: Call[]) {
   };
 }
 
-async function storeWith(orderClaimCount: number, calls: Call[]) {
+async function storeWith(orderClaimCount: number, calls: Call[], assetStatuses: readonly string[] = []) {
   vi.resetModules();
   vi.doMock('@barat/database', () => ({
     prisma: {
       queue: { upsert: async () => ({ id: 'queue-refund' }) },
       // Like Prisma: a throw inside the callback rolls the whole thing back.
-      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(recordingTx(orderClaimCount, calls)),
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(recordingTx(orderClaimCount, calls, assetStatuses)),
     },
   }));
   const { PrismaWorkItemStore } = await import('./prisma-workitem.store');
@@ -100,5 +103,38 @@ describe('PrismaWorkItemStore.convertToRefundIfOwned', () => {
     expect(result.changed).toBe(false);
     expect(calls.some((call) => call.op === 'refund.create')).toBe(false);
     expect(calls.some((call) => call.op === 'workItem.update')).toBe(false);
+  });
+});
+
+describe('FUL-4: refunding an order that already has a card', () => {
+  it('refuses outright once the card was sent', async () => {
+    const calls: Call[] = [];
+    const store = await storeWith(1, calls, ['SENT']);
+
+    const result = await store.convertToRefundIfOwned({ ...INPUT, staffRole: 'OPS_MANAGER', cardDisposition: 'VOIDED' });
+
+    expect(result).toMatchObject({ changed: false, blockedBy: 'ASSET_SENT' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('leaves a bought-but-unsent card to a manager who says what becomes of it', async () => {
+    const operator = await storeWith(1, [], ['READY']);
+    await expect(operator.convertToRefundIfOwned(INPUT)).resolves.toMatchObject({
+      changed: false,
+      blockedBy: 'ASSET_NEEDS_MANAGER',
+    });
+
+    const silentManager = await storeWith(1, [], ['READY']);
+    await expect(silentManager.convertToRefundIfOwned({ ...INPUT, staffRole: 'OPS_MANAGER' })).resolves.toMatchObject({
+      blockedBy: 'ASSET_NEEDS_MANAGER',
+    });
+
+    const calls: Call[] = [];
+    const manager = await storeWith(1, calls, ['READY']);
+    const result = await manager.convertToRefundIfOwned({ ...INPUT, staffRole: 'OPS_MANAGER', cardDisposition: 'RESELLABLE' });
+
+    expect(result).toMatchObject({ changed: true, refundId: 'refund-1' });
+    const audit = calls.find((call) => call.op === 'auditLog.create')?.args as { data: { after: unknown } };
+    expect(audit.data.after).toMatchObject({ cardDisposition: 'RESELLABLE' });
   });
 });

@@ -340,6 +340,45 @@ describe('a top-up creates no work item for an operator', () => {
       expect(h.topUpStore.statusOf(FULFILLMENT_ID)).toBe('UNKNOWN');
     });
 
+    it('FUL-6: recovers a stranded purchase by resending its key when the venue honours keys', async () => {
+      const h = harness({ target: target({ status: 'PURCHASING' }) });
+      Object.assign(h.provider, { idempotentPurchases: true });
+      h.provider.setNextPurchaseResult({
+        status: 'SUCCEEDED',
+        providerReference: 'TG-7',
+        cost: { amount: '4.75', currency: 'USD' },
+      });
+
+      const outcome = await h.service.poll(ORDER_ID);
+
+      expect(outcome).toMatchObject({ decision: 'SUCCEEDED' });
+      expect(h.provider.getPurchaseInvocationCount()).toBe(1);
+      // The same key the first attempt used, so the venue returns that order.
+      expect(h.provider.getLastPurchaseRequest()?.idempotencyKey).toBe(`topup:${ORDER_ID}`);
+      expect(workItemCount(h)).toBe(0);
+    });
+
+    it('FUL-7: a rate-limit refusal is retried later, not failed', async () => {
+      const h = harness();
+      h.provider.setNextPurchaseResult({ status: 'FAILED', failureCode: 'RATE_LIMITED' });
+
+      const outcome = await h.service.onTopUpOrderPaid(ORDER_ID);
+
+      expect(outcome).toMatchObject({ decision: 'WAITING_FUNDS', reason: 'RATE_LIMITED', workItemId: null });
+      expect(h.topUpStore.statusOf(FULFILLMENT_ID)).toBe('WAITING_FUNDS');
+      expect(workItemCount(h)).toBe(0);
+    });
+
+    it('FUL-7: a rate limit that never lifts becomes an ordinary failure', async () => {
+      const h = harness({ target: target({ purchaseAttempts: 10 }) });
+      h.provider.setNextPurchaseResult({ status: 'FAILED', failureCode: 'RATE_LIMITED' });
+
+      const outcome = await h.service.onTopUpOrderPaid(ORDER_ID);
+
+      expect(outcome).toMatchObject({ decision: 'FAILED' });
+      expect(workItemCount(h)).toBe(1);
+    });
+
     it('treats a normalised network poll result as retryable', async () => {
       const h = harness({
         target: target({ status: 'AWAITING_PROVIDER', providerOrderNumber: 'TG-9' }),

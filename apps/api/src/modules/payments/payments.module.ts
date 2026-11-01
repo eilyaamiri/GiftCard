@@ -4,9 +4,13 @@ import { RIAL_PAYMENT_PROVIDER } from '@barat/payments';
 
 import { AppConfigModule, AppConfigService } from '../../common/config';
 import { AuditModule } from '../audit/audit.module';
+import { OrdersModule } from '../orders/orders.module';
 import { SuppliersModule } from '../suppliers/suppliers.module';
+import { PaymentReconciliationScanner } from './payment-reconciliation.scanner';
 import { PAYMENTS_DATABASE, PaymentsService } from './payments.service';
 import { PaymentsController } from './payments.controller';
+import { RefundsController } from './refunds.controller';
+import { RefundsService } from './refunds.service';
 import { createRialPaymentProvider } from './rial-payment-provider.factory';
 
 /**
@@ -17,10 +21,13 @@ import { createRialPaymentProvider } from './rial-payment-provider.factory';
  * and then tries to buy the card automatically, so a paid order is tasked either
  * way. Suppliers imports work items and fulfillment, never payments, so this is
  * still a one-way edge and not a cycle.
+ *
+ * `OrdersModule` supplies `ORDER_PAYMENT_BRIDGE`, the only way payments moves an
+ * order. Orders imports audit and fulfillment, never payments: no cycle either.
  */
 @Module({
-  imports: [AppConfigModule, AuditModule, SuppliersModule],
-  controllers: [PaymentsController],
+  imports: [AppConfigModule, AuditModule, SuppliersModule, OrdersModule],
+  controllers: [PaymentsController, RefundsController],
   providers: [
     {
       provide: RIAL_PAYMENT_PROVIDER,
@@ -29,6 +36,8 @@ import { createRialPaymentProvider } from './rial-payment-provider.factory';
     },
     { provide: PAYMENTS_DATABASE, useValue: prisma },
     PaymentsService,
+    PaymentReconciliationScanner,
+    RefundsService,
   ],
   exports: [PaymentsService, RIAL_PAYMENT_PROVIDER],
 })

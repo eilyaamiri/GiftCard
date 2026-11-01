@@ -15,12 +15,27 @@ export interface DeliveryRetryOutcome {
   readonly failureCode: string | null;
 }
 
+/**
+ * A delivery the worker must not fix by itself and hands to a human instead.
+ * Must match `DELIVERY_PROBLEMS` in the API's fulfillment module.
+ */
+export type DeliveryProblem = 'SENDING_STUCK' | 'RETRIES_EXHAUSTED';
+
+export interface DeliveryProblemReport {
+  /** False when this asset's problem had already been reported. */
+  readonly reported: boolean;
+}
+
 export interface DeliveryRetryClient {
   retry(assetId: string): Promise<DeliveryRetryOutcome>;
+  reportProblem(assetId: string, problem: DeliveryProblem): Promise<DeliveryProblemReport>;
 }
 
 /** Must match `INTERNAL_RETRY_DELIVERY_PATH` in the API's fulfillment module. */
 export const INTERNAL_RETRY_DELIVERY_PATH = '/internal/fulfillment/retry-delivery';
+/** Must match `INTERNAL_REPORT_DELIVERY_PROBLEM_PATH` in the API's fulfillment module. */
+export const INTERNAL_REPORT_DELIVERY_PROBLEM_PATH =
+  '/internal/fulfillment/report-delivery-problem';
 export const INTERNAL_SERVICE_TOKEN_HEADER = 'x-internal-service-token';
 
 export class DeliveryRetryClientError extends Error {
@@ -60,17 +75,60 @@ export class HttpDeliveryRetryClient implements DeliveryRetryClient {
   }
 
   async retry(assetId: string): Promise<DeliveryRetryOutcome> {
+    const payload = (await this.post(
+      INTERNAL_RETRY_DELIVERY_PATH,
+      { assetId },
+      {
+        label: 'retry-delivery',
+        assetId,
+      },
+    )) as Partial<DeliveryRetryOutcome>;
+    if (typeof payload.delivered !== 'boolean' || typeof payload.assetId !== 'string') {
+      throw new DeliveryRetryClientError(
+        `malformed retry-delivery response for asset ${assetId}`,
+        null,
+      );
+    }
+
+    return {
+      delivered: payload.delivered,
+      assetId: payload.assetId,
+      attemptNumber: typeof payload.attemptNumber === 'number' ? payload.attemptNumber : 0,
+      failureCode: typeof payload.failureCode === 'string' ? payload.failureCode : null,
+    };
+  }
+
+  async reportProblem(assetId: string, problem: DeliveryProblem): Promise<DeliveryProblemReport> {
+    const payload = (await this.post(
+      INTERNAL_REPORT_DELIVERY_PROBLEM_PATH,
+      { assetId, problem },
+      { label: 'report-delivery-problem', assetId },
+    )) as Partial<DeliveryProblemReport>;
+    if (typeof payload.reported !== 'boolean') {
+      throw new DeliveryRetryClientError(
+        `malformed report-delivery-problem response for asset ${assetId}`,
+        null,
+      );
+    }
+    return { reported: payload.reported };
+  }
+
+  private async post(
+    path: string,
+    body: Record<string, string>,
+    describe: { readonly label: string; readonly assetId: string },
+  ): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await this.fetchImpl(`${this.baseUrl}${INTERNAL_RETRY_DELIVERY_PATH}`, {
+      const response = await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
           [INTERNAL_SERVICE_TOKEN_HEADER]: this.token,
         },
-        body: JSON.stringify({ assetId }),
+        body: JSON.stringify(body),
         signal: controller.signal,
         /* Never follow a redirect. fetch strips `authorization` and cookies on a
          * cross-origin hop but forwards custom headers, so a redirect (a proxy
@@ -83,25 +141,12 @@ export class HttpDeliveryRetryClient implements DeliveryRetryClient {
       if (!response.ok) {
         // The body may echo an internal detail; only the status is surfaced.
         throw new DeliveryRetryClientError(
-          `retry-delivery rejected for asset ${assetId}`,
+          `${describe.label} rejected for asset ${describe.assetId}`,
           response.status,
         );
       }
 
-      const payload = (await response.json()) as Partial<DeliveryRetryOutcome>;
-      if (typeof payload.delivered !== 'boolean' || typeof payload.assetId !== 'string') {
-        throw new DeliveryRetryClientError(
-          `malformed retry-delivery response for asset ${assetId}`,
-          null,
-        );
-      }
-
-      return {
-        delivered: payload.delivered,
-        assetId: payload.assetId,
-        attemptNumber: typeof payload.attemptNumber === 'number' ? payload.attemptNumber : 0,
-        failureCode: typeof payload.failureCode === 'string' ? payload.failureCode : null,
-      };
+      return await response.json();
     } finally {
       clearTimeout(timer);
     }

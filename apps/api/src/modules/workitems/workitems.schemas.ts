@@ -42,5 +42,10 @@ export const convertToRefundBodySchema = z.object({
    * total.
    */
   amountIrr: z.string().regex(/^\d+$/, 'باید یک عدد صحیح باشد').transform((s) => BigInt(s)),
+  /**
+   * What becomes of a card that was bought but not sent (FUL-4). Required, and
+   * only accepted from a manager, when the order has one.
+   */
+  cardDisposition: z.enum(['VOIDED', 'RESELLABLE']).optional(),
 });
 export type ConvertToRefundBody = z.infer<typeof convertToRefundBodySchema>;

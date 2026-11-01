@@ -10,6 +10,7 @@ import {
 import { Logger } from 'nestjs-pino';
 
 import { BaratDomainException } from '../errors/domain.exception';
+import { redactUrl } from '../logger/logger.config';
 
 interface HttpRequest {
   readonly id?: unknown;
@@ -47,13 +48,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const requestId = typeof request.id === 'string' ? request.id : undefined;
 
     const { status, code, message, details } = this.normalise(exception);
+    /* The URL can carry a gateway token in its query (AGENTS.md rule 10). */
+    const path = redactUrl(request.url);
 
     if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
       this.logger.error(
         {
           err: exception instanceof Error ? exception : new Error(String(exception)),
           requestId,
-          path: request.url,
+          path,
           method: request.method,
           code,
         },
@@ -61,7 +64,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       );
     } else {
       this.logger.warn(
-        { requestId, path: request.url, method: request.method, status, code },
+        { requestId, path, method: request.method, status, code },
         'Request rejected',
       );
     }

@@ -8,6 +8,7 @@ import type {
   DeliveryStatus,
   OrderStatus,
   QueueKey,
+  WorkItemStatus,
   WorkItemType,
 } from '@barat/contracts';
 
@@ -80,7 +81,7 @@ function toAssetView(row: SelectedAsset): GiftCardAssetView {
     maskedCode: row.maskedCode,
     hasPin: row.assetType === 'CODE_PIN',
     serialNumber: row.serialNumber,
-    deliveryUrl: row.deliveryUrl,
+    hasDeliveryUrl: row.deliveryUrl !== null,
     recipientEmailMasked: row.recipientEmail === null ? null : maskEmail(row.recipientEmail),
     expiryDate: row.expiryDate,
     supplierReference: row.supplierReference,
@@ -230,6 +231,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
         id: true,
         orderId: true,
         type: true,
+        status: true,
         assignedToStaffId: true,
         queue: { select: { key: true } },
       },
@@ -241,6 +243,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       workItemId: workItem.id,
       orderId: workItem.orderId,
       workItemType: workItem.type as WorkItemType,
+      workItemStatus: workItem.status as WorkItemStatus,
       queueKey: workItem.queue.key as QueueKey,
       assignedToStaffId: workItem.assignedToStaffId,
     });
@@ -253,6 +256,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       select: {
         id: true,
         type: true,
+        status: true,
         assignedToStaffId: true,
         queue: { select: { key: true } },
       },
@@ -264,6 +268,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       workItemId: workItem.id,
       orderId,
       workItemType: workItem.type as WorkItemType,
+      workItemStatus: workItem.status as WorkItemStatus,
       queueKey: workItem.queue.key as QueueKey,
       assignedToStaffId: workItem.assignedToStaffId,
     });
@@ -273,6 +278,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     workItemId: string;
     orderId: string;
     workItemType: WorkItemType;
+    workItemStatus: WorkItemStatus;
     queueKey: QueueKey;
     assignedToStaffId: string | null;
   }): Promise<FulfillmentContext | null> {
@@ -303,7 +309,12 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       }),
       this.db.giftCardAsset.count({ where: { orderId: order.id } }),
       this.db.fulfillment.findFirst({
-        where: { orderId: order.id, workItemId: input.workItemId },
+        /* This task's record, or the order's one active record when another
+         * task opened it (see `ensureFulfillment`). */
+        where: {
+          orderId: order.id,
+          OR: [{ workItemId: input.workItemId }, { activeOrderKey: order.id }],
+        },
         orderBy: { createdAt: 'desc' },
         select: FULFILLMENT_SELECT,
       }),
@@ -320,6 +331,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       maxSupplierCostToleranceBps: order.quote.pricingRule?.maxSupplierCostToleranceBps ?? 0,
       workItemId: input.workItemId,
       workItemType: input.workItemType,
+      workItemStatus: input.workItemStatus,
       queueKey: input.queueKey,
       assignedToStaffId: input.assignedToStaffId,
       fulfillment: fulfillmentRow === null ? null : toFulfillmentRecord(fulfillmentRow),
@@ -496,6 +508,16 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     if (existing !== null) {
       return toFulfillmentRecord(existing);
     }
+    /* An order has one fulfillment in progress at a time (`activeOrderKey`).
+     * A second task on the same order — an escalation, a follow-up — works on
+     * that one rather than opening a rival record of the same purchase. */
+    const active = await this.db.fulfillment.findUnique({
+      where: { activeOrderKey: input.orderId },
+      select: FULFILLMENT_SELECT,
+    });
+    if (active !== null) {
+      return toFulfillmentRecord(active);
+    }
 
     try {
       const created = await this.db.fulfillment.create({
@@ -503,6 +525,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
           orderId: input.orderId,
           workItemId: input.workItemId,
           status: 'IN_PROGRESS',
+          activeOrderKey: input.orderId,
           method: 'MANUAL',
           startedAt: new Date(),
           ...(input.supplierId === undefined ? {} : { supplierId: input.supplierId }),
@@ -516,7 +539,10 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       // idempotency key decided it; return the winner rather than failing.
       if (isUniqueConstraintViolation(error)) {
         const winner = await this.db.fulfillment.findFirst({
-          where: { orderId: input.orderId, workItemId: input.workItemId },
+          where: {
+            orderId: input.orderId,
+            OR: [{ workItemId: input.workItemId }, { activeOrderKey: input.orderId }],
+          },
           orderBy: { createdAt: 'desc' },
           select: FULFILLMENT_SELECT,
         });
@@ -543,9 +569,13 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     supplierReference: string | null;
     costVarianceBps: number | null;
     fulfilledByStaffId: string | null;
-  }): Promise<void> {
-    await this.db.fulfillment.update({
-      where: { id: input.fulfillmentId },
+  }): Promise<boolean> {
+    /* Conditional on no cost being on file: of two concurrent recordings with
+     * different amounts, exactly one lands. The other must not silently
+     * overwrite it — that would be a correction without the manager the
+     * correction path requires (FUL-8). */
+    const written = await this.db.fulfillment.updateMany({
+      where: { id: input.fulfillmentId, actualSupplierCost: null },
       data: {
         actualSupplierCost: new Prisma.Decimal(input.actualSupplierCost),
         actualSupplierCurrency: input.actualSupplierCurrency,
@@ -554,6 +584,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
         ...(input.supplierReference === null ? {} : { supplierReference: input.supplierReference }),
       },
     });
+    return written.count === 1;
   }
 
   /**
@@ -607,7 +638,8 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
   async markFulfillmentCompleted(fulfillmentId: string, at: Date): Promise<void> {
     await this.db.fulfillment.update({
       where: { id: fulfillmentId },
-      data: { status: 'COMPLETED', completedAt: at },
+      /* Leaving the active statuses frees the order's slot in the same write. */
+      data: { status: 'COMPLETED', completedAt: at, activeOrderKey: null },
     });
   }
 
@@ -615,7 +647,9 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
 
   async findAssetsByOrder(orderId: string): Promise<readonly GiftCardAssetView[]> {
     const rows = await this.db.giftCardAsset.findMany({
-      where: { orderId },
+      /* A card superseded by a replacement stays on record for audit but is
+       * no longer worked or shown (FUL-10). */
+      where: { orderId, liveOrderKey: { not: null } },
       orderBy: { createdAt: 'asc' },
       select: ASSET_VIEW_SELECT,
     });
@@ -696,7 +730,11 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
   }): Promise<GiftCardAssetView> {
     const row = await this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "Order" WHERE "id" = ${input.orderId} FOR UPDATE`;
-      const existing = await tx.giftCardAsset.count({ where: { orderId: input.orderId } });
+      /* Counted on live assets: a card superseded by a replacement no longer
+       * counts, and `liveOrderKey` below is the database's own guarantee. */
+      const existing = await tx.giftCardAsset.count({
+        where: { orderId: input.orderId, liveOrderKey: { not: null } },
+      });
       if (existing > 0) {
         throw DomainErrors.conflict(
           'برای این سفارش قبلاً دارایی تحویل ثبت شده است.',
@@ -725,6 +763,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
           enteredByUserId: input.enteredByUserId,
           enteredAt: input.enteredAt,
           encryptionKeyVersion: 1,
+          liveOrderKey: input.orderId,
         },
         select: ASSET_VIEW_SELECT,
       });
@@ -793,6 +832,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
     orderId: string;
     recipientMasked: string;
     attemptNumber: number;
+    initiatedByStaffId: string | null;
   }): Promise<{ id: string }> {
     return this.db.deliveryAttempt.create({
       data: {
@@ -802,6 +842,7 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
         recipientMasked: input.recipientMasked,
         status: 'SENDING',
         attemptNumber: input.attemptNumber,
+        initiatedByStaffId: input.initiatedByStaffId,
       },
       select: { id: true },
     });

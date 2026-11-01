@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CreateOrderRequest, IrrString } from '@barat/contracts';
+import { orderDeliveryDtoSchema, type CreateOrderRequest, type IrrString } from '@barat/contracts';
 
 import type { AuditService } from '../audit/audit.service';
 import type { GiftCardAssetService } from '../fulfillment/gift-card-asset.service';
 import { OrderStateMachine } from './order-state-machine';
-import { OrdersService, uniqueViolationTargets } from './orders.service';
+import { revealDeliveryResponseSchema } from './orders.schemas';
+import { httpDeliveryUrl, OrdersService, uniqueViolationTargets } from './orders.service';
 import type { OrdersDatabase } from './orders.tokens';
 
 const QUOTE_AMOUNT = 1_234_500n;
@@ -348,6 +349,38 @@ describe('OrdersService payments bridge', () => {
     });
   });
 
+  it('reopens a cancelled order only through the late-payment method', async () => {
+    const { service, db } = harness(acceptedQuote);
+    db.order.findUnique.mockResolvedValue({
+      id: 'order-1',
+      orderNumber: 'BP-2026-000001',
+      status: 'CANCELLED',
+      paidAt: null,
+    });
+
+    const result = await service.markPaidAfterClosure('order-1', 'payment-1');
+
+    expect(result).toMatchObject({ status: 'PAID', changed: true });
+    expect(db.order.updateMany.mock.calls[0]?.[0].where).toEqual({ id: 'order-1', status: 'CANCELLED' });
+  });
+
+  it('runs inside the caller transaction when one is passed', async () => {
+    const { service, db } = harness(acceptedQuote);
+    const tx = {
+      order: {
+        findUnique: vi.fn().mockResolvedValue({ id: 'order-1', orderNumber: 'BP-2026-000001', status: 'PAYMENT_PENDING' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+
+    await service.markPaid('order-1', 'payment-1', { db: tx as never });
+
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+    expect(db.order.updateMany).not.toHaveBeenCalled();
+  });
+
   it('ignores late pending and failed callbacks once verified payment exists', async () => {
     const { service, db } = harness(acceptedQuote);
     db.order.findUnique.mockResolvedValue({
@@ -423,6 +456,35 @@ describe('OrdersService.revealDeliveryForCustomer', () => {
     },
   );
 
+  it.each(['REFUND_PENDING', 'REFUNDED'])('FUL-12: withdraws a delivered card once the order is %s', async (status) => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      status,
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+
+    await expect(service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    });
+    expect(readSecret).not.toHaveBeenCalled();
+  });
+
+  it('FUL-10: reads only the live card, never one superseded by a replacement', async () => {
+    const { service, db } = harness(null);
+    db.order.findFirst.mockResolvedValue(null);
+
+    await service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1').catch(() => undefined);
+
+    expect(db.order.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          giftCardAssets: expect.objectContaining({ where: { liveOrderKey: { not: null } } }),
+        }),
+      }),
+    );
+  });
+
   it('reveals a SENT asset as the customer, with the reveal reason on record', async () => {
     const { service, db, readSecret } = harness(null);
     db.order.findFirst.mockResolvedValue({
@@ -478,6 +540,54 @@ describe('OrdersService.revealDeliveryForCustomer', () => {
     // The recipient address is not part of the reveal shape and must not leak in.
     expect(Object.keys(revealed)).not.toContain('recipientEmail');
   });
+
+  it('WEB-3: never hands back a stored link that is not http(s)', async () => {
+    const { service, db, readSecret } = harness(null);
+    db.order.findFirst.mockResolvedValue({
+      id: 'order-1',
+      giftCardAssets: [{ id: 'asset-1', status: 'SENT' }],
+    });
+    // A row written before links were validated on the way in.
+    readSecret.mockResolvedValue({
+      assetId: 'asset-1',
+      orderId: 'order-1',
+      assetType: 'URL',
+      deliveryUrl: 'javascript:alert(document.cookie)',
+      expiryDate: null,
+    });
+
+    const revealed = await service.revealDeliveryForCustomer('BP-2026-000001', 'customer-1');
+
+    expect(revealed.deliveryUrl).toBeNull();
+    expect(revealDeliveryResponseSchema.safeParse(revealed).success).toBe(true);
+  });
+});
+
+describe('httpDeliveryUrl (WEB-3)', () => {
+  it.each([
+    ['https://redeem.example/abc?x=1', 'https://redeem.example/abc?x=1'],
+    ['http://redeem.example/abc', 'http://redeem.example/abc'],
+    ['javascript:alert(1)', null],
+    ['data:text/html,<script>alert(1)</script>', null],
+    ['ftp://redeem.example/abc', null],
+    ['not a url', null],
+    [null, null],
+  ])('%s → %s', (value, expected) => {
+    expect(httpDeliveryUrl(value)).toBe(expected);
+  });
+
+  it('the response schemas refuse anything else, too', () => {
+    const base = { assetType: 'URL', code: null, pin: null, expiryDate: null };
+    expect(
+      revealDeliveryResponseSchema.safeParse({ ...base, deliveryUrl: 'javascript:alert(1)' }).success,
+    ).toBe(false);
+    expect(
+      orderDeliveryDtoSchema.shape.deliveryUrl.safeParse('javascript:alert(1)').success,
+    ).toBe(false);
+    expect(orderDeliveryDtoSchema.shape.deliveryUrl.safeParse('https://redeem.example/a').success).toBe(
+      true,
+    );
+  });
 });
 
 describe('uniqueViolationTargets', () => {
@@ -498,48 +608,56 @@ describe('uniqueViolationTargets', () => {
 });
 
 describe('OrdersService / financial summary', () => {
-  it('sums paid order revenue, recorded margins and fees without using JS numbers', async () => {
+  it('sums kept revenue, margins and fees in the database and reports refunds on their own line (ORD-3)', async () => {
     const rig = harness(null);
-    rig.db.order.findMany.mockResolvedValue([
-      {
-        totalAmountIrr: 100_000n,
-        quote: {
-          marginAmount: 8_000n,
-          paymentFee: 1_000n,
-          serviceFee: 2_000n,
-          operationalFee: 500n,
-        },
-      },
-      {
-        totalAmountIrr: 250_000n,
-        quote: {
-          marginAmount: 20_000n,
-          paymentFee: 2_500n,
-          serviceFee: 5_000n,
-          operationalFee: 500n,
-        },
-      },
-    ]);
+    const orderAggregate = vi
+      .fn()
+      .mockResolvedValueOnce({ _count: { _all: 2 }, _sum: { totalAmountIrr: 350_000n } })
+      .mockResolvedValueOnce({ _count: { _all: 1 }, _sum: { totalAmountIrr: 90_000n } });
+    const quoteAggregate = vi.fn().mockResolvedValue({
+      _sum: { marginAmount: 28_000n, paymentFee: 3_500n, serviceFee: 7_000n, operationalFee: 1_000n },
+    });
+    Object.assign(rig.db.order, { aggregate: orderAggregate });
+    Object.assign(rig.db.quote, { aggregate: quoteAggregate });
 
     await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
       paidOrders: 2,
       revenueIrr: '350000',
       marginIrr: '28000',
       collectedFeesIrr: '11500',
+      refundedOrders: 1,
+      refundedIrr: '90000',
     });
-    expect(rig.db.order.findMany).toHaveBeenCalledWith({
-      where: { paidAt: { not: null } },
-      select: {
-        totalAmountIrr: true,
-        quote: {
-          select: {
-            marginAmount: true,
-            paymentFee: true,
-            serviceFee: true,
-            operationalFee: true,
-          },
-        },
-      },
+
+    const kept = { paidAt: { not: null }, status: { notIn: ['REFUND_PENDING', 'REFUNDED'] } };
+    expect(orderAggregate).toHaveBeenNthCalledWith(1, expect.objectContaining({ where: kept }));
+    expect(quoteAggregate).toHaveBeenCalledWith(expect.objectContaining({ where: { order: { is: kept } } }));
+    expect(orderAggregate).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ where: { paidAt: { not: null }, status: { in: ['REFUND_PENDING', 'REFUNDED'] } } }),
+    );
+    // Nothing is loaded row by row any more.
+    expect(rig.db.order.findMany).not.toHaveBeenCalled();
+  });
+
+  it('reads an empty ledger as zeros, not as missing numbers', async () => {
+    const rig = harness(null);
+    Object.assign(rig.db.order, {
+      aggregate: vi.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { totalAmountIrr: null } }),
+    });
+    Object.assign(rig.db.quote, {
+      aggregate: vi.fn().mockResolvedValue({
+        _sum: { marginAmount: null, paymentFee: null, serviceFee: null, operationalFee: null },
+      }),
+    });
+
+    await expect(rig.service.adminFinancialSummary()).resolves.toEqual({
+      paidOrders: 0,
+      revenueIrr: '0',
+      marginIrr: '0',
+      collectedFeesIrr: '0',
+      refundedOrders: 0,
+      refundedIrr: '0',
     });
   });
 });

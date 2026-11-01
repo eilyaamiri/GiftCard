@@ -68,6 +68,21 @@ export const ALLOWED_TRANSITIONS: Readonly<Record<OrderStatus, readonly OrderSta
 /** Statuses from which nothing further is allowed. Mirrors the contracts list. */
 export const TERMINAL_ORDER_STATUSES: ReadonlySet<OrderStatus> = new Set(ORDER_TERMINAL_STATUSES);
 
+/**
+ * The one way out of a closed order: a payment the gateway verified, with the
+ * exact quoted amount, for an order that was cancelled or failed while that
+ * payment's outcome was unknown. The customer paid, so the order is delivered.
+ *
+ * Kept out of `ALLOWED_TRANSITIONS` on purpose. Those edges are open to every
+ * caller; these are honoured only when the caller says it is applying a late
+ * verified payment (`allowLatePayment`), which only the payments bridge does.
+ */
+export const LATE_PAYMENT_TRANSITIONS: Readonly<Partial<Record<OrderStatus, readonly OrderStatus[]>>> =
+  Object.freeze({
+    CANCELLED: ['PAID'],
+    FAILED: ['PAID'],
+  });
+
 /** Every status the machine knows, for exhaustive tests and admin filters. */
 export const ORDER_STATUSES: readonly OrderStatus[] = ORDER_STATUS_VALUES;
 
@@ -150,6 +165,11 @@ export interface OrderTransitionOptions {
    * it, so a guard can never widen which row is written.
    */
   readonly guard?: Prisma.OrderWhereInput;
+  /**
+   * Also allow `LATE_PAYMENT_TRANSITIONS`. Only the payments bridge sets this,
+   * after a server-side verification with the exact amount.
+   */
+  readonly allowLatePayment?: boolean;
 }
 
 /** Timestamp columns a status implies. Set once, never cleared. */
@@ -205,7 +225,11 @@ export class OrderStateMachine {
       };
     }
 
-    assertTransition(order.status, next);
+    const latePayment =
+      options.allowLatePayment === true && (LATE_PAYMENT_TRANSITIONS[order.status]?.includes(next) ?? false);
+    if (!latePayment) {
+      assertTransition(order.status, next);
+    }
 
     const now = options.now ?? new Date();
     const apply = async (db: OrdersDatabaseCore): Promise<boolean> => {

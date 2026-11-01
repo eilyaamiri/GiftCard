@@ -116,3 +116,21 @@ export const internalRetryDeliveryBodySchema = z.object({
   assetId: z.string().trim().min(1).max(64),
 });
 export type InternalRetryDeliveryBody = z.infer<typeof internalRetryDeliveryBodySchema>;
+
+/**
+ * Deliveries the worker hands to a human instead of retrying. Mirrored in
+ * `apps/worker` (`DeliveryProblem`).
+ */
+export const DELIVERY_PROBLEMS = ['SENDING_STUCK', 'RETRIES_EXHAUSTED'] as const;
+export type DeliveryProblem = (typeof DELIVERY_PROBLEMS)[number];
+
+/** Body of the worker's problem report: an id and which problem, nothing else. */
+export const internalReportDeliveryProblemBodySchema = z
+  .object({
+    assetId: z.string().trim().min(1).max(64),
+    problem: z.enum(DELIVERY_PROBLEMS),
+  })
+  .strict();
+export type InternalReportDeliveryProblemBody = z.infer<
+  typeof internalReportDeliveryProblemBodySchema
+>;

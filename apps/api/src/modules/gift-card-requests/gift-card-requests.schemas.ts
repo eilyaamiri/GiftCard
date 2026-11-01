@@ -21,5 +21,7 @@ export type CreateGiftCardRequest = z.infer<typeof createGiftCardRequestSchema>;
 export const fulfillGiftCardRequestSchema = z.object({
   code: z.string().trim().min(4).max(500),
   pin: z.string().trim().min(3).max(100).optional(),
+  /** Why the order's current card is being replaced; required when it has one (FUL-10). */
+  replacementReason: z.string().trim().min(10).max(500).optional(),
 });
 export type FulfillGiftCardRequest = z.infer<typeof fulfillGiftCardRequestSchema>;
