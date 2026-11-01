@@ -53,6 +53,11 @@ export const HOME_INTRO_ARTICLE_SLUG = "home-intro";
 export const GIFT_CARDS_PAGE_ARTICLE_SLUG = "gift-cards-page";
 export const GAMES_PAGE_ARTICLE_SLUG = "games-page";
 
+/** The article shown under a brand page, keyed by the brand's slug. */
+export function brandArticleSlug(brandSlug: string): string {
+  return `brand-${brandSlug}`;
+}
+
 /** The article shown under a service-list category page, keyed by its slug. */
 export function categoryArticleSlug(categorySlug: string): string {
   return `category-${categorySlug}`;

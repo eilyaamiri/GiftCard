@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   breadcrumbJsonLd,
+  brandPath,
   catalogCanonicalPath,
+  itemListJsonLd,
   faqJsonLd,
   pageMetadata,
   productJsonLd,
@@ -178,17 +180,34 @@ describe("catalogCanonicalPath", () => {
     expect(catalogCanonicalPath({})).toBe("/gift-cards");
   });
 
-  it("keeps a category or a brand as its own address", () => {
+  it("keeps a category as its own address", () => {
     expect(catalogCanonicalPath({ category: "gaming" })).toBe("/gift-cards?category=gaming");
-    expect(catalogCanonicalPath({ brand: "apple" })).toBe("/gift-cards?brand=apple");
+  });
+
+  it("points a brand alone at the brand's own page", () => {
+    expect(catalogCanonicalPath({ brand: "apple" })).toBe("/brands/apple");
+  });
+
+  it("keeps a category and a brand together in the catalogue", () => {
+    expect(catalogCanonicalPath({ category: "gaming", brand: "apple" })).toBe("/gift-cards?category=gaming&brand=apple");
   });
 
   it("keeps a later page, but not the first", () => {
-    expect(catalogCanonicalPath({ brand: "apple", page: 3 })).toBe("/gift-cards?brand=apple&page=3");
-    expect(catalogCanonicalPath({ brand: "apple", page: 1 })).toBe("/gift-cards?brand=apple");
+    expect(catalogCanonicalPath({ brand: "apple", page: 3 })).toBe("/brands/apple?page=3");
+    expect(catalogCanonicalPath({ brand: "apple", page: 1 })).toBe("/brands/apple");
+    expect(catalogCanonicalPath({ category: "gaming", page: 2 })).toBe("/gift-cards?category=gaming&page=2");
   });
 
   it("encodes a slug rather than trusting it", () => {
-    expect(catalogCanonicalPath({ brand: "a b&c" })).toBe("/gift-cards?brand=a+b%26c");
+    expect(catalogCanonicalPath({ category: "a b&c" })).toBe("/gift-cards?category=a+b%26c");
+    expect(brandPath("a b&c")).toBe("/brands/a%20b%26c");
+  });
+});
+
+describe("itemListJsonLd", () => {
+  it("numbers the items from one with absolute URLs", () => {
+    expect(itemListJsonLd([{ name: "اپل", path: "/gift-cards/apple" }])["itemListElement"]).toEqual([
+      { "@type": "ListItem", position: 1, name: "اپل", url: `${ORIGIN}/gift-cards/apple` },
+    ]);
   });
 });

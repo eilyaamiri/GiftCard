@@ -22,6 +22,7 @@ import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import { SERVICE_CATEGORIES } from "@/lib/service-categories";
 import { supportPhone, type SupportChannel } from "@/lib/support-channels";
 import { BRAND, copyrightYear } from "@/lib/brand";
+import { brandPath } from "@/lib/seo";
 
 /** Mirrors the shortlist length `catalog-sidebar.tsx` uses for the same flag. */
 const TRENDING_BRANDS_SHOWN = 8;
@@ -199,7 +200,7 @@ export function SiteChrome({
                         items: popularBrands.map((brand) => ({
                           key: brand.id,
                           label: brand.nameFa,
-                          href: `/gift-cards?brand=${encodeURIComponent(brand.slug)}`,
+                          href: brandPath(brand.slug),
                           icon: <BrandMark brand={brand} size={26} />,
                         })),
                       }
@@ -208,7 +209,7 @@ export function SiteChrome({
                 items={restBrands.map((brand) => ({
                   key: brand.id,
                   label: brand.nameFa,
-                  href: `/gift-cards?brand=${encodeURIComponent(brand.slug)}`,
+                  href: brandPath(brand.slug),
                 }))}
               />
               <Link href="/gift-cards" aria-current={pathname.startsWith("/gift-cards") ? "page" : undefined}>گیفت‌کارت‌ها</Link>
