@@ -1,3 +1,5 @@
+import { cache } from "react";
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ChevronLeft } from "lucide-react";
@@ -9,15 +11,24 @@ import { CategoryIcon } from "@/components/category-icon";
 import { visibleCategoryLinks } from "@/lib/features";
 import { categoryArticleSlug, getSiteArticle } from "@/lib/kb";
 import { SiteTextSection } from "@/components/site-text";
+import { JsonLd } from "@/components/json-ld";
+import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }) {
+/* The page and `generateMetadata` both need the list; `cache` shares one request. */
+const loadCategories = cache(async () => (await api.categories(visibleBrandsQuery())).items);
+
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
   try {
-    const { items } = await api.categories(visibleBrandsQuery());
-    const category = items.find((item) => item.slug === slug && item.kind === "SERVICES");
-    return category ? { title: category.nameFa, description: category.descriptionFa ?? undefined } : {};
+    const category = (await loadCategories()).find((item) => item.slug === slug && item.kind === "SERVICES");
+    if (category === undefined) return {};
+    return pageMetadata({
+      title: category.nameFa,
+      description: category.descriptionFa ?? undefined,
+      path: `/categories/${encodeURIComponent(category.slug)}`,
+    });
   } catch {
     return {};
   }
@@ -36,7 +47,7 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
 
   let categories: readonly Category[];
   try {
-    categories = (await api.categories(visibleBrandsQuery())).items;
+    categories = await loadCategories();
   } catch (error) {
     return (
       <main className="page container">
@@ -56,6 +67,12 @@ export default async function CategoryPage({ params }: { params: Promise<{ slug:
 
   return (
     <main className="page container">
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "خانه", path: "/" },
+          { name: category.nameFa, path: `/categories/${encodeURIComponent(category.slug)}` },
+        ])}
+      />
       <nav className="breadcrumb" aria-label="مسیر صفحه">
         <Link href="/">خانه</Link>
         <ChevronLeft size={14} aria-hidden="true" />

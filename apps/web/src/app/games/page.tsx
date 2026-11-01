@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "شارژ مستقیم بازی",
+  alternates: { canonical: "/games" },
   description:
     "شارژ مستقیم حساب بازی با شناسهٔ بازیکن؛ بدون کد و بدون رمز عبور. قیمت نهایی پیش از پرداخت نمایش داده می‌شود.",
 };

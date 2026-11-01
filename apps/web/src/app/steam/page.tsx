@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "شارژ کیف پول استیم",
+  alternates: { canonical: "/steam" },
   description:
     "شارژ مستقیم کیف پول استیم فقط با شناسهٔ ورود (Login)؛ بدون رمز عبور و کد. قیمت نهایی پیش از پرداخت نمایش داده می‌شود.",
 };

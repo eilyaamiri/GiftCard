@@ -8,6 +8,7 @@ import { flattenArticles, getKbContent } from "@/lib/kb";
 
 export const metadata: Metadata = {
   title: "راهنما",
+  alternates: { canonical: "/help" },
   description: "پایگاه دانش سنتو — راهنمای خرید گیفت‌کارت، پرداخت بین‌المللی، سفارش‌ها و پشتیبانی.",
 };
 

@@ -1,15 +1,19 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, ChevronLeft } from "lucide-react";
 import { EmptyState } from "@barat/ui";
 import { KbIcon } from "@/components/kb-icon";
+import { JsonLd } from "@/components/json-ld";
 import { getKbContent } from "@/lib/kb";
+import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 
-async function loadCategory(categorySlug: string) {
+/* Shared by the page and `generateMetadata`: one KB request per view, not two. */
+const loadCategory = cache(async (categorySlug: string) => {
   const categories = await getKbContent();
   return categories.find((category) => category.slug === categorySlug) ?? null;
-}
+});
 
 export async function generateMetadata({
   params,
@@ -18,7 +22,11 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const category = await loadCategory((await params).categorySlug);
   if (category === null) return {};
-  return { title: `${category.name} — راهنما`, description: category.description || undefined };
+  return pageMetadata({
+    title: `${category.name} — راهنما`,
+    description: category.description || undefined,
+    path: `/help/${category.slug}`,
+  });
 }
 
 export default async function HelpCategoryPage({
@@ -31,6 +39,13 @@ export default async function HelpCategoryPage({
 
   return (
     <main className="page container">
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "خانه", path: "/" },
+          { name: "راهنما", path: "/help" },
+          { name: category.name, path: `/help/${category.slug}` },
+        ])}
+      />
       <nav className="breadcrumb" aria-label="مسیر صفحه">
         <Link href="/help">راهنما</Link>
         <ChevronLeft size={14} aria-hidden="true" />

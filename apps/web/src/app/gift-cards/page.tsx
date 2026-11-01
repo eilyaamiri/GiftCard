@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState, ErrorState, toPersianDigits } from "@barat/ui";
 import { ChevronLeft, Gamepad2, PackageSearch, Search, SearchX } from "lucide-react";
@@ -7,15 +8,54 @@ import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
 import { regionLabel, sortRegions } from "@/lib/regions";
 import { GIFT_CARDS_PAGE_ARTICLE_SLUG, getSiteArticle } from "@/lib/kb";
 import { SiteTextSection } from "@/components/site-text";
+import { catalogCanonicalPath, pageMetadata } from "@/lib/seo";
 import { CATALOG_PAGE_SIZE, catalogHref, hasActiveFilter, readCatalogFilters } from "./_lib/catalog-url";
 import { CatalogProductCard } from "@/components/catalog-product-card";
 import { CatalogBrowser } from "./_components/catalog-browser";
 import { CatalogSidebar } from "./_components/catalog-sidebar";
 
-export const metadata = {
-  title: "گیفت‌کارت‌ها",
-  description: "گیفت‌کارت‌های دیجیتال جهان را بر اساس دسته‌بندی، برند و منطقه پیدا کنید.",
-};
+const CATALOG_TITLE = "گیفت‌کارت‌ها";
+const CATALOG_DESCRIPTION = "گیفت‌کارت‌های دیجیتال جهان را بر اساس دسته‌بندی، برند و منطقه پیدا کنید.";
+
+/**
+ * Each category and each brand is a page worth finding on its own, so it gets
+ * its own title, description and canonical. A search result is not: it is
+ * `noindex`, and its canonical folds into the list it was run on. An unknown
+ * category or brand slug is `noindex` too, so a mistyped link never becomes a
+ * page of its own in the index.
+ */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const filters = readCatalogFilters(await searchParams);
+  const path = catalogCanonicalPath(filters);
+  let title = CATALOG_TITLE;
+  let description: string = CATALOG_DESCRIPTION;
+  let unknownSlug = false;
+  try {
+    if (filters.brand !== undefined && filters.category === undefined) {
+      const brand = (await api.brands(visibleBrandsQuery())).items.find((item) => item.slug === filters.brand);
+      if (brand === undefined) unknownSlug = true;
+      else {
+        title = `خرید گیفت‌کارت ${brand.nameFa}`;
+        description = brand.descriptionFa?.trim() || `گیفت‌کارت ${brand.nameFa} را با مبلغ و منطقه‌ی دلخواه ببینید و با ریال بخرید؛ قیمت نهایی پیش از پرداخت.`;
+      }
+    } else if (filters.category !== undefined && filters.brand === undefined) {
+      const category = (await api.categories(visibleBrandsQuery())).items.find((item) => item.slug === filters.category);
+      if (category === undefined) unknownSlug = true;
+      else {
+        title = `خرید گیفت‌کارت ${category.nameFa}`;
+        description = category.descriptionFa?.trim() || `گیفت‌کارت‌های ${category.nameFa} را ببینید و با ریال بخرید؛ قیمت نهایی پیش از پرداخت.`;
+      }
+    }
+  } catch {
+    /* The taxonomy is unreachable: fall back to the generic title rather than
+     * fail the page, and say nothing about indexing either way. */
+  }
+  return pageMetadata({ title, description, path, noindex: filters.q !== undefined || unknownSlug });
+}
 
 /**
  * Never cached. A product the operator switches off has to leave the catalog on

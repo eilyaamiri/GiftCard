@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, EmptyState, Ltr, formatJalaliDate, toPersianDigits } from "@barat/ui";
 import { PackageSearch } from "lucide-react";
@@ -6,8 +7,11 @@ import { requireSession } from "@/lib/session";
 import { orderStatusView } from "@/lib/status";
 import { tomanFromIrr } from "@/app/checkout/purchase";
 import { listOrdersResponseSchema, type ListOrdersResponse } from "@barat/contracts";
+import { NOINDEX } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = { title: "سفارش‌های من", ...NOINDEX };
 
 const PAGE_SIZE = 10;
 

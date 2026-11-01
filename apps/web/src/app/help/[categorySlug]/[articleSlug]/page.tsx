@@ -1,17 +1,21 @@
+import { cache } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import { JsonLd } from "@/components/json-ld";
 import { getKbContent } from "@/lib/kb";
+import { breadcrumbJsonLd, pageMetadata } from "@/lib/seo";
 
-async function loadArticle(categorySlug: string, articleSlug: string) {
+/* Shared by the page and `generateMetadata`: one KB request per view, not two. */
+const loadArticle = cache(async (categorySlug: string, articleSlug: string) => {
   const categories = await getKbContent();
   const category = categories.find((item) => item.slug === categorySlug);
   const article = category?.articles.find((item) => item.slug === articleSlug);
   if (category === undefined || article === undefined) return null;
   return { category, article };
-}
+});
 
 export async function generateMetadata({
   params,
@@ -21,7 +25,11 @@ export async function generateMetadata({
   const { categorySlug, articleSlug } = await params;
   const found = await loadArticle(categorySlug, articleSlug);
   if (found === null) return {};
-  return { title: `${found.article.title} — راهنما`, description: found.article.excerpt || undefined };
+  return pageMetadata({
+    title: `${found.article.title} — راهنما`,
+    description: found.article.excerpt || undefined,
+    path: `/help/${found.category.slug}/${found.article.slug}`,
+  });
 }
 
 export default async function HelpArticlePage({
@@ -36,6 +44,14 @@ export default async function HelpArticlePage({
 
   return (
     <main className="page container">
+      <JsonLd
+        data={breadcrumbJsonLd([
+          { name: "خانه", path: "/" },
+          { name: "راهنما", path: "/help" },
+          { name: category.name, path: `/help/${category.slug}` },
+          { name: article.title, path: `/help/${category.slug}/${article.slug}` },
+        ])}
+      />
       <nav className="breadcrumb" aria-label="مسیر صفحه">
         <Link href="/help">راهنما</Link>
         <ChevronLeft size={14} aria-hidden="true" />
