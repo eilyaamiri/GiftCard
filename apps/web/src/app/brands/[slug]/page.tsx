@@ -9,10 +9,12 @@ import { JsonLd } from "@/components/json-ld";
 import { SiteTextSection } from "@/components/site-text";
 import { api, ApiClientError } from "@/lib/api";
 import { VISIBLE_BRAND_SLUGS, visibleBrandsQuery } from "@/lib/brand-art";
+import { regionLabel, sortRegions } from "@/lib/regions";
 import { catalogQueryString, type Brand, type ListCatalogProductsResponse } from "@/lib/catalog";
 import { brandArticleSlug, getSiteArticle } from "@/lib/kb";
 import { brandPath, breadcrumbJsonLd, catalogCanonicalPath, itemListJsonLd, pageMetadata, truncateForMeta } from "@/lib/seo";
-import { CATALOG_PAGE_SIZE, readCatalogFilters } from "../../gift-cards/_lib/catalog-url";
+import { RegionPicker } from "../../gift-cards/_components/catalog-sidebar";
+import { CATALOG_PAGE_SIZE, catalogHref, readCatalogFilters } from "../../gift-cards/_lib/catalog-url";
 import { BrandMark } from "../../gift-cards/_components/catalog-facets";
 
 /** A brand switched off in the panel has to disappear on the next request. */
@@ -38,7 +40,7 @@ function leadFor(brand: Brand): string {
 
 export async function generateMetadata({ params, searchParams }: Props): Promise<Metadata> {
   const { slug } = await params;
-  const { page } = readCatalogFilters(await searchParams);
+  const { page, region } = readCatalogFilters(await searchParams);
   try {
     const brand = await loadBrand(slug);
     /* A slug the storefront does not show must not be indexed under a made-up title. */
@@ -46,7 +48,8 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     return pageMetadata({
       title: `خرید گیفت‌کارت ${brand.nameFa}`,
       description: truncateForMeta(leadFor(brand)),
-      path: catalogCanonicalPath({ brand: brand.slug, page }),
+      /* A region is a view of the same page, not a page of its own. */
+      path: catalogCanonicalPath({ brand: brand.slug, page: region ? 1 : page }),
       imageUrl: brand.logoUrl,
     });
   } catch {
@@ -63,7 +66,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
  */
 export default async function BrandPage({ params, searchParams }: Props) {
   const { slug } = await params;
-  const { page } = readCatalogFilters(await searchParams);
+  const { page, region } = readCatalogFilters(await searchParams);
 
   let brand: Brand | null;
   let products: ListCatalogProductsResponse | null = null;
@@ -74,6 +77,7 @@ export default async function BrandPage({ params, searchParams }: Props) {
         catalogQueryString({
           brandSlug: brand.slug,
           brandSlugs: VISIBLE_BRAND_SLUGS,
+          region,
           page,
           pageSize: CATALOG_PAGE_SIZE,
           /* As in the catalogue: a card with no priced offer is still listed,
@@ -103,7 +107,7 @@ export default async function BrandPage({ params, searchParams }: Props) {
 
   const { items, meta } = products;
   /* A brand with nothing on sale, or a page past the end, is not a page worth keeping. */
-  if (meta.total === 0 || items.length === 0) notFound();
+  if (region === undefined && (meta.total === 0 || items.length === 0)) notFound();
 
   const [fromPrices, siteText] = await Promise.all([
     api.fromPrices(items.map((product) => product.id)),
@@ -112,7 +116,9 @@ export default async function BrandPage({ params, searchParams }: Props) {
   const path = brandPath(brand.slug);
   const lastPage = Math.max(meta.totalPages, 1);
   const current = Math.min(meta.page, lastPage);
-  const pageHref = (target: number) => (target <= 1 ? path : `${path}?page=${target}`);
+  const regions = sortRegions(products.regions);
+  const filters = { region, page: 1 };
+  const pageHref = (target: number) => catalogHref(filters, { page: target }, path);
 
   return (
     <main className="page container catalog-page">
@@ -145,11 +151,19 @@ export default async function BrandPage({ params, searchParams }: Props) {
       <p className="muted catalog-lead">{leadFor(brand)}</p>
 
       <div className="catalog-results-head">
-        <p className="catalog-count">{toPersianDigits(meta.total)} گیفت‌کارت</p>
-        <Link className="catalog-clear" href={`/gift-cards?brand=${encodeURIComponent(brand.slug)}`}>
-          فیلتر بر اساس منطقه و مبلغ
+        <p className="catalog-count">
+          {toPersianDigits(meta.total)} گیفت‌کارت{region ? ` — منطقهٔ ${regionLabel(region) ?? region}` : ""}
+        </p>
+        <Link className="catalog-clear" href={catalogHref({ brand: brand.slug, region, page: 1 })}>
+          مشاهده در فهرست کامل
         </Link>
       </div>
+
+      <RegionPicker regions={regions} filters={filters} idPrefix="brand" pathname={path} />
+
+      {items.length === 0 ? (
+        <p className="muted">برای این منطقه گیفت‌کارتی پیدا نشد. منطقهٔ دیگری را انتخاب کنید.</p>
+      ) : null}
 
       <div className="grid catalog-grid">
         {items.map((product) => (
