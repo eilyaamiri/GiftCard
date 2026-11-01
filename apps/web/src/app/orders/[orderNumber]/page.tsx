@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, Ltr, Timeline, formatJalaliDate } from "@barat/ui";
 import type { TimelineStep } from "@barat/ui";
@@ -8,8 +9,11 @@ import { orderStatusView } from "@/lib/status";
 import { tomanFromIrr } from "@/app/checkout/purchase";
 import { DeliveryCard } from "@/components/delivery-card";
 import { OrderReviewPrompt } from "@/components/order-review-prompt";
+import { NOINDEX } from "@/lib/seo";
 
 export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = { title: "جزئیات سفارش", ...NOINDEX };
 
 /** Statuses at which the order has stopped moving, so no "next step" is implied. */
 const TERMINAL = new Set(["FULFILLED", "REFUNDED", "CANCELLED", "FAILED"]);

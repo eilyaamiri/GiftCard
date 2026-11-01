@@ -9,9 +9,12 @@ import { ServiceCard } from "@/components/service-card";
 import { INTERNATIONAL_PAYMENT_ENABLED } from "@/lib/features";
 import type { ListTopUpGamesResponse } from "@/lib/catalog";
 
+/* Results of a query are the same products as the catalogue under another
+ * address: followed for the links on them, never listed. */
 export const metadata = {
   title: "جست‌وجو",
   description: "جست‌وجو در گیفت‌کارت‌ها، شارژ بازی، تلگرام، استیم و سرویس‌های پرداخت بین‌المللی.",
+  robots: { index: false, follow: true },
 };
 
 export const dynamic = "force-dynamic";

@@ -8,6 +8,7 @@ import { BrandDirectory } from "./brand-directory";
 
 export const metadata = {
   title: "برندها",
+  alternates: { canonical: "/brands" },
   description: "همهٔ برندهای گیفت‌کارت موجود در سنتو، با تعداد کارت‌های فعال هر برند.",
 };
 
