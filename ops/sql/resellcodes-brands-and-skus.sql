@@ -16,9 +16,13 @@
 --      real one (country code, GLOBAL or CIS) and it has an active offer.
 --      A SKU with a region the venue wrote as a word is left off: those
 --      products are held for a person to pick the region.
--- It does NOT switch on a Product, a Supplier or the ReSellCodes integration,
--- and does not clear `needsReview`: a SKU only sells once all of those are on,
--- and those are separate decisions. Pictures are a separate step
+--   4. switches on a matched product that is still off and has at least one
+--      active SKU (counting the ones step 3 just switched on), so it is listed
+--      on the storefront under its brand.
+-- It does NOT switch on the Supplier or the ReSellCodes integration, and does
+-- not clear `needsReview`: a product with that flag is listed but cannot be
+-- bought, and nothing is orderable while the `resellcodes` supplier is off.
+-- Both are separate decisions. Pictures are a separate step
 -- (ops/fix-resellcodes-images.sh), which reads the brands this one sets.
 --
 -- Dry run, which changes nothing — it ends in ROLLBACK:
@@ -141,6 +145,27 @@ WITH switched AS (
   RETURNING s.id
 )
 SELECT count(*) AS skus_switched_on FROM switched;
+
+-- 4. Products.
+\echo ''
+\echo '== Matched products that stay off: no active SKU'
+SELECT count(*) AS no_active_sku
+FROM "Product" p
+WHERE p.id IN (SELECT product_id FROM picked)
+  AND NOT p."isActive"
+  AND NOT EXISTS (SELECT 1 FROM "Sku" s WHERE s."productId" = p.id AND s."isActive");
+
+WITH switched AS (
+  UPDATE "Product" p
+  SET "isActive" = true, "updatedAt" = now()
+  WHERE p.id IN (SELECT product_id FROM picked)
+    AND NOT p."isActive"
+    AND EXISTS (SELECT 1 FROM "Sku" s WHERE s."productId" = p.id AND s."isActive")
+  RETURNING p.id, p."needsReview"
+)
+SELECT count(*) AS products_switched_on,
+       count(*) FILTER (WHERE "needsReview") AS of_which_still_needs_review
+FROM switched;
 
 \echo ''
 \echo '== After: matched products whose brand is not the one matched (expected 0)'
