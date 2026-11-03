@@ -521,6 +521,24 @@ a { color:inherit; text-decoration:none; }
   .brand-card-body strong { font-size:12px; }
   .brand-card-body small { font-size:10.5px; }
 }
+/* The signed-in shop: the same brand covers as the landing page, inside the panel
+ * shell, so a customer can order without leaving the account. The panel is
+ * narrower than the page, so the grid steps down a column earlier. */
+.shop { display:grid; gap:20px; }
+.shop-head { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; }
+.shop-head .h2 { margin:0; font-size:22px; }
+.shop-head .muted { margin:4px 0 0; font-size:13px; }
+.shop-search { display:flex; align-items:center; gap:9px; width:min(100%,320px); min-height:46px; padding:0 14px; color:var(--text-secondary); background:var(--surface-card); border:1px solid var(--border-primary); border-radius:12px; }
+.shop-search:focus-within { border-color:var(--interactive-accent); outline:2px solid color-mix(in srgb,var(--interactive-accent) 30%,transparent); }
+.shop-search input { flex:1; min-width:0; color:var(--text-primary); background:transparent; border:0; outline:none; font:inherit; font-size:14px; }
+.shop-grid { grid-template-columns:repeat(5,minmax(0,1fr)); }
+.shop-empty { padding:40px 0; text-align:center; }
+@media (max-width:1280px) { .shop-grid { grid-template-columns:repeat(4,minmax(0,1fr)); } }
+@media (max-width:1024px) { .shop-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media (max-width:700px) {
+  .shop-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .shop-search { width:100%; }
+}
 .product { min-width:0; overflow:hidden; transition:transform .24s cubic-bezier(.2,.8,.2,1), box-shadow .24s ease; }
 .product:is(:hover,:focus-visible),.service-card:is(:hover,:focus-visible) { transform:translateY(-5px); box-shadow:var(--shadow-md); }
 .product:is(:hover,:focus-visible) .catalog-art-plate { transform:translate(-50%,-50%) rotate(-1deg) scale(1.04); }
