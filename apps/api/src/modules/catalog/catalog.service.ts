@@ -34,6 +34,8 @@ import type {
 } from './catalog-taxonomy.dto';
 import {
   assignCategorySchema,
+  assignBrandSchema,
+  bulkSetSkuActiveSchema,
   bulkSetProductActiveSchema,
   bulkSetTopUpGameActiveSchema,
   createBrandSchema,
@@ -66,6 +68,8 @@ import {
   type AdminSupplierOfferListInput,
   type AdminTopUpGameListInput,
   type AssignCategoryInput,
+  type AssignBrandInput,
+  type BulkSetSkuActiveInput,
   type BulkSetProductActiveInput,
   type BulkSetTopUpGameActiveInput,
   type CreateBrandInput,
@@ -1068,6 +1072,21 @@ export class CatalogService {
     return this.db.sku.update({ where: { id }, data: { isActive: false } });
   }
 
+  /**
+   * Activate or deactivate a batch of SKUs in one pass.
+   *
+   * The same single switch the per-row button flips (`adminUpdateSku` and
+   * `adminArchiveSku` set `isActive` and nothing else), applied to many. It
+   * touches no price, offer, quantity or product, and an id that is not a SKU
+   * is simply not counted in `updated`.
+   */
+  async adminBulkSetSkuActive(input: BulkSetSkuActiveInput) {
+    const { skuIds, isActive } = bulkSetSkuActiveSchema.parse(input);
+    const ids = [...new Set(skuIds)];
+    const { count } = await this.db.sku.updateMany({ where: { id: { in: ids } }, data: { isActive } });
+    return { requested: ids.length, updated: count };
+  }
+
   async adminListSuppliers(query: AdminCatalogListInput) {
     const where: Prisma.SupplierWhereInput = query.includeInactive ? {} : { isActive: true };
     const [items, total] = await this.db.$transaction([
@@ -1532,6 +1551,27 @@ export class CatalogService {
     ]);
 
     return { requested: ids.length, updated: moved.count };
+  }
+
+  /**
+   * Give a batch of products one brand.
+   *
+   * `Product.brand` (the free-text column) follows `brandId`, as it does in a
+   * merge: left on the old spelling, a re-import would match the product on it
+   * and put the old brand back. The brand is checked first, and the whole batch
+   * is one statement, so it is all moved or none of it.
+   */
+  async adminAssignBrand(input: AssignBrandInput) {
+    const { productIds, brandId } = assignBrandSchema.parse(input);
+    const brand = await this.db.brand.findUnique({ where: { id: brandId }, select: { id: true, name: true } });
+    if (!brand) throw DomainErrors.notFound('brand');
+
+    const ids = [...new Set(productIds)];
+    const { count } = await this.db.product.updateMany({
+      where: { id: { in: ids } },
+      data: { brandId: brand.id, brand: brand.name },
+    });
+    return { requested: ids.length, updated: count };
   }
 
   /** Add a service to a service-list category. The target is referenced, never copied. */

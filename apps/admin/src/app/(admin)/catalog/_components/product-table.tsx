@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { ApiClientError, api } from "@/lib/api";
 import {
+  assignBrandResultSchema,
   assignCategoryResultSchema,
   bulkSetProductActiveResultSchema,
+  type AdminBrandOption,
   type AdminCategory,
   type AdminProduct,
 } from "../_lib/catalog-contracts";
@@ -18,22 +20,26 @@ import { ToggleQuickPickButton } from "./toggle-quick-pick-button";
 /**
  * The product list, with a checkbox per row.
  *
- * A client component because the selection is state, and re-categorising a page
- * of twenty products one form at a time is the job the bulk bar exists to
- * remove. The rows themselves are the server's data, passed straight through.
+ * A client component because the selection is state, and re-categorising or
+ * re-branding a page of a hundred products one form at a time is the job the
+ * bulk bar exists to remove. The rows themselves are the server's data, passed
+ * straight through.
  */
 export function ProductTable({
   items,
   categories,
+  brands,
   emptyHint,
 }: {
   items: readonly AdminProduct[];
   categories: readonly AdminCategory[];
+  brands: readonly AdminBrandOption[];
   emptyHint: string;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<readonly string[]>([]);
   const [categoryId, setCategoryId] = useState("");
+  const [brandId, setBrandId] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -65,6 +71,37 @@ export function ProductTable({
       );
       setSelected([]);
       setDone(`${formatCount(result.updated)} محصول جابه‌جا شد.`);
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof ApiClientError ? caught.message : "ارتباط با سرویس ممکن نیست.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function assignBrand() {
+    if (selected.length === 0 || !brandId) return;
+    const brand = brands.find((option) => option.id === brandId);
+    /* A bulk change to something customers see by name: say what will happen
+     * before it does, with the count and the brand, as the single toggle does. */
+    if (
+      !window.confirm(
+        `برند ${formatCount(selected.length)} محصول انتخاب‌شده به «${brand?.nameFa ?? brandId}» تغییر کند؟`,
+      )
+    ) {
+      return;
+    }
+    setError(null);
+    setDone(null);
+    setPending(true);
+    try {
+      const result = await api.post(
+        "/api/admin/catalog/brands/assign",
+        { productIds: [...selected], brandId },
+        assignBrandResultSchema,
+      );
+      setSelected([]);
+      setDone(`برند ${formatCount(result.updated)} محصول تغییر کرد.`);
       router.refresh();
     } catch (caught) {
       setError(caught instanceof ApiClientError ? caught.message : "ارتباط با سرویس ممکن نیست.");
@@ -118,6 +155,20 @@ export function ProductTable({
           </label>
           <button type="button" className="primary-btn" onClick={assign} disabled={pending || !categoryId}>
             {pending ? "در حال انتقال…" : "اعمال"}
+          </button>
+          <label className="filter" style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+            تغییر برند به
+            <select value={brandId} onChange={(event) => setBrandId(event.target.value)} aria-label="برند مقصد">
+              <option value="">انتخاب برند…</option>
+              {brands.map((brand) => (
+                <option key={brand.id} value={brand.id}>
+                  {brand.nameFa}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="primary-btn" onClick={assignBrand} disabled={pending || !brandId}>
+            {pending ? "در حال اعمال…" : "اعمال برند"}
           </button>
           <button
             type="button"

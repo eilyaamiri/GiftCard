@@ -872,6 +872,7 @@ function adminHarness() {
   };
   const topUpGame = { count: vi.fn().mockResolvedValue(1) };
   const internationalService = { count: vi.fn().mockResolvedValue(1) };
+  const sku = { updateMany: vi.fn().mockResolvedValue({ count: 3 }) };
   const db = {
     product,
     productCategory,
@@ -880,6 +881,7 @@ function adminHarness() {
     categoryLink,
     topUpGame,
     internationalService,
+    sku,
     $transaction: async (operations: readonly Promise<unknown>[]) => Promise.all(operations),
   } as unknown as CatalogDatabase;
   return {
@@ -891,6 +893,7 @@ function adminHarness() {
     categoryLink,
     topUpGame,
     internationalService,
+    sku,
   };
 }
 
@@ -1210,6 +1213,98 @@ describe('CatalogService service-list categories', () => {
     expect(await service.adminRemoveCategoryLink('link_1')).toEqual({ id: 'link_1' });
     expect(categoryLink.delete).toHaveBeenCalledWith({ where: { id: 'link_1' } });
     expect(topUpGame.count).not.toHaveBeenCalled();
+  });
+});
+
+describe('CatalogService admin bulk SKU activation', () => {
+  it.each([true, false])('sets isActive to %s on every selected SKU and nothing else', async (isActive) => {
+    const { service, sku } = adminHarness();
+
+    const result = await service.adminBulkSetSkuActive({ skuIds: ['sku-1', 'sku-2', 'sku-3'], isActive });
+
+    expect(result).toEqual({ requested: 3, updated: 3 });
+    expect(sku.updateMany.mock.calls[0]?.[0]).toEqual({
+      where: { id: { in: ['sku-1', 'sku-2', 'sku-3'] } },
+      // The one switch the per-row button flips: no price, offer, quantity or product.
+      data: { isActive },
+    });
+  });
+
+  it('counts a repeated id once, and reports what was actually updated', async () => {
+    const { service, sku } = adminHarness();
+    sku.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.adminBulkSetSkuActive({ skuIds: ['sku-1', 'sku-1', 'sku-gone'], isActive: true });
+
+    // Two distinct ids asked for, one of them not a SKU: the caller sees 2 vs 1.
+    expect(result).toEqual({ requested: 2, updated: 1 });
+  });
+
+  it('refuses an empty selection, one over the batch limit, and a non-boolean switch, before any write', async () => {
+    const { service, sku } = adminHarness();
+
+    await expect(service.adminBulkSetSkuActive({ skuIds: [], isActive: true })).rejects.toThrow();
+    await expect(
+      service.adminBulkSetSkuActive({ skuIds: Array.from({ length: 501 }, (_, i) => `s${String(i)}`), isActive: true }),
+    ).rejects.toThrow();
+    await expect(
+      service.adminBulkSetSkuActive({ skuIds: ['sku-1'], isActive: 'yes' as unknown as boolean }),
+    ).rejects.toThrow();
+
+    expect(sku.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('CatalogService admin bulk brand', () => {
+  it('gives every selected product the brand, and its name with it', async () => {
+    const { service, product, brand } = adminHarness();
+    brand.findUnique.mockResolvedValue({ id: 'brnd_steam', name: 'Steam' });
+
+    const result = await service.adminAssignBrand({
+      productIds: ['product-1', 'product-2'],
+      brandId: 'brnd_steam',
+    });
+
+    expect(result).toEqual({ requested: 2, updated: 2 });
+    expect(product.updateMany.mock.calls[0]?.[0]).toEqual({
+      where: { id: { in: ['product-1', 'product-2'] } },
+      // The free-text column follows, or a re-import would put the old brand back.
+      data: { brandId: 'brnd_steam', brand: 'Steam' },
+    });
+  });
+
+  it('counts a repeated id once', async () => {
+    const { service, product, brand } = adminHarness();
+    brand.findUnique.mockResolvedValue({ id: 'brnd_steam', name: 'Steam' });
+    product.updateMany.mockResolvedValue({ count: 1 });
+
+    const result = await service.adminAssignBrand({
+      productIds: ['product-1', 'product-1'],
+      brandId: 'brnd_steam',
+    });
+
+    expect(result).toEqual({ requested: 1, updated: 1 });
+  });
+
+  it('refuses a brand that does not exist, and writes nothing', async () => {
+    const { service, product, brand } = adminHarness();
+    brand.findUnique.mockResolvedValue(null);
+
+    await expect(service.adminAssignBrand({ productIds: ['product-1'], brandId: 'brnd_gone' })).rejects.toThrow();
+
+    expect(product.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses an empty selection and one over the batch limit, before any read', async () => {
+    const { service, product, brand } = adminHarness();
+
+    await expect(service.adminAssignBrand({ productIds: [], brandId: 'brnd_steam' })).rejects.toThrow();
+    await expect(
+      service.adminAssignBrand({ productIds: Array.from({ length: 501 }, (_, i) => `p${String(i)}`), brandId: 'brnd_steam' }),
+    ).rejects.toThrow();
+
+    expect(brand.findUnique).not.toHaveBeenCalled();
+    expect(product.updateMany).not.toHaveBeenCalled();
   });
 });
 

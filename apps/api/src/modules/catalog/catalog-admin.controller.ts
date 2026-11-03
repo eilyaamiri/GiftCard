@@ -30,6 +30,8 @@ import {
   galleryNameParamSchema,
   adminProductListSchema,
   assignCategorySchema,
+  assignBrandSchema,
+  bulkSetSkuActiveSchema,
   bulkSetProductActiveSchema,
   bulkSetTopUpGameActiveSchema,
   createBrandSchema,
@@ -72,6 +74,8 @@ import type {
   AdminSupplierOfferListInput,
   AdminTopUpGameListInput,
   AssignCategoryInput,
+  AssignBrandInput,
+  BulkSetSkuActiveInput,
   AssignGalleryImageInput,
   BulkSetProductActiveInput,
   BulkSetTopUpGameActiveInput,
@@ -185,6 +189,12 @@ export class CatalogAdminController {
   @Post('categories/assign')
   assignCategory(@Body(zodPipe(assignCategorySchema)) body: AssignCategoryInput) {
     return this.catalog.adminAssignCategory(body);
+  }
+
+  /** Give a batch of products one brand. */
+  @Post('brands/assign')
+  assignBrand(@Body(zodPipe(assignBrandSchema)) body: AssignBrandInput) {
+    return this.catalog.adminAssignBrand(body);
   }
 
   /** Add a service to a service-list category. */
@@ -439,6 +449,12 @@ export class CatalogAdminController {
   @Post('skus')
   createSku(@Body(zodPipe(createSkuSchema)) body: CreateSkuInput) {
     return this.catalog.adminCreateSku(body);
+  }
+
+  /** Activate or deactivate a batch of SKUs. */
+  @Post('skus/bulk-active')
+  bulkSetSkuActive(@Body(zodPipe(bulkSetSkuActiveSchema)) body: BulkSetSkuActiveInput) {
+    return this.catalog.adminBulkSetSkuActive(body);
   }
 
   @Put('skus/:id')
