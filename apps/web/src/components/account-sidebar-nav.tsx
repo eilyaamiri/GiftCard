@@ -1,22 +1,42 @@
 "use client";
 
 import Link from "next/link";
-import { Heart, LayoutDashboard, LifeBuoy, ReceiptText, Settings2, ShoppingBag } from "lucide-react";
+import {
+  Gamepad2,
+  Gift,
+  Heart,
+  LayoutDashboard,
+  LayoutGrid,
+  LifeBuoy,
+  ReceiptText,
+  Send,
+  Settings2,
+  ShoppingBag,
+  Wallet,
+} from "lucide-react";
 import { usePathname } from "next/navigation";
 
+/* Two groups: what the customer can buy, and everything about their own
+ * account. The shop group mirrors the public header's shop links; the games,
+ * Steam and Telegram entries are the site's own pages for now. */
 const groups = [
   {
-    label: "حساب من",
+    label: "فروشگاه",
+    links: [
+      { href: "/account/shop", label: "گیفت‌کارت‌ها", icon: Gift },
+      { href: "/brands", label: "همهٔ برندها", icon: LayoutGrid },
+      { href: "/games", label: "شارژ مستقیم بازی", icon: Gamepad2 },
+      { href: "/steam", label: "شارژ کیف پول استیم", icon: Wallet },
+      { href: "/telegram", label: "استارز و پرمیوم تلگرام", icon: Send },
+    ],
+  },
+  {
+    label: "حساب کاربری",
     links: [
       { href: "/account", label: "نمای کلی", icon: LayoutDashboard },
       { href: "/account/orders", label: "سفارش‌های من", icon: ShoppingBag },
       { href: "/account/payments", label: "پرداخت‌ها", icon: ReceiptText },
       { href: "/account/favorites", label: "علاقه‌مندی‌ها", icon: Heart },
-    ],
-  },
-  {
-    label: "پشتیبانی",
-    links: [
       { href: "/account/profile", label: "اطلاعات حساب", icon: Settings2 },
       { href: "/account/support", label: "پشتیبانی و تیکت‌ها", icon: LifeBuoy },
     ],
