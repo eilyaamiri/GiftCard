@@ -3,8 +3,9 @@
 --
 -- The 24 brands are the ones with cover art (`BRAND_ART` in
 -- apps/web/src/lib/brand-art.ts): the slug here is the Brand slug and the file
--- name of the art. A product is matched by the venue's brand and title, with a
--- whole-word, case-insensitive pattern per brand. A product that matches two
+-- name of the art. A product is matched when the venue's brand or title STARTS with the
+-- brand's name (so "Halo Infinite (Xbox)" and "Delta Force Coins (Steam)", which
+-- are game currency, are not taken for Xbox or Steam). A product that matches two
 -- brands is listed and left alone; one that matches none keeps whatever brand
 -- it has. Only ReSellCodes rows (`rsc_` ids) are read or changed.
 --
@@ -16,9 +17,13 @@
 --      real one (country code, GLOBAL or CIS) and it has an active offer.
 --      A SKU with a region the venue wrote as a word is left off: those
 --      products are held for a person to pick the region.
--- It does NOT switch on a Product, a Supplier or the ReSellCodes integration,
--- and does not clear `needsReview`: a SKU only sells once all of those are on,
--- and those are separate decisions. Pictures are a separate step
+--   4. switches on a matched product that is still off and has at least one
+--      active SKU (counting the ones step 3 just switched on), so it is listed
+--      on the storefront under its brand.
+-- It does NOT switch on the Supplier or the ReSellCodes integration, and does
+-- not clear `needsReview`: a product with that flag is listed but cannot be
+-- bought, and nothing is orderable while the `resellcodes` supplier is off.
+-- Both are separate decisions. Pictures are a separate step
 -- (ops/fix-resellcodes-images.sh), which reads the brands this one sets.
 --
 -- Dry run, which changes nothing — it ends in ROLLBACK:
@@ -36,36 +41,36 @@ BEGIN;
 CREATE TEMP TABLE brand_rule (slug text PRIMARY KEY, name text NOT NULL, name_fa text NOT NULL, pattern text NOT NULL) ON COMMIT DROP;
 
 INSERT INTO brand_rule (slug, name, name_fa, pattern) VALUES
-  ('airbnb',      'Airbnb',      'ایربی‌انبی',   '\yairbnb\y'),
-  ('amazon',      'Amazon',      'آمازون',        '\yamazon\y'),
-  ('apple',       'Apple',       'اپل',           '\y(apple|itunes)\y'),
-  ('blizzard',    'Blizzard',    'بلیزارد',       '\y(blizzard|battle\.?net)\y'),
-  ('fortnite',    'Fortnite',    'فورتنایت',      '\y(fortnite|v-?bucks)\y'),
-  ('free-fire',   'Free Fire',   'فری فایر',      '\yfree[ -]?fire\y'),
-  ('google-play', 'Google Play', 'گوگل پلی',      '\ygoogle[ -]?play\y'),
-  ('hotels-com',  'Hotels.com',  'هتلز دات کام',  '\yhotels?[ .-]?com\y'),
-  ('jawaker',     'Jawaker',     'جواکر',         '\yjawaker\y'),
-  ('netflix',     'Netflix',     'نتفلیکس',       '\ynetflix\y'),
-  ('nike',        'Nike',        'نایکی',         '\ynike\y'),
-  ('nintendo',    'Nintendo',    'نینتندو',       '\ynintendo\y'),
-  ('playstation', 'PlayStation', 'پلی‌استیشن',    '\y(playstation|psn)\y'),
-  ('pubg',        'PUBG',        'پابجی',         '\ypubg\y'),
-  ('razer-gold',  'Razer Gold',  'ریزر گلد',      '\yrazer\y'),
-  ('roblox',      'Roblox',      'روبلاکس',       '\yroblox\y'),
-  ('shein',       'SHEIN',       'شیین',          '\yshein\y'),
-  ('spotify',     'Spotify',     'اسپاتیفای',     '\yspotify\y'),
-  ('steam',       'Steam',       'استیم',         '\ysteam\y'),
-  ('tinder',      'Tinder',      'تیندر',         '\ytinder\y'),
-  ('twitch',      'Twitch',      'توییچ',         '\ytwitch\y'),
-  ('uber',        'Uber',        'اوبر',          '\yuber\y'),
-  ('xbox',        'Xbox',        'ایکس‌باکس',     '\yxbox\y'),
-  ('zara',        'Zara',        'زارا',          '\yzara\y');
+  ('airbnb',      'Airbnb',      'ایربی‌انبی',   '^airbnb'),
+  ('amazon',      'Amazon',      'آمازون',        '^amazon'),
+  ('apple',       'Apple',       'اپل',           '^(app store|apple|itunes)'),
+  ('blizzard',    'Blizzard',    'بلیزارد',       '^(battle\.net|blizzard)'),
+  ('fortnite',    'Fortnite',    'فورتنایت',      '^fortnite'),
+  ('free-fire',   'Free Fire',   'فری فایر',      '^(garena )?free ?fire'),
+  ('google-play', 'Google Play', 'گوگل پلی',      '^google play'),
+  ('hotels-com',  'Hotels.com',  'هتلز دات کام',  '^hotels'),
+  ('jawaker',     'Jawaker',     'جواکر',         '^jawaker'),
+  ('netflix',     'Netflix',     'نتفلیکس',       '^netflix'),
+  ('nike',        'Nike',        'نایکی',         '^nike'),
+  ('nintendo',    'Nintendo',    'نینتندو',       '^nintendo'),
+  ('playstation', 'PlayStation', 'پلی‌استیشن',    '^(playstation|psn)'),
+  ('pubg',        'PUBG',        'پابجی',         '^pubg'),
+  ('razer-gold',  'Razer Gold',  'ریزر گلد',      '^razer'),
+  ('roblox',      'Roblox',      'روبلاکس',       '^roblox'),
+  ('shein',       'SHEIN',       'شیین',          '^shein'),
+  ('spotify',     'Spotify',     'اسپاتیفای',     '^spotify'),
+  ('steam',       'Steam',       'استیم',         '^steam'),
+  ('tinder',      'Tinder',      'تیندر',         '^tinder'),
+  ('twitch',      'Twitch',      'توییچ',         '^twitch'),
+  ('uber',        'Uber',        'اوبر',          '^uber( \(|$| gift)'),
+  ('xbox',        'Xbox',        'ایکس‌باکس',     '^xbox'),
+  ('zara',        'Zara',        'زارا',          '^zara');
 
 -- Each ReSellCodes product with the brand(s) its venue brand and title read as.
 CREATE TEMP TABLE hit ON COMMIT DROP AS
 SELECT p.id AS product_id, r.slug
 FROM "Product" p
-JOIN brand_rule r ON (p.brand || ' ' || p.title) ~* r.pattern
+JOIN brand_rule r ON p.title ~* r.pattern OR p.brand ~* r.pattern
 WHERE p.id LIKE 'rsc\_p\_%';
 
 CREATE TEMP TABLE ambiguous ON COMMIT DROP AS
@@ -141,6 +146,27 @@ WITH switched AS (
   RETURNING s.id
 )
 SELECT count(*) AS skus_switched_on FROM switched;
+
+-- 4. Products.
+\echo ''
+\echo '== Matched products that stay off: no active SKU'
+SELECT count(*) AS no_active_sku
+FROM "Product" p
+WHERE p.id IN (SELECT product_id FROM picked)
+  AND NOT p."isActive"
+  AND NOT EXISTS (SELECT 1 FROM "Sku" s WHERE s."productId" = p.id AND s."isActive");
+
+WITH switched AS (
+  UPDATE "Product" p
+  SET "isActive" = true, "updatedAt" = now()
+  WHERE p.id IN (SELECT product_id FROM picked)
+    AND NOT p."isActive"
+    AND EXISTS (SELECT 1 FROM "Sku" s WHERE s."productId" = p.id AND s."isActive")
+  RETURNING p.id, p."needsReview"
+)
+SELECT count(*) AS products_switched_on,
+       count(*) FILTER (WHERE "needsReview") AS of_which_still_needs_review
+FROM switched;
 
 \echo ''
 \echo '== After: matched products whose brand is not the one matched (expected 0)'
