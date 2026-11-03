@@ -184,6 +184,7 @@ export default async function CatalogPage({
       <ProductTable
         items={items}
         categories={categories}
+        brands={brands}
         emptyHint={
           query.needsReview
             ? "محصولی در صف بازبینی نیست."

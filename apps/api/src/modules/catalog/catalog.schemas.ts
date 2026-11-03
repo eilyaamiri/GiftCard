@@ -266,6 +266,18 @@ export const bulkSetProductActiveSchema = z.object({
   isActive: z.boolean(),
 });
 
+/** Give a batch of products one brand in a single pass. */
+export const assignBrandSchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  brandId: idSchema,
+});
+
+/** Activate or deactivate a batch of SKUs in a single pass. */
+export const bulkSetSkuActiveSchema = z.object({
+  skuIds: z.array(idSchema).min(1).max(500),
+  isActive: z.boolean(),
+});
+
 /**
  * Fold one brand into another.
  *
@@ -288,7 +300,9 @@ export type UpdateCategoryLinkInput = z.infer<typeof updateCategoryLinkSchema>;
 export type CreateBrandInput = z.infer<typeof createBrandSchema>;
 export type UpdateBrandInput = z.infer<typeof updateBrandSchema>;
 export type AssignCategoryInput = z.infer<typeof assignCategorySchema>;
+export type AssignBrandInput = z.infer<typeof assignBrandSchema>;
 export type BulkSetProductActiveInput = z.infer<typeof bulkSetProductActiveSchema>;
+export type BulkSetSkuActiveInput = z.infer<typeof bulkSetSkuActiveSchema>;
 export type MergeBrandsInput = z.infer<typeof mergeBrandsSchema>;
 
 /* -------------------------------------------------------------- product */

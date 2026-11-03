@@ -23,7 +23,7 @@ import {
 describe("readCatalogQuery", () => {
   it("asks for twenty rows from the first page by default", () => {
     expect(readCatalogQuery({})).toEqual({ page: 1, pageSize: CATALOG_PAGE_SIZE, status: "ALL" });
-    expect(CATALOG_PAGE_SIZE).toBe(20);
+    expect(CATALOG_PAGE_SIZE).toBe(100);
   });
 
   it("falls back to page 1 for anything that is not a page number", () => {
@@ -89,7 +89,7 @@ describe("catalog list URLs", () => {
     );
 
     expect(params.get("page")).toBe("3");
-    expect(params.get("pageSize")).toBe("20");
+    expect(params.get("pageSize")).toBe("100");
     // The imported catalog is entirely inactive; without this the screen is empty.
     expect(params.get("includeInactive")).toBe("true");
     expect(params.get("search")).toBe("14971");

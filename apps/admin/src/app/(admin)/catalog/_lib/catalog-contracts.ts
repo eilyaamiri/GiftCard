@@ -251,6 +251,13 @@ export const assignCategoryResultSchema = z.object({
   updated: z.number().int().min(0),
 });
 
+export const assignBrandRequestSchema = z.object({
+  productIds: z.array(idSchema).min(1).max(500),
+  brandId: idSchema,
+});
+export type AssignBrandRequest = z.infer<typeof assignBrandRequestSchema>;
+export const assignBrandResultSchema = assignCategoryResultSchema;
+
 export const bulkSetProductActiveRequestSchema = z.object({
   productIds: z.array(idSchema).min(1).max(500),
   isActive: z.boolean(),
@@ -260,6 +267,13 @@ export const bulkSetProductActiveResultSchema = z.object({
   requested: z.number().int().min(0),
   updated: z.number().int().min(0),
 });
+
+export const bulkSetSkuActiveRequestSchema = z.object({
+  skuIds: z.array(idSchema).min(1).max(500),
+  isActive: z.boolean(),
+});
+export type BulkSetSkuActiveRequest = z.infer<typeof bulkSetSkuActiveRequestSchema>;
+export const bulkSetSkuActiveResultSchema = bulkSetProductActiveResultSchema;
 
 export const mergeBrandsRequestSchema = z
   .object({ sourceBrandId: idSchema, targetBrandId: idSchema })
@@ -704,7 +718,7 @@ export function buildListSearch(query: AdminListQuery & Record<string, string | 
  * survives a reload, is shareable, and needs no client-side JavaScript.
  * ==========================================================================*/
 
-export const CATALOG_PAGE_SIZE = 20;
+export const CATALOG_PAGE_SIZE = 100;
 
 export interface CatalogQuery {
   readonly page: number;
