@@ -3,8 +3,9 @@
 --
 -- The 24 brands are the ones with cover art (`BRAND_ART` in
 -- apps/web/src/lib/brand-art.ts): the slug here is the Brand slug and the file
--- name of the art. A product is matched by the venue's brand and title, with a
--- whole-word, case-insensitive pattern per brand. A product that matches two
+-- name of the art. A product is matched when the venue's brand or title STARTS with the
+-- brand's name (so "Halo Infinite (Xbox)" and "Delta Force Coins (Steam)", which
+-- are game currency, are not taken for Xbox or Steam). A product that matches two
 -- brands is listed and left alone; one that matches none keeps whatever brand
 -- it has. Only ReSellCodes rows (`rsc_` ids) are read or changed.
 --
@@ -40,36 +41,36 @@ BEGIN;
 CREATE TEMP TABLE brand_rule (slug text PRIMARY KEY, name text NOT NULL, name_fa text NOT NULL, pattern text NOT NULL) ON COMMIT DROP;
 
 INSERT INTO brand_rule (slug, name, name_fa, pattern) VALUES
-  ('airbnb',      'Airbnb',      'ایربی‌انبی',   '\yairbnb\y'),
-  ('amazon',      'Amazon',      'آمازون',        '\yamazon\y'),
-  ('apple',       'Apple',       'اپل',           '\y(apple|itunes)\y'),
-  ('blizzard',    'Blizzard',    'بلیزارد',       '\y(blizzard|battle\.?net)\y'),
-  ('fortnite',    'Fortnite',    'فورتنایت',      '\y(fortnite|v-?bucks)\y'),
-  ('free-fire',   'Free Fire',   'فری فایر',      '\yfree[ -]?fire\y'),
-  ('google-play', 'Google Play', 'گوگل پلی',      '\ygoogle[ -]?play\y'),
-  ('hotels-com',  'Hotels.com',  'هتلز دات کام',  '\yhotels?[ .-]?com\y'),
-  ('jawaker',     'Jawaker',     'جواکر',         '\yjawaker\y'),
-  ('netflix',     'Netflix',     'نتفلیکس',       '\ynetflix\y'),
-  ('nike',        'Nike',        'نایکی',         '\ynike\y'),
-  ('nintendo',    'Nintendo',    'نینتندو',       '\ynintendo\y'),
-  ('playstation', 'PlayStation', 'پلی‌استیشن',    '\y(playstation|psn)\y'),
-  ('pubg',        'PUBG',        'پابجی',         '\ypubg\y'),
-  ('razer-gold',  'Razer Gold',  'ریزر گلد',      '\yrazer\y'),
-  ('roblox',      'Roblox',      'روبلاکس',       '\yroblox\y'),
-  ('shein',       'SHEIN',       'شیین',          '\yshein\y'),
-  ('spotify',     'Spotify',     'اسپاتیفای',     '\yspotify\y'),
-  ('steam',       'Steam',       'استیم',         '\ysteam\y'),
-  ('tinder',      'Tinder',      'تیندر',         '\ytinder\y'),
-  ('twitch',      'Twitch',      'توییچ',         '\ytwitch\y'),
-  ('uber',        'Uber',        'اوبر',          '\yuber\y'),
-  ('xbox',        'Xbox',        'ایکس‌باکس',     '\yxbox\y'),
-  ('zara',        'Zara',        'زارا',          '\yzara\y');
+  ('airbnb',      'Airbnb',      'ایربی‌انبی',   '^airbnb'),
+  ('amazon',      'Amazon',      'آمازون',        '^amazon'),
+  ('apple',       'Apple',       'اپل',           '^(app store|apple|itunes)'),
+  ('blizzard',    'Blizzard',    'بلیزارد',       '^(battle\.net|blizzard)'),
+  ('fortnite',    'Fortnite',    'فورتنایت',      '^fortnite'),
+  ('free-fire',   'Free Fire',   'فری فایر',      '^(garena )?free ?fire'),
+  ('google-play', 'Google Play', 'گوگل پلی',      '^google play'),
+  ('hotels-com',  'Hotels.com',  'هتلز دات کام',  '^hotels'),
+  ('jawaker',     'Jawaker',     'جواکر',         '^jawaker'),
+  ('netflix',     'Netflix',     'نتفلیکس',       '^netflix'),
+  ('nike',        'Nike',        'نایکی',         '^nike'),
+  ('nintendo',    'Nintendo',    'نینتندو',       '^nintendo'),
+  ('playstation', 'PlayStation', 'پلی‌استیشن',    '^(playstation|psn)'),
+  ('pubg',        'PUBG',        'پابجی',         '^pubg'),
+  ('razer-gold',  'Razer Gold',  'ریزر گلد',      '^razer'),
+  ('roblox',      'Roblox',      'روبلاکس',       '^roblox'),
+  ('shein',       'SHEIN',       'شیین',          '^shein'),
+  ('spotify',     'Spotify',     'اسپاتیفای',     '^spotify'),
+  ('steam',       'Steam',       'استیم',         '^steam'),
+  ('tinder',      'Tinder',      'تیندر',         '^tinder'),
+  ('twitch',      'Twitch',      'توییچ',         '^twitch'),
+  ('uber',        'Uber',        'اوبر',          '^uber( \(|$| gift)'),
+  ('xbox',        'Xbox',        'ایکس‌باکس',     '^xbox'),
+  ('zara',        'Zara',        'زارا',          '^zara');
 
 -- Each ReSellCodes product with the brand(s) its venue brand and title read as.
 CREATE TEMP TABLE hit ON COMMIT DROP AS
 SELECT p.id AS product_id, r.slug
 FROM "Product" p
-JOIN brand_rule r ON (p.brand || ' ' || p.title) ~* r.pattern
+JOIN brand_rule r ON p.title ~* r.pattern OR p.brand ~* r.pattern
 WHERE p.id LIKE 'rsc\_p\_%';
 
 CREATE TEMP TABLE ambiguous ON COMMIT DROP AS
