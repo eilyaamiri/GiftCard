@@ -26,6 +26,7 @@
     "db:import:resellcodes": "tsx prisma/import-resellcodes-catalog.ts",
     "db:add:resellcodes-telegram": "tsx prisma/add-resellcodes-telegram.ts",
     "db:add:resellcodes-steam": "tsx prisma/add-resellcodes-steam.ts",
+    "db:add:g4a4": "tsx prisma/add-g4a4-suppliers.ts",
     "db:populate:catalog-descriptions": "tsx prisma/populate-catalog-descriptions.ts",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
