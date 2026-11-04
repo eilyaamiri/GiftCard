@@ -44,7 +44,8 @@ type RefundRow = Prisma.RefundGetPayload<{ include: typeof REFUND_INCLUDE }>;
  *
  *   REQUESTED  -> an operator converted a task to a refund, or the payments
  *                 module found a second capture of an already-paid order;
- *   APPROVED   -> a FINANCE or ADMIN user who did not request it agreed;
+ *   APPROVED   -> a FINANCE or ADMIN user who did not request it agreed
+ *                 (an ADMIN may also approve their own request, audited);
  *   COMPLETED  -> finance sent the transfer and recorded its bank reference.
  *                 The payment becomes REFUNDED, and an order refunded as a
  *                 whole becomes REFUNDED through its state machine.
@@ -70,8 +71,16 @@ export class RefundsService {
     return rows.map(toDto);
   }
 
-  /** The second pair of eyes. Whoever requested the refund cannot approve it. */
+  /**
+   * The second pair of eyes. Whoever requested the refund cannot approve it,
+   * with one exception: an ADMIN may approve a refund they requested
+   * themselves (the owner's decision — an admin who converts a task to a refund
+   * is the person who would be asked to approve it). The approval is audited as
+   * a self-approval so it stays visible; FINANCE and every other role keep the
+   * rule.
+   */
   async approve(refundId: string, staff: AuthenticatedStaff): Promise<StaffRefundDto> {
+    let selfApproved = false;
     await this.db.$transaction(async (tx) => {
       const refund = await tx.refund.findUnique({ where: { id: refundId } });
       if (refund === null) throw DomainErrors.notFound('Refund');
@@ -79,7 +88,8 @@ export class RefundsService {
       if (refund.status !== 'REQUESTED') {
         throw DomainErrors.conflict('این درخواست بازگشت وجه در وضعیت قابل تأیید نیست.', `Refund ${refundId} is ${refund.status}`);
       }
-      if (refund.requestedByStaffId === staff.staffId) {
+      selfApproved = refund.requestedByStaffId === staff.staffId;
+      if (selfApproved && staff.role !== 'ADMIN') {
         throw DomainErrors.conflict(
           'درخواست‌دهندهٔ بازگشت وجه نمی‌تواند همان درخواست را تأیید کند.',
           `Staff ${staff.staffId} requested refund ${refundId}`,
@@ -109,7 +119,7 @@ export class RefundsService {
         });
       }
     });
-    await this.record(staff, 'REFUND_APPROVED', refundId, {});
+    await this.record(staff, 'REFUND_APPROVED', refundId, selfApproved ? { selfApproved: 'true' } : {});
     return this.get(refundId);
   }
 

@@ -7,8 +7,8 @@ import { InlineError, messageFor } from "../../(operator)/_components/error-noti
 
 /**
  * The one action a refund is waiting for. The API decides who may take it —
- * the requester cannot approve their own refund — and its Persian message is
- * shown when it refuses.
+ * the requester cannot approve their own refund unless they are an ADMIN — and
+ * its Persian message is shown when it refuses.
  */
 export function RefundActions({ refund }: { refund: StaffRefundDto }) {
   const [bankReference, setBankReference] = useState("");
