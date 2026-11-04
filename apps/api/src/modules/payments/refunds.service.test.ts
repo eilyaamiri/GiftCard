@@ -126,6 +126,46 @@ describe('RefundsService (PAY-10)', () => {
     expect(fake.refunds[0]?.['status']).toBe('REQUESTED');
   });
 
+  it('refuses FINANCE approving a refund they requested themselves', async () => {
+    const { service, fake } = harness({
+      refund: { id: 'r1', orderId: 'o1', amountIrr: 100n, reason: 'customer asked', status: 'REQUESTED', requestedByStaffId: 'fin-1' },
+      order: { id: 'o1', status: 'REFUND_PENDING' },
+    });
+
+    await expect(service.approve('r1', FINANCE)).rejects.toMatchObject({ code: 'CONFLICT' });
+    expect(fake.refunds[0]?.['status']).toBe('REQUESTED');
+  });
+
+  it('lets an ADMIN approve a refund they requested, and audits it as a self-approval', async () => {
+    const ADMIN: AuthenticatedStaff = { type: 'STAFF', staffId: 'adm-1', role: 'ADMIN', email: 'adm@x.test' };
+    const { service, fake, audit } = harness({
+      refund: { id: 'r1', orderId: 'o1', amountIrr: 100n, reason: 'customer asked', status: 'REQUESTED', requestedByStaffId: 'adm-1' },
+      order: { id: 'o1', status: 'REFUND_PENDING' },
+      payment: { id: 'p1', orderId: 'o1', status: 'PAID', amountIrr: 100n },
+    });
+
+    const dto = await service.approve('r1', ADMIN);
+
+    expect(dto).toMatchObject({ status: 'APPROVED', approvedByStaffId: 'adm-1' });
+    expect(fake.refunds[0]?.['status']).toBe('APPROVED');
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'REFUND_APPROVED', actor: 'adm-1', after: { selfApproved: 'true' } }),
+    );
+  });
+
+  it('does not mark an ADMIN approval of someone else’s refund as a self-approval', async () => {
+    const ADMIN: AuthenticatedStaff = { type: 'STAFF', staffId: 'adm-1', role: 'ADMIN', email: 'adm@x.test' };
+    const { service, audit } = harness({
+      refund: { id: 'r1', orderId: 'o1', amountIrr: 100n, reason: 'customer asked', status: 'REQUESTED', requestedByStaffId: 'op-1' },
+      order: { id: 'o1', status: 'REFUND_PENDING' },
+      payment: { id: 'p1', orderId: 'o1', status: 'PAID', amountIrr: 100n },
+    });
+
+    await service.approve('r1', ADMIN);
+
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'REFUND_APPROVED', after: {} }));
+  });
+
   it('approval by a second person ties a full refund to the paid payment', async () => {
     const { service, audit } = harness({
       refund: { id: 'r1', orderId: 'o1', amountIrr: 100n, reason: 'customer asked', status: 'REQUESTED', requestedByStaffId: 'op-1' },
