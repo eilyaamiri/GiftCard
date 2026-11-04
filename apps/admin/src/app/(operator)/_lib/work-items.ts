@@ -169,6 +169,19 @@ export const ACTIVE_STATUSES: readonly WorkItemStatus[] = [
 
 export const TERMINAL_STATUSES: readonly WorkItemStatus[] = ["COMPLETED", "FAILED", "CANCELLED"];
 
+/**
+ * The statuses in which a task still occupies one of the operator's slots —
+ * the same five the API counts toward the limit (ACTIVE_OPERATOR_STATUSES).
+ * «روی میز من» lists exactly these, so the count beside it and the list agree.
+ */
+export const DESK_STATUSES: readonly WorkItemStatus[] = [
+  "ASSIGNED",
+  "IN_PROGRESS",
+  "WAITING_CUSTOMER",
+  "WAITING_SUPPLIER",
+  "NEED_REVIEW",
+];
+
 /** Server-side cap in MAX_CONCURRENT_WORK_ITEMS_PER_OPERATOR. The API re-checks. */
 export const MAX_CONCURRENT_WORK_ITEMS = 3;
 

@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { newestFirst } from "./work-items";
+import { DESK_STATUSES, TERMINAL_STATUSES, newestFirst } from "./work-items";
+
+describe("DESK_STATUSES", () => {
+  it("is every status that holds one of the operator's slots, waiting ones included", () => {
+    expect([...DESK_STATUSES].sort()).toEqual(
+      ["ASSIGNED", "IN_PROGRESS", "NEED_REVIEW", "WAITING_CUSTOMER", "WAITING_SUPPLIER"].sort(),
+    );
+  });
+
+  it("never includes a finished or unclaimed task", () => {
+    for (const status of [...TERMINAL_STATUSES, "UNASSIGNED"]) {
+      expect(DESK_STATUSES).not.toContain(status);
+    }
+  });
+});
 
 describe("newestFirst", () => {
   it("puts the most recently created task at the top", () => {
