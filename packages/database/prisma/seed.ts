@@ -1249,6 +1249,51 @@ async function seedResellCodesSuppliers(): Promise<void> {
 }
 
 // ============================================================================
+// 5c. G4A4 — gift cards + game top-ups, both seeded inactive
+// ============================================================================
+
+/**
+ * Two rows because the adapter keys are two (`g4a4`, `g4a4-topup`). Both stay
+ * inactive: the adapters are also off by env, and turning either on is a release
+ * decision. The venue bills in toman (IRT), which the quote engine has no rate
+ * for yet, so nothing from it can be quoted until a pricing decision is taken.
+ */
+async function seedG4a4Suppliers(): Promise<void> {
+  await prisma.supplier.upsert({
+    where: { code: 'g4a4' },
+    create: {
+      id: 'seed_supplier_g4a4',
+      code: 'g4a4',
+      name: 'G4A4',
+      integrationMode: SupplierIntegrationMode.API,
+      // The venue puts the raw code in the order's notes, as Tillo does.
+      supportsRawCode: true,
+      defaultCurrency: 'IRT',
+      isActive: false,
+      notes:
+        'Gift cards via g4a4.com. Prices are in toman. No sandbox and no idempotency key: activate only after a supervised low-value order.',
+    },
+    update: {},
+  });
+
+  await prisma.supplier.upsert({
+    where: { code: 'g4a4-topup' },
+    create: {
+      id: 'seed_supplier_g4a4_topup',
+      code: 'g4a4-topup',
+      name: 'G4A4 Top-up',
+      integrationMode: SupplierIntegrationMode.API,
+      supportsRawCode: false,
+      defaultCurrency: 'IRT',
+      isActive: false,
+      notes:
+        'Game top-ups via g4a4.com. Prices are in toman. Import the catalogue from the admin top-up page, then enable games one by one.',
+    },
+    update: {},
+  });
+}
+
+// ============================================================================
 // 5. Suppliers — Tillo (raw code) + Reloadly (no raw code)
 // ============================================================================
 
@@ -2086,6 +2131,7 @@ async function main(): Promise<void> {
   await seedTelegramTopUpCatalog();
   await seedSteamTopUpCatalog();
   await seedResellCodesSuppliers();
+  await seedG4a4Suppliers();
   const customerIds = await seedCustomers();
 
   const anomalyIds = await seedFunnel({

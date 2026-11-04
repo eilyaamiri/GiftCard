@@ -12,6 +12,8 @@ import type { ReloadlyEnvironment } from '@barat/suppliers';
  * `FAZERCARDS_TOPUP_ENABLED`, `FAZERCARDS_STEAM_ENABLED`, `FAZERCARDS_API_KEY`, `FAZERCARDS_TIMEOUT_MS`,
  * `RESELLCODES_GIFTCARD_ENABLED`, `RESELLCODES_TOPUP_ENABLED`, `RESELLCODES_TELEGRAM_ENABLED`, `RESELLCODES_STEAM_ENABLED`, `RESELLCODES_API_KEY`,
  * `RESELLCODES_TIMEOUT_MS`,
+ * `G4A4_GIFTCARD_ENABLED`, `G4A4_TOPUP_ENABLED`, `G4A4_API_KEY`, `G4A4_TIMEOUT_MS`,
+ * `G4A4_GIFTCARD_CATEGORY_IDS`, `G4A4_TOPUP_CATEGORY_IDS`,
  * `SUPPLIER_PROVIDER_SKU_MAP` or
  * `SUPPLIER_PROVIDER_SKU_MAP_FILE`. They are read here — in one file, never
  * scattered — so the Foundation agent can lift these entries into the
@@ -155,6 +157,69 @@ function readResellCodesTimeoutMs(): number {
     throw new Error(`RESELLCODES_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
   }
   return timeoutMs;
+}
+
+/**
+ * G4A4 (g4a4.com): one API key, two products, each behind its own flag, exactly
+ * like ReSellCodes. `*_CATEGORY_IDS` is a comma-separated list of the venue's
+ * category ids a catalogue walk covers; unset walks them all.
+ */
+export interface G4a4ProductEnv extends FazerCardsProductEnv {
+  readonly categoryIds: readonly string[];
+}
+
+export function readG4a4GiftCardEnv(): G4a4ProductEnv {
+  return readG4a4ProductEnv('G4A4_GIFTCARD_ENABLED', 'G4A4 gift cards', 'G4A4_GIFTCARD_CATEGORY_IDS');
+}
+
+export function readG4a4TopUpEnv(): G4a4ProductEnv {
+  return readG4a4ProductEnv('G4A4_TOPUP_ENABLED', 'G4A4 top-up', 'G4A4_TOPUP_CATEGORY_IDS');
+}
+
+export interface G4a4CatalogEnv extends FazerCardsCatalogEnv {
+  readonly categoryIds: readonly string[];
+}
+
+/** Like the other catalogue envs: reading a catalogue spends nothing, so it does not wait for the spend flag. */
+export function readG4a4CatalogEnv(): G4a4CatalogEnv {
+  const apiKey = read('G4A4_API_KEY');
+  return {
+    apiKey,
+    timeoutMs: apiKey === undefined ? DEFAULT_TIMEOUT_MS : readG4a4TimeoutMs(),
+    categoryIds: apiKey === undefined ? [] : readCategoryIds('G4A4_TOPUP_CATEGORY_IDS'),
+  };
+}
+
+function readG4a4ProductEnv(flag: string, product: string, categoriesKey: string): G4a4ProductEnv {
+  if (!readBoolean(flag, false)) {
+    return { enabled: false, apiKey: '', timeoutMs: DEFAULT_TIMEOUT_MS, categoryIds: [] };
+  }
+  const apiKey = read('G4A4_API_KEY');
+  if (apiKey === undefined) {
+    throw new Error(`G4A4_API_KEY is required when ${product} is enabled`);
+  }
+  return { enabled: true, apiKey, timeoutMs: readG4a4TimeoutMs(), categoryIds: readCategoryIds(categoriesKey) };
+}
+
+function readG4a4TimeoutMs(): number {
+  const raw = read('G4A4_TIMEOUT_MS');
+  const timeoutMs = raw === undefined ? DEFAULT_TIMEOUT_MS : Number(raw);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_TIMEOUT_MS) {
+    throw new Error(`G4A4_TIMEOUT_MS must be an integer from 1 to ${MAX_TIMEOUT_MS}`);
+  }
+  return timeoutMs;
+}
+
+function readCategoryIds(key: string): readonly string[] {
+  const raw = read(key);
+  if (raw === undefined) {
+    return [];
+  }
+  const ids = raw.split(',').map((id) => id.trim());
+  if (!ids.every((id) => /^\d{1,15}$/u.test(id))) {
+    throw new Error(`${key} must be a comma-separated list of numeric category ids`);
+  }
+  return [...new Set(ids)];
 }
 
 /** `supplierCode:skuId` -> the identifier that supplier knows the SKU by. */
