@@ -33,6 +33,7 @@ export class InMemoryTopUpStore implements TopUpStore {
   private readonly targets = new Map<string, TopUpTarget>();
   private readonly orderStatuses = new Map<string, string>();
   private readonly statuses = new Map<string, TopUpFulfillmentStatus>();
+  private readonly nextChecks = new Map<string, Date | null>();
   /** Append-only in the same sense the real table is: nothing is ever rewritten. */
   readonly events: RecordedTopUpEvent[] = [];
   /** Every `transitionOrder` call, successful or not. */
@@ -51,6 +52,16 @@ export class InMemoryTopUpStore implements TopUpStore {
   /** The status the service left the fulfillment in, for direct assertions. */
   statusOf(fulfillmentId: string): TopUpFulfillmentStatus | undefined {
     return this.statuses.get(fulfillmentId);
+  }
+
+  /** The order's status as the service left it. */
+  orderStatusOf(orderId: string): string | undefined {
+    return this.orderStatuses.get(orderId);
+  }
+
+  /** When the service scheduled the next look at the venue, if it set one. */
+  nextCheckAtOf(fulfillmentId: string): Date | null | undefined {
+    return this.nextChecks.get(fulfillmentId);
   }
 
   async ensureFulfillmentForPaidOrder(orderId: string): Promise<TopUpTarget | null> {
@@ -117,6 +128,9 @@ export class InMemoryTopUpStore implements TopUpStore {
       return false;
     }
     this.statuses.set(input.fulfillmentId, input.to);
+    if (input.nextCheckAt !== undefined) {
+      this.nextChecks.set(input.fulfillmentId, input.nextCheckAt);
+    }
     const target = [...this.targets.values()].find((it) => it.fulfillmentId === input.fulfillmentId);
     this.events.push({
       fulfillmentId: input.fulfillmentId,

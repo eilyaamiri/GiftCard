@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import type { SupplierProvider } from '@barat/suppliers';
 import { SUPPLIER_PROVIDERS } from '@barat/suppliers';
 import Decimal from 'decimal.js';
@@ -109,6 +109,14 @@ const MAX_WAITING_FUNDS_ATTEMPTS = 144;
 const WAITING_FUNDS_RETRY_MS = 10 * 60 * 1_000;
 
 /**
+ * A venue that answered "processing" usually finishes within seconds (it asks
+ * clients to poll every few seconds), so the first look is soon and later looks
+ * are spaced. One order costs one request per look, far inside the 30/min limit.
+ */
+const FIRST_STATUS_CHECK_MS = 30 * 1_000;
+const NEXT_STATUS_CHECK_MS = 2 * 60 * 1_000;
+
+/**
  * A venue rate limit (FUL-7) is retried on its own, shorter cadence, a bounded
  * number of times. `purchaseAttempts` counts every claim, so this is the total
  * number of tries before the refusal is treated as a real failure.
@@ -163,6 +171,7 @@ export class TopUpFulfillmentService {
   }
 
   private readonly providersByKey: ReadonlyMap<string, SupplierProvider>;
+  private readonly logger = new Logger(TopUpFulfillmentService.name);
 
   /**
    * The entry point the `FULFILLMENT_TRIGGER` calls for a top-up order.
@@ -611,13 +620,16 @@ export class TopUpFulfillmentService {
           event: { type: 'SUCCEEDED', providerStatus: common.providerStatus },
         });
         if (moved) {
-          await this.store.transitionOrder({
+          const delivered = await this.store.transitionOrder({
             orderId: target.orderId,
             from: ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'],
             to: 'FULFILLED',
           });
           /* Order fulfillment is customer-visible through the order endpoint.
            * Do not write CUSTOMER_NOTIFIED: no notification transport ran. */
+          this.logger.log(
+            `Top-up delivered for order ${target.orderId} (supplier ${target.supplierCode}, order marked fulfilled: ${String(delivered)})`,
+          );
         }
         return {
           decision: 'SUCCEEDED',
@@ -634,14 +646,25 @@ export class TopUpFulfillmentService {
          * automatically — the customer is told nothing yet, because there is
          * nothing true to tell them, and no operator is involved.
          */
-        await this.store.transition({
+        const firstLook = target.status !== 'AWAITING_PROVIDER';
+        const parked = await this.store.transition({
           fulfillmentId: target.fulfillmentId,
           from: ['PURCHASING', 'AWAITING_PROVIDER', 'QUEUED'],
           to: 'AWAITING_PROVIDER',
-          nextCheckAt: new Date(Date.now() + WAITING_FUNDS_RETRY_MS),
+          nextCheckAt: new Date(
+            Date.now() + (firstLook ? FIRST_STATUS_CHECK_MS : NEXT_STATUS_CHECK_MS),
+          ),
           ...common,
           event: { type: 'PURCHASE_RESPONDED', providerStatus: common.providerStatus },
         });
+        if (parked) {
+          /* The venue holds the order now, so "being prepared" is no longer true. */
+          await this.store.transitionOrder({
+            orderId: target.orderId,
+            from: ['PAID', 'FULFILLMENT_PENDING'],
+            to: 'FULFILLING',
+          });
+        }
         return {
           decision: 'AWAITING_PROVIDER',
           orderId: target.orderId,
