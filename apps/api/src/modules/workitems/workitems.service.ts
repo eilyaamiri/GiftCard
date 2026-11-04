@@ -12,6 +12,7 @@ import {
   DEFAULT_TITLE_BY_WORK_ITEM_TYPE,
   MAX_CONCURRENT_WORK_ITEMS_PER_OPERATOR,
   WORK_ITEM_STORE,
+  WORK_ITEM_TERMINAL_STATUSES,
   type EscalationInput,
   type FulfillmentTrigger,
   type FulfillmentTriggerInput,
@@ -532,6 +533,34 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
       ...(filter.orderId === undefined ? {} : { orderId: filter.orderId }),
       take: Math.min(filter.take ?? 50, 200),
     });
+  }
+
+  /**
+   * The operator's own desk: every task still holding one of their slots, then
+   * their most recent finished ones.
+   *
+   * `list` hands back the claim queue's order — priority, then oldest first —
+   * capped at a page. An operator with a long history of finished tasks filled
+   * that page with the oldest of them, so the live ones fell off the end: the
+   * counter said «۳ از ۳» beside an empty desk. The live tasks are fetched on
+   * their own, so no amount of history can push them out.
+   */
+  async listMine(staffId: string): Promise<readonly WorkItemSummary[]> {
+    const [live, finished] = await Promise.all([
+      this.store.list({
+        assignedToStaffId: staffId,
+        statuses: ACTIVE_OPERATOR_STATUSES,
+        newestFirst: true,
+        take: 200,
+      }),
+      this.store.list({
+        assignedToStaffId: staffId,
+        statuses: WORK_ITEM_TERMINAL_STATUSES,
+        newestFirst: true,
+        take: 50,
+      }),
+    ]);
+    return [...live, ...finished];
   }
 
   /** How many of the operator's slots are currently occupied. */

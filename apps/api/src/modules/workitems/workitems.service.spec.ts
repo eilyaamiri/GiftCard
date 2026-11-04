@@ -408,3 +408,57 @@ describe('convertToRefund', () => {
     ).rejects.toThrow();
   });
 });
+
+describe('the operator desk (listMine)', () => {
+  /** A task already assigned, created `daysAgo` days ago, put straight into the store. */
+  async function seedTask(h: Harness, key: string, status: 'IN_PROGRESS' | 'WAITING_CUSTOMER' | 'COMPLETED', daysAgo: number) {
+    const item = await h.service.onOrderPaid({ orderId: `order-${key}` });
+    const row = h.store.rows.get(item.id);
+    if (row === undefined) throw new Error('seed failed');
+    h.store.rows.set(item.id, {
+      ...row,
+      status,
+      assignedToStaffId: 'op-1',
+      createdAt: new Date(Date.now() - daysAgo * 86_400_000),
+    });
+    return item.id;
+  }
+
+  it('shows the live tasks even when the operator has far more finished ones than a page holds', async () => {
+    const h = harness();
+    // 60 old finished tasks would have filled the 50-item page, oldest first.
+    for (let i = 0; i < 60; i += 1) await seedTask(h, `done-${String(i)}`, 'COMPLETED', 100 + i);
+    const live = [
+      await seedTask(h, 'live-1', 'IN_PROGRESS', 1),
+      await seedTask(h, 'live-2', 'IN_PROGRESS', 0.5),
+      await seedTask(h, 'live-3', 'WAITING_CUSTOMER', 0.1),
+    ];
+
+    const desk = await h.service.listMine('op-1');
+
+    for (const id of live) expect(desk.map((item) => item.id)).toContain(id);
+    expect(await h.service.activeCountFor('op-1')).toBe(3);
+  });
+
+  it('lists the live tasks before the finished ones, and the newest finished ones, not the oldest', async () => {
+    const h = harness();
+    const oldest = await seedTask(h, 'done-oldest', 'COMPLETED', 400);
+    for (let i = 0; i < 50; i += 1) await seedTask(h, `done-${String(i)}`, 'COMPLETED', 10 + i);
+    const live = await seedTask(h, 'live', 'IN_PROGRESS', 1);
+
+    const desk = await h.service.listMine('op-1');
+
+    expect(desk[0]?.id).toBe(live);
+    expect(desk.map((item) => item.id)).not.toContain(oldest);
+    expect(desk.filter((item) => item.status === 'COMPLETED')).toHaveLength(50);
+  });
+
+  it('never includes another operator’s tasks or an unclaimed one', async () => {
+    const h = harness();
+    await h.service.onOrderPaid({ orderId: 'order-unclaimed' });
+    const other = await h.service.onOrderPaid({ orderId: 'order-other' });
+    await h.service.claim(other.id, 'op-2');
+
+    expect(await h.service.listMine('op-1')).toHaveLength(0);
+  });
+});

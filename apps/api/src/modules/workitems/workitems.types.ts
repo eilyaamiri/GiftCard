@@ -210,8 +210,12 @@ export interface WorkItemStore {
   list(filter: {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
+    /** Any of these statuses; used instead of `status` when both are given. */
+    statuses?: readonly WorkItemStatus[];
     assignedToStaffId?: string;
     orderId?: string;
+    /** Newest first, instead of the claim-queue order (priority, then oldest). */
+    newestFirst?: boolean;
     take: number;
   }): Promise<readonly WorkItemSummary[]>;
   create(record: CreateWorkItemRecord): Promise<WorkItemSummary>;

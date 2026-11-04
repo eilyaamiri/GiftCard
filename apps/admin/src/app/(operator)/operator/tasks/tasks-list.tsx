@@ -8,6 +8,7 @@ import type { WorkItemType } from "@barat/contracts";
 import { Icon } from "@/components/icon-map";
 import { InlineError, messageFor } from "../../_components/error-notice";
 import {
+  DESK_STATUSES,
   MAX_CONCURRENT_WORK_ITEMS,
   QUEUE_KEY_LABEL,
   TERMINAL_STATUSES,
@@ -81,7 +82,7 @@ export function TasksList({
         : tab === "board"
           ? board.filter((item) => !TERMINAL_STATUSES.includes(item.status))
           : tab === "mine"
-            ? desk.filter((item) => item.status === "ASSIGNED" || item.status === "IN_PROGRESS")
+            ? desk.filter((item) => DESK_STATUSES.includes(item.status))
             : tab === "waiting"
               ? desk.filter((item) => (WAITING_STATUSES as readonly string[]).includes(item.status))
               : tab === "overdue"
