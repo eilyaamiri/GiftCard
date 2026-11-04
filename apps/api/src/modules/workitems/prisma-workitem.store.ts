@@ -132,20 +132,26 @@ export class PrismaWorkItemStore implements WorkItemStore {
   async list(filter: {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
+    statuses?: readonly WorkItemStatus[];
     assignedToStaffId?: string;
     orderId?: string;
+    newestFirst?: boolean;
     take: number;
   }): Promise<readonly WorkItemSummary[]> {
     const rows = await this.db.workItem.findMany({
       where: {
         ...(filter.queueKey === undefined ? {} : { queue: { key: filter.queueKey } }),
-        ...(filter.status === undefined ? {} : { status: filter.status }),
+        ...(filter.statuses !== undefined
+          ? { status: { in: [...filter.statuses] } }
+          : filter.status === undefined
+            ? {}
+            : { status: filter.status }),
         ...(filter.assignedToStaffId === undefined
           ? {}
           : { assignedToStaffId: filter.assignedToStaffId }),
         ...(filter.orderId === undefined ? {} : { orderId: filter.orderId }),
       },
-      orderBy: [{ priority: 'asc' }, { createdAt: 'asc' }],
+      orderBy: filter.newestFirst === true ? [{ createdAt: 'desc' }] : [{ priority: 'asc' }, { createdAt: 'asc' }],
       take: filter.take,
       select: WORK_ITEM_SELECT,
     });

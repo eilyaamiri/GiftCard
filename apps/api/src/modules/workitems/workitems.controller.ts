@@ -43,7 +43,7 @@ export class WorkItemsController {
   @Get('mine')
   async mine(@Req() request: unknown): Promise<{ items: readonly WorkItemSummary[]; capacityUsed: number }> {
     const staff = requireStaff(request);
-    const items = await this.workItems.list({ assignedToStaffId: staff.id });
+    const items = await this.workItems.listMine(staff.id);
     const capacityUsed = await this.workItems.activeCountFor(staff.id);
     return { items, capacityUsed };
   }

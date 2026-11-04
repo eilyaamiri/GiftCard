@@ -107,19 +107,28 @@ export class InMemoryWorkItemStore implements WorkItemStore {
   async list(filter: {
     queueKey?: QueueKey;
     status?: WorkItemStatus;
+    statuses?: readonly WorkItemStatus[];
     assignedToStaffId?: string;
     orderId?: string;
+    newestFirst?: boolean;
     take: number;
   }): Promise<readonly WorkItemSummary[]> {
-    return [...this.rows.values()]
+    const matching = [...this.rows.values()]
       .filter((row) => filter.queueKey === undefined || row.queueKey === filter.queueKey)
-      .filter((row) => filter.status === undefined || row.status === filter.status)
+      .filter((row) =>
+        filter.statuses !== undefined
+          ? filter.statuses.includes(row.status)
+          : filter.status === undefined || row.status === filter.status,
+      )
       .filter(
         (row) =>
           filter.assignedToStaffId === undefined || row.assignedToStaffId === filter.assignedToStaffId,
       )
-      .filter((row) => filter.orderId === undefined || row.orderId === filter.orderId)
-      .slice(0, filter.take);
+      .filter((row) => filter.orderId === undefined || row.orderId === filter.orderId);
+    if (filter.newestFirst === true) {
+      matching.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+    }
+    return matching.slice(0, filter.take);
   }
 
   async create(record: CreateWorkItemRecord): Promise<WorkItemSummary> {
