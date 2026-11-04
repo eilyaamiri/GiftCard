@@ -251,6 +251,55 @@ describe('a top-up creates no work item for an operator', () => {
       expect(h.topUpStore.orderTransitions.at(-1)).toMatchObject({ to: 'REVIEW_REQUIRED' });
     });
 
+    it('opens one for a paid order never sent to the supplier, and does not buy it', async () => {
+      const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1_000);
+      const h = harness({ target: target({ paidAt: sevenHoursAgo }) });
+
+      const outcome = await h.service.onTopUpOrderPaid(ORDER_ID);
+
+      expect(outcome).toMatchObject({ decision: 'FAILED', reason: 'STALE_UNSENT' });
+      expect(h.provider.getPurchaseInvocationCount()).toBe(0);
+      expect(workItemCount(h)).toBe(1);
+      expect(h.workItems.rows.get(outcome.workItemId as string)?.code).toBe(
+        `topup:SUPPLIER_FOLLOWUP:${ORDER_ID}`,
+      );
+      expect(h.topUpStore.orderTransitions.at(-1)).toMatchObject({ to: 'REVIEW_REQUIRED' });
+
+      const replay = await h.service.onTopUpOrderPaid(ORDER_ID);
+      expect(replay).toMatchObject({ decision: 'NOT_ELIGIBLE', reason: 'TERMINAL_FAILED' });
+      expect(h.provider.getPurchaseInvocationCount()).toBe(0);
+      expect(workItemCount(h)).toBe(1);
+    });
+
+    it('still buys an order that was paid minutes ago', async () => {
+      const h = harness({ target: target({ paidAt: new Date(Date.now() - 5 * 60 * 1_000) }) });
+      h.provider.setNextPurchaseResult({
+        status: 'SUCCEEDED',
+        providerReference: 'TG-8',
+        cost: { amount: '4.50', currency: 'USD' },
+      });
+
+      const outcome = await h.service.onTopUpOrderPaid(ORDER_ID);
+
+      expect(outcome).toMatchObject({ decision: 'SUCCEEDED' });
+      expect(workItemCount(h)).toBe(0);
+    });
+
+    it('does not call an order stranded once an attempt was recorded for it', async () => {
+      const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1_000);
+      const h = harness({ target: target({ paidAt: sevenHoursAgo, purchaseAttempts: 1 }) });
+      h.provider.setNextPurchaseResult({
+        status: 'SUCCEEDED',
+        providerReference: 'TG-9',
+        cost: { amount: '4.50', currency: 'USD' },
+      });
+
+      const outcome = await h.service.onTopUpOrderPaid(ORDER_ID);
+
+      expect(outcome).not.toMatchObject({ reason: 'STALE_UNSENT' });
+      expect(workItemCount(h)).toBe(0);
+    });
+
     it('opens one on an UNKNOWN outcome, and never re-buys', async () => {
       const h = harness();
       h.provider.setNextPurchaseResult({
