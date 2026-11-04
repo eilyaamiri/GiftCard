@@ -3,6 +3,7 @@ import type { SupplierAvailability } from '@barat/suppliers';
 
 import type {
   AutoFulfillmentTarget,
+  PendingPurchaseRecord,
   SupplierOfferView,
   SupplierPurchaseAttemptRecord,
   SupplierPurchaseAttemptStatus,
@@ -147,5 +148,50 @@ export class InMemorySupplierStore implements SupplierStore {
       ...(input.errorCode === undefined ? {} : { errorCode: input.errorCode }),
       ...(input.status === 'SUCCEEDED' || input.status === 'FAILED' ? { settledAt: new Date() } : {}),
     };
+  }
+
+  async listPendingPurchases(input: { since: Date; limit: number }): Promise<readonly PendingPurchaseRecord[]> {
+    const pending: PendingPurchaseRecord[] = [];
+    for (const attempt of [...this.purchaseAttempts].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime())) {
+      const target = this.targets.find((candidate) => candidate.orderId === attempt.orderId);
+      if (
+        attempt.status !== 'IN_FLIGHT' ||
+        attempt.providerReference === null ||
+        attempt.offerId === null ||
+        attempt.startedAt < input.since ||
+        target === undefined
+      ) {
+        continue;
+      }
+      pending.push({
+        attemptId: attempt.id,
+        orderId: attempt.orderId,
+        customerId: target.customerId,
+        offerId: attempt.offerId,
+        workItemId: target.workItemId,
+        idempotencyKey: attempt.idempotencyKey,
+        providerReference: attempt.providerReference,
+        startedAt: attempt.startedAt,
+      });
+    }
+    return pending.slice(0, input.limit);
+  }
+
+  /** Order status by id, seeded from the targets; moves only from a listed status. */
+  readonly orderStatuses = new Map<string, string>();
+
+  orderStatusOf(orderId: string): string | undefined {
+    return (
+      this.orderStatuses.get(orderId) ?? this.targets.find((target) => target.orderId === orderId)?.orderStatus
+    );
+  }
+
+  async transitionOrder(input: { orderId: string; from: readonly string[]; to: string }): Promise<boolean> {
+    const current = this.orderStatusOf(input.orderId);
+    if (current === undefined || !input.from.includes(current)) {
+      return false;
+    }
+    this.orderStatuses.set(input.orderId, input.to);
+    return true;
   }
 }

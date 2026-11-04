@@ -1,18 +1,25 @@
 import { Inject, Injectable } from '@nestjs/common';
 import Decimal from 'decimal.js';
-import type { SupplierBalance, SupplierProvider, SupplierPurchaseResult } from '@barat/suppliers';
+import type {
+  SupplierBalance,
+  SupplierDeliveryAsset,
+  SupplierProvider,
+  SupplierPurchaseResult,
+} from '@barat/suppliers';
 import { SUPPLIER_PROVIDERS } from '@barat/suppliers';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AuditService } from '../audit/audit.service';
 import { DELIVERABLE_ORDER_STATUSES } from '../fulfillment/checklist-evaluation';
-import { MANAGER_APPROVAL_ROLE_SET } from '../fulfillment/fulfillment.types';
+import { MANAGER_APPROVAL_ROLE_SET, type GiftCardAssetView } from '../fulfillment/fulfillment.types';
 import type { StaffContext } from '../workitems/staff-context';
 import { WORK_ITEM_ESCALATOR, type WorkItemEscalator } from '../workitems/workitems.types';
 import { FulfillmentService } from '../fulfillment/fulfillment.service';
 import { SUPPLIER_STORE } from './suppliers.types';
 import type {
   AutoFulfillmentTarget,
+  PendingPurchaseRecord,
+  PendingPurchaseResolution,
   SupplierFundingState,
   SupplierFundingView,
   SupplierOfferView,
@@ -55,6 +62,11 @@ export const SUPPLIER_AUDIT_ACTIONS = {
 
 const UNKNOWN_OUTCOME_PREFIX = 'UNKNOWN_OUTCOME';
 const PENDING_FOLLOWUP_PREFIX = 'SUPPLIER_PENDING';
+
+/** The code of the operator follow-up opened when a purchase went PENDING. */
+export function pendingFollowupCode(orderId: string, idempotencyKey: string): string {
+  return `${PENDING_FOLLOWUP_PREFIX}:${orderId}:${idempotencyKey}`;
+}
 
 /**
  * The supplier idempotency key for an order's purchase generation (FUL-2).
@@ -624,41 +636,13 @@ export class SuppliersService {
           );
         }
 
-        /*
-         * The provider response may hold a raw gift-card code. It is handed
-         * straight to fulfillment, which encrypts it before it is persisted, and
-         * it is deliberately NOT part of this method's return value: the code
-         * must not travel back through the controller into an HTTP response.
-         */
-        const stored = await this.fulfillment.ingestAutomatedSupplierResult({
+        const stored = await this.storeDeliveredAsset({
+          orderId: input.orderId,
           workItemId: input.workItemId,
-          actorId: `system:supplier:${offer.supplierCode}`,
-          supplierId: offer.supplierId,
-          supplierReference: result.providerReference ?? null,
-          actualSupplierCost: result.cost?.amount ?? null,
-          actualSupplierCurrency: result.cost?.currency ?? null,
-          skuId: offer.skuId,
+          offer,
           idempotencyKey,
+          result,
           asset: result.asset,
-        });
-
-        await this.audit.record({
-          actor: 'system:supplier-purchase',
-          actorType: 'SYSTEM',
-          action: SUPPLIER_AUDIT_ACTIONS.PURCHASE_SUCCEEDED,
-          entity: 'SupplierOffer',
-          entityId: offer.id,
-          after: {
-            orderId: input.orderId,
-            supplierId: offer.supplierId,
-            supplierCode: offer.supplierCode,
-            providerReference: result.providerReference ?? null,
-            status: result.status,
-            assetId: stored.id,
-            assetType: stored.assetType,
-            maskedCode: stored.maskedCode,
-            cost: result.cost ?? null,
-          },
         });
 
         return {
@@ -673,7 +657,7 @@ export class SuppliersService {
 
       case 'PENDING': {
         const workItem = await this.escalator.openEscalation({
-          code: `${PENDING_FOLLOWUP_PREFIX}:${input.orderId}:${idempotencyKey}`,
+          code: pendingFollowupCode(input.orderId, idempotencyKey),
           orderId: input.orderId,
           customerId: input.customerId,
           type: 'SUPPLIER_FOLLOWUP',
@@ -798,5 +782,156 @@ export class SuppliersService {
     }
 
     return toPurchaseStatusView(result, input.providerReference);
+  }
+
+  /** The supplier purchases still waiting on the supplier, oldest first. */
+  async listPendingPurchases(input: {
+    since: Date;
+    limit: number;
+  }): Promise<readonly PendingPurchaseRecord[]> {
+    return this.store.listPendingPurchases(input);
+  }
+
+  /** Shows the customer that the order is being worked on; a no-op once it has moved on. */
+  async markOrderInProgress(orderId: string): Promise<boolean> {
+    return this.store.transitionOrder({
+      orderId,
+      from: ['PAID', 'FULFILLMENT_PENDING'],
+      to: 'FULFILLING',
+    });
+  }
+
+  /**
+   * Asks the supplier how a purchase it accepted earlier turned out, and records
+   * the answer. Never calls `purchase`: a pending purchase is already paid for, so
+   * the only safe moves are to read its result or leave it alone.
+   *
+   * SUCCEEDED stores the card (encrypted) against the order's task and settles the
+   * attempt; FAILED settles it so the order's purchase slot is freed. Everything
+   * else, including an unreadable status, leaves the attempt IN_FLIGHT for the
+   * next pass and for the operator task that was opened when it went pending.
+   */
+  async resolvePendingPurchase(pending: PendingPurchaseRecord): Promise<PendingPurchaseResolution> {
+    return this.withOrderPurchaseLock(pending.orderId, async () => {
+      // Re-read under the lock: an operator may have settled it since the list was read.
+      const latest = await this.store.latestPurchaseAttempt(pending.orderId);
+      if (latest === null || latest.id !== pending.attemptId || latest.status !== 'IN_FLIGHT') {
+        return { state: 'STILL_PENDING' };
+      }
+      const offer = await this.store.findOfferById(pending.offerId);
+      const provider = offer === null ? undefined : this.providersByKey.get(offer.supplierCode);
+      if (offer === null || provider === undefined) {
+        return { state: 'STILL_PENDING' };
+      }
+
+      let result: SupplierPurchaseResult;
+      try {
+        result = await provider.getPurchaseStatus(pending.providerReference);
+      } catch {
+        return { state: 'STILL_PENDING' };
+      }
+
+      if (result.status === 'FAILED') {
+        await this.store.settlePurchaseAttempt({
+          id: pending.attemptId,
+          status: 'FAILED',
+          errorCode: result.failureCode ?? 'SUPPLIER_FAILED',
+        });
+        await this.audit.record({
+          actor: 'system:supplier-purchase',
+          actorType: 'SYSTEM',
+          action: SUPPLIER_AUDIT_ACTIONS.PURCHASE_FAILED,
+          entity: 'SupplierOffer',
+          entityId: offer.id,
+          after: {
+            orderId: pending.orderId,
+            supplierId: offer.supplierId,
+            supplierCode: offer.supplierCode,
+            providerReference: pending.providerReference,
+            failureCode: result.failureCode ?? 'SUPPLIER_FAILED',
+            resolvedFromPending: true,
+          },
+        });
+        return { state: 'FAILED', failureCode: result.failureCode ?? 'SUPPLIER_FAILED' };
+      }
+
+      if (
+        result.status !== 'SUCCEEDED' ||
+        result.asset === undefined ||
+        result.asset.assetType === 'DIRECT_TOPUP'
+      ) {
+        return { state: 'STILL_PENDING' };
+      }
+
+      const guard = await this.fulfillment.purchaseGuardForWorkItem(pending.workItemId);
+      if (guard.assetCount > 0) {
+        // A person already entered the card; do not store a second one.
+        await this.store.settlePurchaseAttempt({ id: pending.attemptId, status: 'SUCCEEDED' });
+        return { state: 'SETTLED_ELSEWHERE' };
+      }
+
+      const stored = await this.storeDeliveredAsset({
+        orderId: pending.orderId,
+        workItemId: pending.workItemId,
+        offer,
+        idempotencyKey: pending.idempotencyKey,
+        result,
+        asset: result.asset,
+      });
+      await this.store.settlePurchaseAttempt({
+        id: pending.attemptId,
+        status: 'SUCCEEDED',
+        providerReference: pending.providerReference,
+      });
+      return { state: 'SUCCEEDED', assetId: stored.id };
+    });
+  }
+
+  /**
+   * The provider response may hold a raw gift-card code. It is handed straight to
+   * fulfillment, which encrypts it before it is persisted, and it is deliberately
+   * NOT part of any return value: the code must not travel back through the
+   * controller into an HTTP response.
+   */
+  private async storeDeliveredAsset(input: {
+    orderId: string;
+    workItemId: string;
+    offer: SupplierOfferView;
+    idempotencyKey: string;
+    result: SupplierPurchaseResult;
+    asset: SupplierDeliveryAsset;
+  }): Promise<GiftCardAssetView> {
+    const { offer, result } = input;
+    const stored = await this.fulfillment.ingestAutomatedSupplierResult({
+      workItemId: input.workItemId,
+      actorId: `system:supplier:${offer.supplierCode}`,
+      supplierId: offer.supplierId,
+      supplierReference: result.providerReference ?? null,
+      actualSupplierCost: result.cost?.amount ?? null,
+      actualSupplierCurrency: result.cost?.currency ?? null,
+      skuId: offer.skuId,
+      idempotencyKey: input.idempotencyKey,
+      asset: input.asset,
+    });
+
+    await this.audit.record({
+      actor: 'system:supplier-purchase',
+      actorType: 'SYSTEM',
+      action: SUPPLIER_AUDIT_ACTIONS.PURCHASE_SUCCEEDED,
+      entity: 'SupplierOffer',
+      entityId: offer.id,
+      after: {
+        orderId: input.orderId,
+        supplierId: offer.supplierId,
+        supplierCode: offer.supplierCode,
+        providerReference: result.providerReference ?? null,
+        status: result.status,
+        assetId: stored.id,
+        assetType: stored.assetType,
+        maskedCode: stored.maskedCode,
+        cost: result.cost ?? null,
+      },
+    });
+    return stored;
   }
 }

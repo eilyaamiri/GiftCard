@@ -7,6 +7,7 @@ import { FulfillmentModule } from '../fulfillment/fulfillment.module';
 import { WorkItemsModule } from '../workitems/workitems.module';
 import { FULFILLMENT_TRIGGER } from '../workitems/workitems.types';
 import { AutoFulfillmentService } from './auto-fulfillment.service';
+import { PendingPurchaseSchedulerService } from './pending-purchase-scheduler.service';
 import { PrismaSupplierStore } from './prisma-supplier.store';
 import {
   PrismaTopUpCatalogImportStore,
@@ -90,6 +91,7 @@ import {
     AutoFulfillmentService,
     TopUpFulfillmentService,
     TopUpSchedulerService,
+    PendingPurchaseSchedulerService,
     { provide: FULFILLMENT_TRIGGER, useExisting: AutoFulfillmentService },
   ],
   exports: [

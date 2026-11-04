@@ -270,7 +270,38 @@ export interface SupplierStore {
     providerReference?: string | null;
     errorCode?: string | null;
   }): Promise<void>;
+
+  /**
+   * Gift-card purchases the supplier accepted but has not finished: attempts
+   * still IN_FLIGHT that already carry the supplier's order number, started
+   * after `since`, oldest first.
+   */
+  listPendingPurchases(input: { since: Date; limit: number }): Promise<readonly PendingPurchaseRecord[]>;
+
+  /** Moves the order only if it is currently in one of `from`. */
+  transitionOrder(input: { orderId: string; from: readonly string[]; to: string }): Promise<boolean>;
 }
+
+/** A supplier purchase waiting on the supplier. Carries no code and no secret. */
+export interface PendingPurchaseRecord {
+  readonly attemptId: string;
+  readonly orderId: string;
+  readonly customerId: string | null;
+  readonly offerId: string;
+  /** The order's gift-card fulfillment task, which the delivered card is stored against. */
+  readonly workItemId: string;
+  readonly idempotencyKey: string;
+  readonly providerReference: string;
+  readonly startedAt: Date;
+}
+
+export type PendingPurchaseResolution =
+  /** Nothing to act on: still processing, status unreadable, or no longer ours to settle. */
+  | { readonly state: 'STILL_PENDING' }
+  | { readonly state: 'SUCCEEDED'; readonly assetId: string }
+  /** A person already entered the card; nothing was stored and the attempt is closed. */
+  | { readonly state: 'SETTLED_ELSEWHERE' }
+  | { readonly state: 'FAILED'; readonly failureCode: string };
 
 export type SupplierPurchaseAttemptStatus = 'IN_FLIGHT' | 'SUCCEEDED' | 'FAILED' | 'UNKNOWN';
 

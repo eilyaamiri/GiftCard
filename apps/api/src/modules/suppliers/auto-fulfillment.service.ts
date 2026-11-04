@@ -10,7 +10,7 @@ import type {
   FulfillmentTriggerInput,
   WorkItemSummary,
 } from '../workitems/workitems.types';
-import { SuppliersService } from './suppliers.service';
+import { pendingFollowupCode, SuppliersService } from './suppliers.service';
 /*
  * A VALUE import, and the lint rule below is disabled on purpose.
  *
@@ -24,7 +24,7 @@ import { SuppliersService } from './suppliers.service';
  */
 // eslint-disable-next-line @typescript-eslint/consistent-type-imports
 import { TopUpFulfillmentService } from './topup-fulfillment.service';
-import type { AutoFulfillmentTarget } from './suppliers.types';
+import type { AutoFulfillmentTarget, PendingPurchaseRecord } from './suppliers.types';
 
 /**
  * Why an attempt ended the way it did.
@@ -74,6 +74,11 @@ export const AUTO_FULFILLMENT_AUDIT_ACTION = 'AUTO_FULFILLMENT_ATTEMPTED';
 const AUTOMATABLE_QUANTITY = 1;
 
 const AUTOMATABLE_WORK_ITEM_TYPE = 'MANUAL_GIFT_CARD_FULFILLMENT';
+
+/** A purchase still unanswered after this long is left to the operator task. */
+const PENDING_FOLLOW_UP_WINDOW_MS = 24 * 60 * 60 * 1_000;
+/** Each pending order costs one supplier request; the venue allows 30 a minute. */
+const PENDING_SWEEP_BATCH = 10;
 
 function notEligible(workItemId: string, reason: string): AutoFulfillmentOutcome {
   return { decision: 'NOT_ELIGIBLE', workItemId, assetId: null, reason };
@@ -219,7 +224,93 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
       return this.record(bought);
     }
 
-    return this.record(await this.deliverAndFlagForReview(target, bought.assetId));
+    return this.record(await this.deliverAndFlagForReview(target.workItemId, bought.assetId));
+  }
+
+  /**
+   * Follows up purchases the supplier accepted but had not finished, and delivers
+   * each card the moment the supplier completes it.
+   *
+   * A venue may answer `processing` and finish seconds later. The purchase was
+   * already paid for, so this only ever reads the result (never buys again): a
+   * completed order has its card stored, delivered to the customer's order page
+   * and the order marked fulfilled; a failed one frees the order's purchase slot
+   * and leaves the open tasks for an operator.
+   */
+  async settlePendingPurchases(
+    options: { readonly now?: Date } = {},
+  ): Promise<{ readonly scanned: number; readonly delivered: number; readonly failed: number }> {
+    const now = options.now ?? new Date();
+    const pending = await this.suppliers.listPendingPurchases({
+      since: new Date(now.getTime() - PENDING_FOLLOW_UP_WINDOW_MS),
+      limit: PENDING_SWEEP_BATCH,
+    });
+
+    let delivered = 0;
+    let failed = 0;
+    for (const purchase of pending) {
+      try {
+        const resolution = await this.suppliers.resolvePendingPurchase(purchase);
+        if (resolution.state === 'FAILED') {
+          failed += 1;
+          this.alertLogger?.log({
+            severity: 'ERROR',
+            source: 'SUPPLIER',
+            message: `Gift card purchase failed for order ${purchase.orderId}`,
+            context: {
+              orderId: purchase.orderId,
+              workItemId: purchase.workItemId,
+              purchaseStatus: 'FAILED',
+              failureCode: resolution.failureCode,
+            },
+          });
+          await this.record({
+            decision: 'PURCHASE_NOT_COMPLETED',
+            workItemId: purchase.workItemId,
+            assetId: null,
+            reason: 'PURCHASE_FAILED',
+          });
+        } else if (resolution.state === 'SUCCEEDED') {
+          const outcome = await this.deliverResolvedPurchase(purchase, resolution.assetId);
+          if (outcome.decision === 'FULFILLED') {
+            delivered += 1;
+          }
+          this.logger.log(
+            `Pending gift card resolved for order ${purchase.orderId}: ${outcome.decision}`,
+          );
+        }
+      } catch {
+        // One order must not stop the rest; the next pass retries this one. The
+        // error is not logged: it may carry a provider payload.
+        this.logger.warn(`Pending purchase sweep: order ${purchase.orderId} could not be settled`);
+      }
+    }
+    return { scanned: pending.length, delivered, failed };
+  }
+
+  private async deliverResolvedPurchase(
+    purchase: PendingPurchaseRecord,
+    assetId: string,
+  ): Promise<AutoFulfillmentOutcome> {
+    await this.workItems.completeEscalationBySystem({
+      code: pendingFollowupCode(purchase.orderId, purchase.idempotencyKey),
+      actor: AUTO_FULFILLMENT_ACTOR,
+      resolutionNote: 'تأمین‌کننده خرید را تکمیل کرد و کد به‌صورت خودکار ثبت شد.',
+    });
+
+    const target = await this.suppliers.findAutoFulfillmentTarget(purchase.workItemId);
+    if (target === null || target.assignedToStaffId !== null) {
+      // An operator holds the task: they see the stored card and own the send.
+      return this.record({
+        decision: 'PURCHASED',
+        workItemId: purchase.workItemId,
+        assetId,
+        reason: 'SUPPLIER_PURCHASE_SUCCEEDED',
+      });
+    }
+
+    await this.fulfillment.confirmAutomatedPurchaseSteps(purchase.workItemId, AUTO_FULFILLMENT_ACTOR);
+    return this.record(await this.deliverAndFlagForReview(purchase.workItemId, assetId));
   }
 
   /**
@@ -327,8 +418,19 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
     });
 
     if (outcome.status !== 'SUCCEEDED') {
-      // PENDING and UNKNOWN have already opened their own escalations inside
-      // `purchase`, and neither is ever retried from here.
+      if (outcome.status === 'PENDING') {
+        // The supplier has the order and the sweep will deliver it; meanwhile the
+        // customer sees "in progress" instead of a paid order that looks untouched.
+        await this.suppliers.markOrderInProgress(target.orderId);
+        return {
+          decision: 'PURCHASE_NOT_COMPLETED',
+          workItemId: target.workItemId,
+          assetId: null,
+          reason: 'PURCHASE_PENDING',
+        };
+      }
+      // UNKNOWN has already opened its own escalation inside `purchase` and is
+      // never retried from here.
       this.alertLogger?.log({
         severity: 'ERROR',
         source: 'SUPPLIER',
@@ -393,12 +495,12 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
    * they see a delivered asset in their workspace and close it themselves.
    */
   private async deliverAndFlagForReview(
-    target: AutoFulfillmentTarget,
+    workItemId: string,
     assetId: string,
   ): Promise<AutoFulfillmentOutcome> {
     let delivered: boolean;
     try {
-      const outcome = await this.fulfillment.deliverBySelfService(target.workItemId);
+      const outcome = await this.fulfillment.deliverBySelfService(workItemId);
       delivered = outcome.delivered;
     } catch {
       // The send gate refused (a missing delivery e-mail, say — no longer a cost
@@ -410,7 +512,7 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
     if (!delivered) {
       return {
         decision: 'DELIVERY_BLOCKED',
-        workItemId: target.workItemId,
+        workItemId,
         assetId,
         reason: 'SEND_GATE_REFUSED',
       };
@@ -419,7 +521,7 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
     /* Leave the task for a human to check. Priority 500 is well below the
      * default 100, so these sort after items that still need fulfilment. */
     await this.workItems.markDeliveredForReview({
-      workItemId: target.workItemId,
+      workItemId,
       actor: AUTO_FULFILLMENT_ACTOR,
       title: 'بررسی تحویل خودکار گیفت‌کارت',
       description:
@@ -430,7 +532,7 @@ export class AutoFulfillmentService implements FulfillmentTrigger {
 
     return {
       decision: 'FULFILLED',
-      workItemId: target.workItemId,
+      workItemId,
       assetId,
       reason: 'DELIVERED_SELF_SERVICE',
     };
