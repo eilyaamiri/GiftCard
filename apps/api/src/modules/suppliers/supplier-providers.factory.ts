@@ -3,6 +3,8 @@ import {
   FazerCardsSteamSupplierProvider,
   FazerCardsTelegramSupplierProvider,
   FazerCardsTopUpSupplierProvider,
+  G4a4GiftCardSupplierProvider,
+  G4a4TopUpSupplierProvider,
   MockSupplierProvider,
   ReloadlyGiftCardSupplierProvider,
   ResellCodesGiftCardSupplierProvider,
@@ -17,6 +19,9 @@ import {
   readFazerCardsSteamEnv,
   readFazerCardsTelegramEnv,
   readFazerCardsTopUpEnv,
+  readG4a4CatalogEnv,
+  readG4a4GiftCardEnv,
+  readG4a4TopUpEnv,
   readReloadlyEnv,
   readResellCodesCatalogEnv,
   readResellCodesGiftCardEnv,
@@ -31,6 +36,9 @@ export const FAZERCARDS_TOPUP_SUPPLIER_CODE = 'fazercards-topup';
 /** ReSellCodes sells gift cards and top-ups under two codes, one per adapter. */
 export const RESELLCODES_GIFTCARD_SUPPLIER_CODE = 'resellcodes';
 export const RESELLCODES_TOPUP_SUPPLIER_CODE = 'resellcodes-topup';
+/** G4A4 likewise: two adapters, two codes. */
+export const G4A4_GIFTCARD_SUPPLIER_CODE = 'g4a4';
+export const G4A4_TOPUP_SUPPLIER_CODE = 'g4a4-topup';
 
 /**
  * Turns the environment into the adapter list bound to `SUPPLIER_PROVIDERS`.
@@ -141,6 +149,40 @@ export function buildSupplierProviders(options: {
     logger.warn('ReSellCodes Steam is not registered; its top-ups escalate to an operator');
   }
 
+  /*
+   * G4A4: two independent flags over one key, and `isTest` outranks both. The
+   * venue has no idempotency key and no sandbox, so a registered adapter is a
+   * live spender — the key being present decides nothing.
+   */
+  const g4a4GiftCards = readG4a4GiftCardEnv();
+  if (g4a4GiftCards.enabled && !options.isTest) {
+    providers.push(
+      new G4a4GiftCardSupplierProvider({
+        apiKey: g4a4GiftCards.apiKey,
+        timeoutMs: g4a4GiftCards.timeoutMs,
+        categoryIds: g4a4GiftCards.categoryIds,
+      }),
+    );
+    /* Environment only — never the API key. */
+    logger.log('G4A4 gift cards registered');
+  } else {
+    logger.warn('G4A4 gift cards are not registered; its offers can only be fulfilled by an operator');
+  }
+
+  const g4a4TopUp = readG4a4TopUpEnv();
+  if (g4a4TopUp.enabled && !options.isTest) {
+    providers.push(
+      new G4a4TopUpSupplierProvider({
+        apiKey: g4a4TopUp.apiKey,
+        timeoutMs: g4a4TopUp.timeoutMs,
+        categoryIds: g4a4TopUp.categoryIds,
+      }),
+    );
+    logger.log('G4A4 top-up registered');
+  } else {
+    logger.warn('G4A4 top-up is not registered; its game top-ups escalate to an operator');
+  }
+
   const reloadly = readReloadlyEnv();
   if (!reloadly.enabled || options.isTest) {
     /*
@@ -200,6 +242,22 @@ export function buildTopUpCatalogReaders(options: {
       supplierCode: RESELLCODES_TOPUP_SUPPLIER_CODE,
       supplierName: 'ReSellCodes Top-up',
       defaultCurrency: 'USD',
+      readCatalog: () => adapter.readTopUpCatalog(),
+    });
+  }
+
+  const g4a4 = readG4a4CatalogEnv();
+  if (g4a4.apiKey !== undefined && !options.isTest) {
+    const adapter = new G4a4TopUpSupplierProvider({
+      apiKey: g4a4.apiKey,
+      timeoutMs: g4a4.timeoutMs,
+      categoryIds: g4a4.categoryIds,
+    });
+    readers.push({
+      supplierCode: G4A4_TOPUP_SUPPLIER_CODE,
+      supplierName: 'G4A4 Top-up',
+      /* This venue bills in toman, not dollars; see `G4a4GiftCardSupplierProvider`. */
+      defaultCurrency: 'IRT',
       readCatalog: () => adapter.readTopUpCatalog(),
     });
   }

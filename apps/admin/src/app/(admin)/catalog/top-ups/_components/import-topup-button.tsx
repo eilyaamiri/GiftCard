@@ -29,6 +29,7 @@ const RESUME_WINDOW_MS = 15 * 60 * 1000;
 const TOP_UP_SUPPLIERS = [
   { code: "fazercards-topup", label: "FazerCards" },
   { code: "resellcodes-topup", label: "ReSellCodes" },
+  { code: "g4a4-topup", label: "G4A4" },
 ] as const;
 type TopUpSupplierCode = (typeof TOP_UP_SUPPLIERS)[number]["code"];
 

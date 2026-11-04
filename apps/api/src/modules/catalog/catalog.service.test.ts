@@ -170,7 +170,7 @@ describe('CatalogService public projections', () => {
       isActive: true,
       availability: 'AVAILABLE',
       supplier: { isActive: true },
-      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
+      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES, 'IRT'] },
     });
     expect(QUOTABLE_COST_CURRENCIES).not.toContain('GBP');
   });
@@ -192,8 +192,9 @@ describe('CatalogService public projections', () => {
       availability: 'AVAILABLE',
       supplier: { isActive: true },
       // An offer priced in a currency with no FX pair cannot be quoted, so it
-      // must not make a product look buyable.
-      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
+      // must not make a product look buyable. Toman is the exception: it is
+      // priced straight into rial and needs no pair.
+      costCurrency: { in: [...QUOTABLE_COST_CURRENCIES, 'IRT'] },
     });
     expect(call.select.skus.select).toEqual({ region: true });
     expect(JSON.stringify(response)).not.toContain(SUPPLIER_ID);
@@ -1687,6 +1688,7 @@ describe('CatalogService from-price candidates', () => {
         faceValue: '50',
         currency: 'USD',
         effectiveCost: '43.2',
+        costCurrency: 'USD',
       },
     ]);
   });

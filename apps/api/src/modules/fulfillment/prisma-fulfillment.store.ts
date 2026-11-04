@@ -13,6 +13,7 @@ import type {
 } from '@barat/contracts';
 
 import { DomainErrors } from '../../common/errors/domain.exception';
+import { isTomanDirectSnapshot } from '../quotes/pricing-basis';
 import { readServiceAccountSnapshot } from '../quotes/service-account-fields';
 import { isUniqueConstraintViolation } from '../workitems/prisma-errors';
 import { DELIVERABLE_ORDER_STATUSES } from './checklist-evaluation';
@@ -326,8 +327,9 @@ export class PrismaFulfillmentStore implements FulfillmentStore {
       hasVerifiedPayment: verifiedPayments > 0,
       deliveryEmail: order.deliveryEmail,
       quotedSupplierCost: order.quote.supplierCostUsd.toString(),
-      // The quote's supplier cost column is denominated in USD by definition.
-      quotedSupplierCurrency: 'USD',
+      // Dollars by definition, except for a quote priced straight from a toman
+      // supplier, whose snapshot says its cost column holds toman.
+      quotedSupplierCurrency: isTomanDirectSnapshot(order.quote.snapshot) ? 'IRT' : 'USD',
       maxSupplierCostToleranceBps: order.quote.pricingRule?.maxSupplierCostToleranceBps ?? 0,
       workItemId: input.workItemId,
       workItemType: input.workItemType,

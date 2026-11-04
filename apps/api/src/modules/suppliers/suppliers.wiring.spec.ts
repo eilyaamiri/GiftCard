@@ -12,6 +12,9 @@ import {
   readFazerCardsSteamEnv,
   readFazerCardsTelegramEnv,
   readFazerCardsTopUpEnv,
+  readG4a4CatalogEnv,
+  readG4a4GiftCardEnv,
+  readG4a4TopUpEnv,
   readProviderSkuMap,
   readReloadlyEnv,
   readResellCodesCatalogEnv,
@@ -47,6 +50,12 @@ const KEYS = [
   'RESELLCODES_STEAM_ENABLED',
   'RESELLCODES_API_KEY',
   'RESELLCODES_TIMEOUT_MS',
+  'G4A4_GIFTCARD_ENABLED',
+  'G4A4_TOPUP_ENABLED',
+  'G4A4_API_KEY',
+  'G4A4_TIMEOUT_MS',
+  'G4A4_GIFTCARD_CATEGORY_IDS',
+  'G4A4_TOPUP_CATEGORY_IDS',
   'SUPPLIER_PROVIDER_SKU_MAP',
   'SUPPLIER_PROVIDER_SKU_MAP_FILE',
 ] as const;
@@ -445,6 +454,85 @@ describe('ReSellCodes wiring', () => {
     expect(buildTopUpCatalogReaders({ isTest: false })).toEqual([]);
     process.env['RESELLCODES_API_KEY'] = 'rsc_live_key';
     expect(buildTopUpCatalogReaders({ isTest: true })).toEqual([]);
+  });
+});
+
+describe('G4A4 wiring', () => {
+  it('registers nothing, and reads no key, while both flags are off', () => {
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+
+    expect(readG4a4GiftCardEnv()).toEqual({ enabled: false, apiKey: '', timeoutMs: 20_000, categoryIds: [] });
+    expect(readG4a4TopUpEnv().enabled).toBe(false);
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('gates each product on its own flag', () => {
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+    process.env['G4A4_GIFTCARD_ENABLED'] = 'true';
+
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock', 'g4a4']);
+
+    process.env['G4A4_TOPUP_ENABLED'] = 'true';
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual([
+      'mock',
+      'g4a4',
+      'g4a4-topup',
+    ]);
+  });
+
+  it('never registers under NODE_ENV=test, even fully configured', () => {
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+    process.env['G4A4_GIFTCARD_ENABLED'] = 'true';
+    process.env['G4A4_TOPUP_ENABLED'] = 'true';
+
+    expect(buildSupplierProviders({ isTest: true }).map((provider) => provider.key)).toEqual(['mock']);
+  });
+
+  it('refuses to boot when a flag is on without a key', () => {
+    process.env['G4A4_GIFTCARD_ENABLED'] = 'true';
+    expect(() => readG4a4GiftCardEnv()).toThrow(/G4A4_API_KEY is required/u);
+
+    process.env['G4A4_TOPUP_ENABLED'] = 'true';
+    expect(() => readG4a4TopUpEnv()).toThrow(/G4A4_API_KEY is required/u);
+  });
+
+  it('refuses a flag it cannot read as a decision, a nonsense timeout, and non-numeric category ids', () => {
+    process.env['G4A4_GIFTCARD_ENABLED'] = 'yes';
+    expect(() => readG4a4GiftCardEnv()).toThrow(/must be exactly/u);
+
+    delete process.env['G4A4_GIFTCARD_ENABLED'];
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+    process.env['G4A4_TIMEOUT_MS'] = '999999';
+    expect(() => readG4a4CatalogEnv()).toThrow(/G4A4_TIMEOUT_MS/u);
+
+    delete process.env['G4A4_TIMEOUT_MS'];
+    process.env['G4A4_TOPUP_CATEGORY_IDS'] = '47, abc';
+    expect(() => readG4a4CatalogEnv()).toThrow(/numeric category ids/u);
+  });
+
+  it('reads a category list, trimmed and de-duplicated', () => {
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+    process.env['G4A4_GIFTCARD_ENABLED'] = 'true';
+    process.env['G4A4_GIFTCARD_CATEGORY_IDS'] = '53, 47,53';
+
+    expect(readG4a4GiftCardEnv().categoryIds).toEqual(['53', '47']);
+  });
+
+  it('builds a read-only catalogue reader from the key alone, denominated in toman', () => {
+    process.env['G4A4_API_KEY'] = 'g4a4_live_key';
+
+    const readers = buildTopUpCatalogReaders({ isTest: false });
+
+    expect(readers.map((reader) => reader.supplierCode)).toEqual(['g4a4-topup']);
+    expect(readers[0]?.defaultCurrency).toBe('IRT');
+    expect(Object.keys(readers[0] ?? {}).sort()).toEqual([
+      'defaultCurrency',
+      'readCatalog',
+      'supplierCode',
+      'supplierName',
+    ]);
+    expect(JSON.stringify(readers[0])).not.toContain('g4a4_live_key');
+    expect(buildSupplierProviders({ isTest: false }).map((provider) => provider.key)).toEqual(['mock']);
   });
 });
 
