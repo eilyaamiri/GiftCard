@@ -172,6 +172,16 @@ export const TERMINAL_STATUSES: readonly WorkItemStatus[] = ["COMPLETED", "FAILE
 /** Server-side cap in MAX_CONCURRENT_WORK_ITEMS_PER_OPERATOR. The API re-checks. */
 export const MAX_CONCURRENT_WORK_ITEMS = 3;
 
+/**
+ * The newest task first. The API hands the list over by priority and then
+ * oldest-first, which is how the claim queue is meant to drain, but a person
+ * scanning the board wants what just arrived at the top. Ties keep the order
+ * the API gave them.
+ */
+export function newestFirst<T extends Pick<WorkItemSummary, "createdAt">>(items: readonly T[]): T[] {
+  return [...items].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
 export function isOverdue(item: WorkItemSummary, now: number = Date.now()): boolean {
   if (item.dueAt === null || TERMINAL_STATUSES.includes(item.status)) return false;
   return new Date(item.dueAt).getTime() < now;

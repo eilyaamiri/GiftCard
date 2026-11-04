@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { toPersianDigits } from "@barat/ui";
+import { formatJalaliDate, toPersianDigits } from "@barat/ui";
 import type { WorkItemType } from "@barat/contracts";
 import { Icon } from "@/components/icon-map";
 import { InlineError, messageFor } from "../../_components/error-notice";
@@ -17,6 +17,7 @@ import {
   isHighPriority,
   isOverdue,
   minutesUntilDue,
+  newestFirst,
   workItems,
   type WorkItemSummary,
 } from "../../_lib/work-items";
@@ -87,7 +88,7 @@ export function TasksList({
                 ? desk.filter((item) => isOverdue(item))
                 : desk.filter((item) => TERMINAL_STATUSES.includes(item.status));
 
-    return typeFilter === "ALL" ? source : source.filter((item) => item.type === typeFilter);
+    return newestFirst(typeFilter === "ALL" ? source : source.filter((item) => item.type === typeFilter));
   }, [tab, typeFilter, mine, pool, board, supervising]);
 
   async function handleClaim(id: string) {
@@ -168,12 +169,24 @@ export function TasksList({
                   <span>
                     <span className="bp-ltr">{item.code}</span> · {QUEUE_KEY_LABEL[item.queueKey]} ·{" "}
                     {WORK_ITEM_STATUS_LABEL[item.status]}
+                    {isHighPriority(item) ? " · اولویت بالا" : ""}
+                  </span>
+                  <span>
+                    ثبت: {formatJalaliDate(item.createdAt, "yyyy/MM/dd HH:mm")}
                     {/* Who is holding it matters only when you are looking at other
                         people's work; on your own desk the answer is always you. */}
-                    {supervising && item.assignedToStaffId
-                      ? ` · ${item.assignedToStaffName ?? "تخصیص‌یافته"}`
-                      : ""}
-                    {isHighPriority(item) ? " · اولویت بالا" : ""}
+                    {supervising ? (
+                      <>
+                        {" · "}
+                        {item.assignedToStaffId ? (
+                          <strong style={{ display: "inline", fontSize: "inherit", color: "var(--teal)" }}>
+                            اپراتور: {item.assignedToStaffName ?? "نامشخص"}
+                          </strong>
+                        ) : (
+                          "بدون اپراتور"
+                        )}
+                      </>
+                    ) : null}
                   </span>
                 </div>
                 {claimable ? (
