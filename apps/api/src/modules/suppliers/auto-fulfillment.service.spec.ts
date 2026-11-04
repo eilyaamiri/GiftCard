@@ -67,6 +67,7 @@ interface AuditEvent {
 
 interface Harness {
   readonly service: AutoFulfillmentService;
+  readonly supplierStore: InMemorySupplierStore;
   readonly provider: MockSupplierProvider;
   readonly workItems: InMemoryWorkItemStore;
   readonly fulfillmentStore: InMemoryFulfillmentStore;
@@ -184,6 +185,7 @@ async function harness(options: HarnessOptions = {}): Promise<Harness> {
   );
 
   return {
+    supplierStore,
     /*
      * The top-up service is a real instance, not a stub: this suite drives
      * gift-card orders only, and the trigger must call it for none of them. A
@@ -441,5 +443,187 @@ describe('operator-triggered auto-fulfillment', () => {
      * fall back to the admin queue. */
     expect(outcome.assetId).toBeNull();
     expect(outcome.decision).toBe('INSUFFICIENT_FUNDS');
+  });
+});
+
+describe('a purchase the supplier finishes after answering "processing"', () => {
+  const REFERENCE = 'RC-15780';
+
+  /** The venue accepted the order and has not finished it yet. */
+  function processing(provider: MockSupplierProvider): void {
+    provider.setNextPurchaseResult({ status: 'PENDING', providerReference: REFERENCE });
+  }
+
+  /** The venue finished it and hands back the card, as ReSellCodes does after about 30s. */
+  function completes(provider: MockSupplierProvider): void {
+    provider.setPurchaseStatus(REFERENCE, {
+      status: 'SUCCEEDED',
+      providerReference: REFERENCE,
+      cost: { amount: COST.amount, currency: COST.currency },
+      asset: { assetType: 'CODE', code: PLAINTEXT_CODE },
+    });
+  }
+
+  function followUp(h: Harness): { status: string } | undefined {
+    return [...h.workItems.rows.values()].find((row) => row.code.startsWith('SUPPLIER_PENDING:'));
+  }
+
+  it('shows the order as in progress and stores nothing while the supplier works', async () => {
+    const h = await harness();
+    processing(h.provider);
+
+    const outcome = await h.service.attemptForPaidOrder(h.workItemId);
+
+    expect(outcome).toMatchObject({ decision: 'PURCHASE_NOT_COMPLETED', reason: 'PURCHASE_PENDING' });
+    expect(h.supplierStore.orderStatusOf(ORDER_ID)).toBe('FULFILLING');
+    expect(h.fulfillmentStore.rawAssets()).toHaveLength(0);
+    expect(h.workItems.rows.get(h.workItemId)?.status).toBe('UNASSIGNED');
+    expect(followUp(h)?.status).toBe('UNASSIGNED');
+  });
+
+  it('keeps waiting, without buying again, while the supplier is still processing', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+
+    const sweep = await h.service.settlePendingPurchases();
+
+    expect(sweep).toEqual({ scanned: 1, delivered: 0, failed: 0 });
+    expect(h.provider.getPurchaseInvocationCount()).toBe(1);
+    expect(h.fulfillmentStore.rawAssets()).toHaveLength(0);
+    expect(h.fulfillmentStore.orderStatus).toBe('PAID');
+  });
+
+  it('delivers the card to the customer and fulfils the order once the supplier completes', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    completes(h.provider);
+
+    const sweep = await h.service.settlePendingPurchases();
+
+    expect(sweep).toEqual({ scanned: 1, delivered: 1, failed: 0 });
+    // The flag the customer's reveal endpoint gates on, and the order status the panel shows.
+    expect(h.fulfillmentStore.rawAssets()[0]?.status).toBe('SENT');
+    expect(h.fulfillmentStore.orderStatus).toBe('FULFILLED');
+    expect(h.fulfillmentStore.orderFulfilledAt).not.toBeNull();
+    // The "did we get charged?" follow-up is answered, so it closes by itself.
+    expect(followUp(h)?.status).toBe('COMPLETED');
+    expect(h.workItems.rows.get(h.workItemId)?.title).toBe('بررسی تحویل خودکار گیفت‌کارت');
+    // Never bought a second time, and the order's purchase slot is free again.
+    expect(h.provider.getPurchaseInvocationCount()).toBe(1);
+    expect((await h.supplierStore.latestPurchaseAttempt(ORDER_ID))?.status).toBe('SUCCEEDED');
+  });
+
+  it('never lets the plaintext code reach an audit payload', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    completes(h.provider);
+
+    await h.service.settlePendingPurchases();
+
+    expect(JSON.stringify(h.events)).not.toContain(PLAINTEXT_CODE);
+    expect(h.fulfillmentStore.rawAssets()[0]?.encryptedCode).not.toContain(PLAINTEXT_CODE);
+  });
+
+  it('settles each purchase once: a later pass finds nothing to do', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    completes(h.provider);
+    await h.service.settlePendingPurchases();
+
+    await expect(h.service.settlePendingPurchases()).resolves.toEqual({
+      scanned: 0,
+      delivered: 0,
+      failed: 0,
+    });
+    expect(h.fulfillmentStore.rawAssets()).toHaveLength(1);
+  });
+
+  it('frees the purchase slot and leaves the tasks to an operator when the supplier fails it', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    h.provider.setPurchaseStatus(REFERENCE, {
+      status: 'FAILED',
+      providerReference: REFERENCE,
+      failureCode: 'OUT_OF_STOCK',
+    });
+
+    const sweep = await h.service.settlePendingPurchases();
+
+    expect(sweep).toEqual({ scanned: 1, delivered: 0, failed: 1 });
+    expect((await h.supplierStore.latestPurchaseAttempt(ORDER_ID))?.status).toBe('FAILED');
+    expect(h.fulfillmentStore.rawAssets()).toHaveLength(0);
+    expect(h.fulfillmentStore.orderStatus).toBe('PAID');
+    expect(h.workItems.rows.get(h.workItemId)?.status).toBe('UNASSIGNED');
+    expect(followUp(h)?.status).toBe('UNASSIGNED');
+  });
+
+  it('keeps waiting when the supplier status cannot be read', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    h.provider.setPurchaseStatus(REFERENCE, {
+      status: 'UNKNOWN',
+      providerReference: REFERENCE,
+      failureCode: 'STATUS_UNAVAILABLE',
+    });
+
+    await expect(h.service.settlePendingPurchases()).resolves.toMatchObject({ delivered: 0, failed: 0 });
+    expect((await h.supplierStore.latestPurchaseAttempt(ORDER_ID))?.status).toBe('IN_FLIGHT');
+  });
+
+  it('stores the card but leaves the delivery to an operator who took the task meanwhile', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    await h.workItems.claimIfUnassigned(h.workItemId, OPERATOR_ID, new Date());
+    h.supplierStore.targets[0] = {
+      ...(h.supplierStore.targets[0] as AutoFulfillmentTarget),
+      workItemStatus: 'ASSIGNED',
+      assignedToStaffId: OPERATOR_ID,
+    };
+    completes(h.provider);
+
+    await h.service.settlePendingPurchases();
+
+    expect(h.fulfillmentStore.rawAssets()[0]?.status).toBe('READY');
+    expect(h.fulfillmentStore.orderStatus).toBe('PAID');
+    expect(h.workItems.rows.get(h.workItemId)?.status).toBe('ASSIGNED');
+  });
+
+  it('does not store a second card when a person already entered one', async () => {
+    const h = await harness();
+    processing(h.provider);
+    await h.service.attemptForPaidOrder(h.workItemId);
+    completes(h.provider);
+    // A person typed the card in before the sweep reached the order.
+    await h.fulfillmentStore.createAsset({
+      orderId: ORDER_ID,
+      fulfillmentId: 'fulfillment-by-hand',
+      skuId: 'sku-1',
+      assetType: 'CODE',
+      encryptedCode: 'enc:by-hand',
+      encryptedPin: null,
+      maskedCode: '****',
+      serialNumber: null,
+      deliveryUrl: null,
+      recipientEmail: null,
+      expiryDate: null,
+      supplierReference: null,
+      actualSupplierCost: null,
+      actualSupplierCurrency: null,
+      enteredByUserId: null,
+      enteredAt: new Date(),
+    });
+
+    const sweep = await h.service.settlePendingPurchases();
+
+    expect(sweep).toEqual({ scanned: 1, delivered: 0, failed: 0 });
+    expect(h.fulfillmentStore.rawAssets()).toHaveLength(1);
+    expect((await h.supplierStore.latestPurchaseAttempt(ORDER_ID))?.status).toBe('SUCCEEDED');
   });
 });

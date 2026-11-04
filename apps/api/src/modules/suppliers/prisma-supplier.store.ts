@@ -6,6 +6,7 @@ import { providerSkuKey, type ProviderSkuMap } from './suppliers.env';
 import { PROVIDER_SKU_MAP } from './suppliers.types';
 import type {
   AutoFulfillmentTarget,
+  PendingPurchaseRecord,
   SupplierOfferView,
   SupplierPurchaseAttemptRecord,
   SupplierPurchaseAttemptStatus,
@@ -240,6 +241,82 @@ export class PrismaSupplierStore implements SupplierStore {
         ...(settled ? { openOrderKey: null, settledAt: new Date() } : {}),
       },
     });
+  }
+  async listPendingPurchases(input: {
+    since: Date;
+    limit: number;
+  }): Promise<readonly PendingPurchaseRecord[]> {
+    const attempts = await this.db.supplierPurchaseAttempt.findMany({
+      where: {
+        status: 'IN_FLIGHT',
+        providerReference: { not: null },
+        offerId: { not: null },
+        startedAt: { gte: input.since },
+      },
+      orderBy: { startedAt: 'asc' },
+      take: input.limit,
+      select: {
+        id: true,
+        orderId: true,
+        offerId: true,
+        idempotencyKey: true,
+        providerReference: true,
+        startedAt: true,
+        order: { select: { customerId: true } },
+      },
+    });
+    if (attempts.length === 0) {
+      return [];
+    }
+
+    const items = await this.db.workItem.findMany({
+      where: {
+        orderId: { in: attempts.map((attempt) => attempt.orderId) },
+        type: 'MANUAL_GIFT_CARD_FULFILLMENT',
+      },
+      select: { id: true, orderId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const workItemByOrder = new Map<string, string>();
+    for (const item of items) {
+      if (item.orderId !== null && !workItemByOrder.has(item.orderId)) {
+        workItemByOrder.set(item.orderId, item.id);
+      }
+    }
+
+    const pending: PendingPurchaseRecord[] = [];
+    for (const attempt of attempts) {
+      const workItemId = workItemByOrder.get(attempt.orderId);
+      if (attempt.offerId === null || attempt.providerReference === null || workItemId === undefined) {
+        continue;
+      }
+      pending.push({
+        attemptId: attempt.id,
+        orderId: attempt.orderId,
+        customerId: attempt.order.customerId,
+        offerId: attempt.offerId,
+        workItemId,
+        idempotencyKey: attempt.idempotencyKey,
+        providerReference: attempt.providerReference,
+        startedAt: attempt.startedAt,
+      });
+    }
+    return pending;
+  }
+
+  async transitionOrder(input: {
+    orderId: string;
+    from: readonly string[];
+    to: string;
+  }): Promise<boolean> {
+    const result = await this.db.order.updateMany({
+      where: {
+        id: input.orderId,
+        status: { in: input.from as Prisma.EnumOrderStatusFilter['in'] },
+      },
+      data: { status: input.to as Prisma.OrderUpdateManyMutationInput['status'] },
+    });
+    return result.count === 1;
   }
 }
 

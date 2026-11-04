@@ -358,6 +358,27 @@ export class WorkItemsService implements FulfillmentTrigger, WorkItemEscalator {
   }
 
   /**
+   * Closes an unclaimed escalation by its `code` once automation has settled what
+   * it was opened for. An item a person has claimed, or one that does not exist,
+   * is left alone and `null` is returned.
+   */
+  async completeEscalationBySystem(input: {
+    code: string;
+    actor: string;
+    resolutionNote: string;
+  }): Promise<WorkItemSummary | null> {
+    const item = await this.store.findByCode(input.code);
+    if (item === null) {
+      return null;
+    }
+    return this.completeBySystem({
+      workItemId: item.id,
+      actor: input.actor,
+      resolutionNote: input.resolutionNote,
+    });
+  }
+
+  /**
    * Re-presents an unassigned item as a verification task after automation
    * delivered the asset.
    *
