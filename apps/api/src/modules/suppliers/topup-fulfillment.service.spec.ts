@@ -621,3 +621,54 @@ describe('operational alerts for a top-up', () => {
     expect(JSON.stringify(h.alerts)).not.toContain(ACCOUNT_FIELDS.telegram_username);
   });
 });
+
+describe('what the customer sees while the supplier works and once it delivers', () => {
+  it('moves the order to FULFILLING and looks again within a minute when the venue says processing', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({ status: 'PENDING', providerReference: '41' });
+
+    const before = Date.now();
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.topUpStore.orderStatusOf(ORDER_ID)).toBe('FULFILLING');
+    const next = h.topUpStore.nextCheckAtOf(FULFILLMENT_ID);
+    expect(next).toBeInstanceOf(Date);
+    expect((next as Date).getTime() - before).toBeLessThanOrEqual(60_000);
+  });
+
+  it('spaces later looks further apart than the first', async () => {
+    const h = harness({ target: target({ status: 'AWAITING_PROVIDER', providerOrderNumber: '41' }) });
+    h.provider.setPurchaseStatus('41', { status: 'PENDING', providerReference: '41' });
+
+    const before = Date.now();
+    await h.service.poll(ORDER_ID);
+
+    const next = h.topUpStore.nextCheckAtOf(FULFILLMENT_ID) as Date;
+    expect(next.getTime() - before).toBeGreaterThan(60_000);
+  });
+
+  it('marks the order FULFILLED with its delivery time when a poll finds the venue completed', async () => {
+    const h = harness({ target: target({ status: 'AWAITING_PROVIDER', providerOrderNumber: '41' }) });
+    h.provider.setPurchaseStatus('41', {
+      status: 'SUCCEEDED',
+      providerReference: '41',
+      cost: { amount: '4.50', currency: 'USD' },
+    });
+
+    const outcome = await h.service.poll(ORDER_ID);
+
+    expect(outcome).toMatchObject({ decision: 'SUCCEEDED', workItemId: null });
+    expect(h.topUpStore.statusOf(FULFILLMENT_ID)).toBe('SUCCEEDED');
+    expect(h.topUpStore.orderStatusOf(ORDER_ID)).toBe('FULFILLED');
+    expect(workItemCount(h)).toBe(0);
+  });
+
+  it('marks an order still sitting in PAID FULFILLED when the first answer is already completed', async () => {
+    const h = harness();
+    h.provider.setNextPurchaseResult({ status: 'SUCCEEDED', providerReference: '41' });
+
+    await h.service.onTopUpOrderPaid(ORDER_ID);
+
+    expect(h.topUpStore.orderStatusOf(ORDER_ID)).toBe('FULFILLED');
+  });
+});
