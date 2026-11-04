@@ -127,6 +127,14 @@ const MAX_RATE_LIMITED_ATTEMPTS = 10;
  */
 const MAX_UNREACHABLE_POLLS = 5;
 
+/**
+ * A paid top-up the sweep has not yet sent to the supplier is bought within
+ * minutes. One still unsent after this long was stranded by a fault, and the
+ * customer may have been served another way meanwhile, so it goes to a person
+ * instead of being bought blind.
+ */
+export const MAX_AUTO_PURCHASE_AGE_MS = 6 * 60 * 60 * 1_000;
+
 function isTransientPollOutcome(
   outcome: Awaited<ReturnType<SupplierProvider['getPurchaseStatus']>>,
 ): boolean {
@@ -294,6 +302,10 @@ export class TopUpFulfillmentService {
     const notEligible = this.checkEligibility(target);
     if (notEligible !== null) {
       return notEligible;
+    }
+
+    if (this.isStrandedUnsent(target)) {
+      return this.failStrandedUnsent(target);
     }
 
     const provider = this.providersByKey.get(target.supplierCode);
@@ -775,6 +787,55 @@ export class TopUpFulfillmentService {
         );
       }
     }
+  }
+
+  /**
+   * Paid long ago and never sent: no claim, no attempt, no venue order number.
+   * Only an untouched QUEUED row qualifies, so nothing here can hide a purchase
+   * the supplier might already hold.
+   */
+  private isStrandedUnsent(target: TopUpTarget): boolean {
+    const paidAt = target.paidAt ?? null;
+    return (
+      target.status === 'QUEUED' &&
+      target.purchaseAttempts === 0 &&
+      target.providerOrderNumber === null &&
+      paidAt !== null &&
+      Date.now() - paidAt.getTime() > MAX_AUTO_PURCHASE_AGE_MS
+    );
+  }
+
+  private async failStrandedUnsent(target: TopUpTarget): Promise<TopUpOutcome> {
+    const reason = 'STALE_UNSENT';
+    const moved = await this.store.transition({
+      fulfillmentId: target.fulfillmentId,
+      from: ['QUEUED'],
+      to: 'FAILED',
+      completedAt: new Date(),
+      nextCheckAt: null,
+      failureCode: reason,
+      event: { type: 'FAILED', failureCode: reason },
+    });
+    const standing = await this.standsAt(target, moved, 'FAILED');
+    if (standing !== null) {
+      return standing;
+    }
+    await this.store.transitionOrder({
+      orderId: target.orderId,
+      from: ['PAID', 'FULFILLMENT_PENDING', 'FULFILLING'],
+      to: 'REVIEW_REQUIRED',
+      failureReason: reason,
+    });
+    return this.escalate(target, {
+      decision: 'FAILED',
+      reason,
+      type: 'SUPPLIER_FOLLOWUP',
+      title: 'سفارش شارژ پرداخت‌شده بدون خرید خودکار',
+      description:
+        'این سفارش پرداخت شده ولی مدت زیادی بدون خرید خودکار مانده و هیچ درخواستی به تأمین‌کننده ' +
+        'ارسال نشده است. ابتدا بررسی کنید که شارژ از راه دیگری برای مشتری انجام نشده باشد. اگر ' +
+        'انجام‌شدنی است دستی شارژ کنید و کار را ببندید، وگرنه همین کار را به «بازگشت وجه» تغییر دهید.',
+    });
   }
 
   private async markUnknownAndEscalate(

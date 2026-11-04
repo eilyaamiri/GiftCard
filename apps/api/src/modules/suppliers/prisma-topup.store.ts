@@ -17,6 +17,7 @@ import {
   type TopUpStore,
   type TopUpTarget,
 } from './suppliers.types';
+import { readTopUpSnapshot } from './topup-snapshot';
 
 /**
  * Persistence for the automated top-up path.
@@ -59,7 +60,7 @@ export class PrismaTopUpStore implements TopUpStore {
           return;
         }
 
-        const snapshot = readSnapshotTopUp(order.quote.snapshot);
+        const snapshot = readTopUpSnapshot(order.quote.snapshot);
         if (snapshot === null || snapshot.supplierId === null) {
           throw new Error('paid top-up quote snapshot is incomplete');
         }
@@ -185,6 +186,7 @@ export class PrismaTopUpStore implements TopUpStore {
             id: true,
             customerId: true,
             status: true,
+            paidAt: true,
             quote: { select: { snapshot: true } },
           },
         },
@@ -194,7 +196,7 @@ export class PrismaTopUpStore implements TopUpStore {
       return null;
     }
 
-    const snapshot = readSnapshotTopUp(row.order.quote.snapshot);
+    const snapshot = readTopUpSnapshot(row.order.quote.snapshot);
     if (snapshot === null) {
       throw new Error('top-up fulfillment quote snapshot is incomplete');
     }
@@ -203,6 +205,7 @@ export class PrismaTopUpStore implements TopUpStore {
       orderId: row.order.id,
       customerId: row.order.customerId,
       orderStatus: row.order.status,
+      paidAt: row.order.paidAt,
       fulfillmentId: row.id,
       status: row.status as TopUpFulfillmentStatus,
       providerSku: snapshot.providerSku,
@@ -348,51 +351,6 @@ function readJsonRecord(value: Prisma.JsonValue | null): Record<string, unknown>
     return null;
   }
   return value as Record<string, unknown>;
-}
-
-function readSnapshotTopUp(value: Prisma.JsonValue): {
-  providerSku: string;
-  supplierId: string | null;
-  supplierCode: string;
-  costAmount: string;
-  costCurrency: string;
-  accountFields: Record<string, string>;
-} | null {
-  const snapshot = readJsonRecord(value);
-  const target = readJsonRecord(snapshot?.['target'] ?? null);
-  const topUp = readJsonRecord(target?.['topUp'] ?? null);
-  const supplier = readJsonRecord(snapshot?.['supplier'] ?? null);
-  const providerSku = topUp?.['providerSku'];
-  const supplierId = supplier?.['id'];
-  const supplierCode = supplier?.['code'];
-  const costAmount = topUp?.['costAmount'];
-  const costCurrency = topUp?.['costCurrency'];
-  const accountFields = readJsonRecord(snapshot?.['topUpAccountFields'] ?? null);
-  if (
-    typeof providerSku !== 'string' ||
-    typeof supplierId !== 'string' ||
-    typeof supplierCode !== 'string' ||
-    typeof costAmount !== 'string' ||
-    typeof costCurrency !== 'string' ||
-    accountFields === null
-  ) {
-    return null;
-  }
-  const strings: Record<string, string> = {};
-  for (const [key, entry] of Object.entries(accountFields)) {
-    if (typeof entry !== 'string') {
-      return null;
-    }
-    strings[key] = entry;
-  }
-  return {
-    providerSku,
-    supplierId,
-    supplierCode,
-    costAmount,
-    costCurrency,
-    accountFields: strings,
-  };
 }
 
 function isUniqueConstraint(error: unknown): boolean {

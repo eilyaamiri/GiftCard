@@ -15,6 +15,22 @@ const SWEEP_INTERVAL_MS = 60_000;
 const ALERT_AFTER_FAILURES = 3;
 
 /**
+ * A cause safe to log. Database client errors can embed query arguments, so
+ * they are reduced to their class and code; anything else keeps a short message.
+ */
+function describeSweepError(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return 'non-error thrown';
+  }
+  const code = (error as { code?: unknown }).code;
+  const suffix = typeof code === 'string' ? `:${code}` : '';
+  if (error.name.startsWith('PrismaClient')) {
+    return `${error.name}${suffix}`;
+  }
+  return `${error.name}${suffix}: ${error.message.slice(0, 200)}`;
+}
+
+/**
  * Drives direct-top-up retries in the API process. The database remains the
  * source of truth: a restart or a missed interval is recovered by listDue().
  * No supplier call is made here; all provider interaction stays behind the
@@ -63,10 +79,12 @@ export class TopUpSchedulerService implements OnApplicationBootstrap, OnApplicat
           if (outcome.decision !== 'AWAITING_PROVIDER' && outcome.decision !== 'WAITING_FUNDS') {
             completed += 1;
           }
-        } catch {
-          /* The pass continues for other orders. This is visible through the
-           * counter and warning below; the next pass retries the failed order. */
+        } catch (error) {
+          /* The pass continues for other orders; the next pass retries this one. */
           failedItems += 1;
+          this.logger.warn(
+            `Top-up sweep: ${item.action} for order ${item.orderId} failed (${describeSweepError(error)})`,
+          );
         }
       }
       if (failedItems > 0) {

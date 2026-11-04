@@ -200,6 +200,8 @@ export interface TopUpTarget {
   readonly orderId: string;
   readonly customerId: string;
   readonly orderStatus: string;
+  /** When the customer's payment was verified; null if unknown. */
+  readonly paidAt?: Date | null;
   readonly fulfillmentId: string;
   readonly status: TopUpFulfillmentStatus;
   /** `${providerCategoryId}:${providerOfferId}`, frozen when the order was paid. */
