@@ -1046,6 +1046,102 @@ describe('computeQuote / rejected inputs', () => {
  * PricingService wire projection
  * ==========================================================================*/
 
+/* ============================================================================
+ * A supplier that bills in toman — no exchange rate anywhere
+ * ==========================================================================*/
+
+describe('computeQuote / a supplier that bills in toman', () => {
+  /*
+   * A card the supplier sells for 1,000,000 toman, charged on that same price:
+   *
+   *   supplier cost = 1,000,000 x 10            = 10,000,000
+   *   charge base   = 1,000,000 x 10            = 10,000,000  (product margin 0)
+   *   payment fee   = 1.5% x 10,000,000 + 5,000 =    155,000
+   *   service fee   = 2.0% x 10,000,000 + 20,000 =   220,000
+   *   operational                               =     50,000
+   *   target margin = 4.0% x 10,000,000         =    400,000  (above the 200,000 floor)
+   *   subtotal                                  = 10,825,000
+   *   rounded up to the 10,000 step             = 10,830,000
+   */
+  const toman = (supplierCostUsd = '1000000'): PricingInput =>
+    input({ supplierCostUsd: new Decimal(supplierCostUsd), supplierPricedInToman: true });
+
+  it('prices the supplier toman straight into rial', () => {
+    const breakdown = computeQuote(toman(), rule(), fxAt('1920000'));
+
+    expect(breakdown.supplierCostIrr).toBe(10_000_000n);
+    expect(breakdown.customerAmountIrr).toBe(10_000_000n);
+    expect(breakdown.productMarginAmount).toBe(0n);
+    expect(breakdown.paymentFee).toBe(155_000n);
+    expect(breakdown.serviceFee).toBe(220_000n);
+    expect(breakdown.marginAmount).toBe(400_000n);
+    expect(breakdown.subtotal).toBe(10_825_000n);
+    expect(breakdown.finalAmountIrr).toBe(10_830_000n);
+    expect(breakdown.displayAmountToman).toBe(1_083_000n);
+  });
+
+  it('does not depend on the dollar rate at all', () => {
+    const atHighRate = computeQuote(toman(), rule(), fxAt('1920000'));
+    const atLowRate = computeQuote(toman(), rule(), fxAt('5'));
+    const atStaleRate = computeQuote(toman(), rule(), fxAt('1920000', { isStale: true, ageSeconds: 99_999 }));
+
+    expect(atLowRate.finalAmountIrr).toBe(atHighRate.finalAmountIrr);
+    expect(atStaleRate.finalAmountIrr).toBe(atHighRate.finalAmountIrr);
+  });
+
+  it('applies neither the FX spread nor the risk buffer, whatever the rule says', () => {
+    const breakdown = computeQuote(toman(), rule({ fxSpreadBps: 900, fxRiskBufferBps: 900 }), fxAt('1920000'));
+
+    expect(breakdown.marketFxRate).toBe('10');
+    expect(breakdown.effectiveFxRate).toBe('10');
+    expect(breakdown.fxSpreadAmount).toBe(0n);
+    expect(breakdown.fxRiskBufferAmount).toBe(0n);
+    expect(breakdown.finalAmountIrr).toBe(10_830_000n);
+    expect(breakdown.components.find((c) => c.kind === 'FX_SPREAD')).toMatchObject({ amountIrr: 0n, bps: 0 });
+    expect(breakdown.components.find((c) => c.kind === 'FX_RISK_BUFFER')).toMatchObject({ amountIrr: 0n, bps: 0 });
+  });
+
+  it('still adds up: the component lines sum to the amount charged', () => {
+    const breakdown = computeQuote(toman('1735270'), rule(), fxAt('1920000'));
+
+    expect(sumIrr(breakdown.components.map((component) => component.amountIrr))).toBe(breakdown.finalAmountIrr);
+  });
+
+  it('multiplies by quantity once, and floors a fractional toman to the rial', () => {
+    const breakdown = computeQuote({ ...toman('1234567.89'), quantity: 3 }, rule(), fxAt('1920000'));
+
+    // 1,234,567.89 x 3 = 3,703,703.67 toman -> 37,037,036.7 rial -> floor.
+    expect(breakdown.supplierCostIrr).toBe(37_037_036n);
+    expect(breakdown.customerAmountIrr).toBe(37_037_036n);
+  });
+
+  it('floors the margin at the rule minimum like any other quote', () => {
+    const breakdown = computeQuote(toman('1000'), rule({ targetMarginBps: 0 }), fxAt('1920000'));
+
+    expect(breakdown.marginFloorApplied).toBe(true);
+    expect(breakdown.marginAmount).toBe(200_000n);
+  });
+
+  it('says on the wire that the cost is toman, not dollars', () => {
+    const service = new PricingService();
+    const wire = service.toWirePricingBreakdown(service.computeQuote(toman(), rule(), fxAt('1920000')));
+
+    expect(wire.supplierCostCurrency).toBe('IRT');
+    expect(wire.supplierCostForeign).toBe('1000000');
+    expect(wire.components[0]).toMatchObject({ kind: 'SUPPLIER_COST', currency: 'IRT', amountForeign: '1000000' });
+  });
+
+  it('leaves a dollar quote exactly as it was', () => {
+    const service = new PricingService();
+    const breakdown = service.computeQuote(input({ supplierCostUsd: new Decimal('96.50') }), rule(), fxAt('1920000'));
+    const wire = service.toWirePricingBreakdown(breakdown);
+
+    expect(breakdown.supplierCostCurrency).toBeUndefined();
+    expect(wire.supplierCostCurrency).toBe('USD');
+    expect(wire.finalAmountIrr).toBe('204240000');
+  });
+});
+
 describe('PricingService.toWirePricingBreakdown', () => {
   const service = new PricingService();
   const breakdown = service.computeQuote(

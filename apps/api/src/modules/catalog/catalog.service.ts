@@ -19,6 +19,7 @@ import type {
 import { DomainErrors } from '../../common/errors/domain.exception';
 import { AppConfigService } from '../../common/config/app-config.service';
 import { selectBestOffer, type SelectableOffer } from '../quotes/supplier-offer-selection';
+import { TOMAN_COST_CURRENCY } from '../pricing/pricing.types';
 import { topUpProviderSku } from '../suppliers/topup-provider-sku';
 import { CATALOG_DATABASE, type CatalogDatabase } from './catalog.tokens';
 import { IMAGE_VARIANTS, imagePath, writeImage } from './catalog-images';
@@ -121,7 +122,7 @@ const PURCHASABLE_OFFER: Prisma.SupplierOfferWhereInput = {
   isActive: true,
   availability: 'AVAILABLE',
   supplier: { isActive: true },
-  costCurrency: { in: [...QUOTABLE_COST_CURRENCIES] },
+  costCurrency: { in: [...QUOTABLE_COST_CURRENCIES, TOMAN_COST_CURRENCY] },
 };
 
 /**
@@ -243,6 +244,8 @@ export interface FromPriceCandidate {
   readonly currency: string;
   /** Effective supplier cost per unit, after the supplier discount. */
   readonly effectiveCost: string;
+  /** What `effectiveCost` is denominated in. */
+  readonly costCurrency: string;
 }
 
 /** A SKU plus the offer the quote engine should price against. */
@@ -738,7 +741,7 @@ export class CatalogService {
    * returned identity/cost is for internal pricing and the operator's purchase
    * task — it is never projected into a customer-facing DTO.
    */
-  async getSkuQuoteTarget(skuId: string, currency: string): Promise<SkuQuoteTarget> {
+  async getSkuQuoteTarget(skuId: string, currency: string | readonly string[]): Promise<SkuQuoteTarget> {
     /* `needsReview` is not cosmetic. A product whose data is incomplete is
      * listed with its buy button disabled, and this is the half of that which a
      * customer cannot get around: a hand-made POST with the SKU id finds
@@ -752,14 +755,14 @@ export class CatalogService {
       throw DomainErrors.notFound('sku');
     }
 
-    const selection = selectBestOffer(sku.supplierOffers.map(toSelectableOffer), currency);
+    const selection = selectBestOfferInOrder(sku.supplierOffers.map(toSelectableOffer), currency);
     if (!selection) {
       /* The message deliberately says nothing about suppliers: "which supplier
        * is out of stock" is commercially sensitive and would be visible to any
        * customer who requested a quote. */
       throw DomainErrors.conflict(
         'این محصول در حال حاضر موجود نیست.',
-        `no available supplier offer for sku ${skuId} in ${currency}`,
+        `no available supplier offer for sku ${skuId} in ${String(currency)}`,
       );
     }
 
@@ -792,7 +795,7 @@ export class CatalogService {
    */
   async getFromPriceCandidates(
     productIds: readonly string[],
-    currency: string,
+    currency: string | readonly string[],
   ): Promise<readonly FromPriceCandidate[]> {
     if (productIds.length === 0) {
       return [];
@@ -807,7 +810,7 @@ export class CatalogService {
     });
     const candidates: FromPriceCandidate[] = [];
     for (const sku of skus) {
-      const selection = selectBestOffer(sku.supplierOffers.map(toSelectableOffer), currency);
+      const selection = selectBestOfferInOrder(sku.supplierOffers.map(toSelectableOffer), currency);
       if (selection === null) {
         continue;
       }
@@ -817,6 +820,7 @@ export class CatalogService {
         faceValue: decimalString(sku.faceValue),
         currency: sku.currency,
         effectiveCost: selection.effectiveCost,
+        costCurrency: selection.offer.costCurrency,
       });
     }
     return candidates;
@@ -2234,6 +2238,28 @@ export class CatalogService {
     }
     return null;
   }
+}
+
+/**
+ * The best offer in the first listed currency that has one.
+ *
+ * Offers in different currencies are never compared with each other: that would
+ * need an exchange rate, and a toman-billed supplier is priced precisely so that
+ * none is involved. Dollars come first, which is also the order the purchase
+ * side takes (it sorts by raw cost, and a toman figure is always the larger
+ * number), so the offer a quote prices is the offer fulfillment buys.
+ */
+function selectBestOfferInOrder<T extends SelectableOffer>(
+  offers: readonly T[],
+  currency: string | readonly string[],
+): ReturnType<typeof selectBestOffer<T>> {
+  for (const candidate of typeof currency === 'string' ? [currency] : currency) {
+    const selection = selectBestOffer(offers, candidate);
+    if (selection !== null) {
+      return selection;
+    }
+  }
+  return null;
 }
 
 function toSelectableOffer(offer: {

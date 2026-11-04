@@ -110,11 +110,18 @@ export function computeQuote(
    * The market observation is the snapshot MIDPOINT. buy/sell are retained on
    * the snapshot for provenance; picking one of them here would silently change
    * the economics whenever a provider widened its own spread.
+   *
+   * A supplier that bills in toman is the one exception: there is no foreign
+   * currency to buy, so the "rate" is the unit ratio between rial and toman and
+   * the spread and risk buffer, which price an exchange we never make, are zero.
    */
-  const marketFxRate = quantizeToScale(new Decimal(fx.midRate));
+  const tomanDirect = input.supplierPricedInToman === true;
+  const marketFxRate = tomanDirect
+    ? new Decimal(IRR_PER_TOMAN.toString())
+    : quantizeToScale(new Decimal(fx.midRate));
 
-  const fxSpreadRate = applyBpsToDecimal(marketFxRate, rule.fxSpreadBps);
-  const fxRiskBufferRate = applyBpsToDecimal(marketFxRate, rule.fxRiskBufferBps);
+  const fxSpreadRate = applyBpsToDecimal(marketFxRate, tomanDirect ? 0 : rule.fxSpreadBps);
+  const fxRiskBufferRate = applyBpsToDecimal(marketFxRate, tomanDirect ? 0 : rule.fxRiskBufferBps);
 
   /*
    * Quantise to the database's Decimal(18,6) BEFORE pricing with it. The rate we
@@ -188,8 +195,8 @@ export function computeQuote(
 
   const components: readonly PricingComponent[] = Object.freeze([
     { kind: 'SUPPLIER_COST', amountIrr: marketSupplierCostIrr, bps: null },
-    { kind: 'FX_SPREAD', amountIrr: fxSpreadAmount, bps: rule.fxSpreadBps },
-    { kind: 'FX_RISK_BUFFER', amountIrr: fxRiskBufferAmount, bps: rule.fxRiskBufferBps },
+    { kind: 'FX_SPREAD', amountIrr: fxSpreadAmount, bps: tomanDirect ? 0 : rule.fxSpreadBps },
+    { kind: 'FX_RISK_BUFFER', amountIrr: fxRiskBufferAmount, bps: tomanDirect ? 0 : rule.fxRiskBufferBps },
     { kind: 'PAYMENT_FEE', amountIrr: paymentFee, bps: rule.paymentFeeBps },
     { kind: 'SERVICE_FEE', amountIrr: serviceFee, bps: rule.serviceFeeBps },
     { kind: 'OPERATIONAL_FEE', amountIrr: operationalFee, bps: null },
@@ -211,6 +218,7 @@ export function computeQuote(
 
     supplierCostUsd: decimalToPlainString(unitSupplierCostUsd),
     totalSupplierCostUsd: decimalToPlainString(totalSupplierCostUsd),
+    ...(tomanDirect ? { supplierCostCurrency: 'IRT' as const } : {}),
     quantity: input.quantity,
     marketSupplierCostIrr,
     supplierCostIrr,
@@ -288,7 +296,7 @@ export class PricingService {
 
       supplierCostForeign:
         breakdown.supplierCostUsd as WirePricingBreakdown['supplierCostForeign'],
-      supplierCostCurrency: 'USD',
+      supplierCostCurrency: breakdown.supplierCostCurrency ?? 'USD',
       supplierCostIrr: irr(breakdown.supplierCostIrr),
 
       paymentFee: irr(breakdown.paymentFee),
@@ -317,7 +325,7 @@ export class PricingService {
                 WirePricingBreakdown['components'][number]['amountForeign']
               >)
             : null,
-        currency: component.kind === 'SUPPLIER_COST' ? 'USD' : null,
+        currency: component.kind === 'SUPPLIER_COST' ? (breakdown.supplierCostCurrency ?? 'USD') : null,
         bps: component.bps,
         sortOrder,
       })),
@@ -380,6 +388,14 @@ function validatePricingArguments(
     throw new RangeError(
       `roundingStepIrr must be a whole Toman (a multiple of ${IRR_PER_TOMAN.toString()} IRR)`,
     );
+  }
+
+  /*
+   * A price taken straight from a toman supplier reads no FX rate, so the
+   * snapshot it carries is provenance only and is not held to the rules below.
+   */
+  if (input.supplierPricedInToman === true) {
+    return;
   }
 
   /*

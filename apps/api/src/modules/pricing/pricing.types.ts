@@ -6,6 +6,12 @@ import type {
   PricingComponentKind,
 } from '@barat/contracts';
 
+/**
+ * The cost currency of a supplier that bills in toman. An offer in it is priced
+ * straight into rial at the unit ratio, with no exchange rate involved.
+ */
+export const TOMAN_COST_CURRENCY = 'IRT';
+
 /** Inputs to the pure pricing formula. USD cost is exact Decimal, never number. */
 export interface PricingInput {
   /**
@@ -26,6 +32,15 @@ export interface PricingInput {
   readonly customerForeignAmount: Decimal;
   readonly quantity: number;
   readonly discountIrr?: bigint;
+  /**
+   * The supplier bills in toman and nothing is converted: BOTH `supplierCostUsd`
+   * and `customerForeignAmount` then carry toman, and the engine turns them into
+   * rial at the fixed unit ratio (10 rial to a toman) — no market rate, no
+   * spread, no risk buffer. The field names keep their dollar spelling because
+   * they are the frozen wire contract; this flag is what says they are not
+   * dollars. Unset means dollars, exactly as before.
+   */
+  readonly supplierPricedInToman?: boolean;
 }
 
 /** Immutable pricing rule values consumed by the engine. */
@@ -72,6 +87,8 @@ export interface PricingBreakdown {
 
   readonly supplierCostUsd: string;
   readonly totalSupplierCostUsd: string;
+  /** What `supplierCostUsd` is denominated in. Absent means USD. */
+  readonly supplierCostCurrency?: 'USD' | 'IRT';
   readonly quantity: number;
   readonly marketSupplierCostIrr: bigint;
   readonly supplierCostIrr: bigint;

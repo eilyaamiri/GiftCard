@@ -967,7 +967,7 @@ describe('QuotesService.createQuote — non-USD face values', () => {
      * nobody invoices in pounds returns nothing, and the customer is told a
      * fully stocked card is out of stock.
      */
-    expect(context.getSkuQuoteTarget).toHaveBeenCalledWith('sku-gbp-1', 'USD');
+    expect(context.getSkuQuoteTarget).toHaveBeenCalledWith('sku-gbp-1', ['USD', 'IRT']);
   });
 
   it('converts the face value to dollars before pricing it', async () => {
@@ -1558,6 +1558,167 @@ describe('QuotesService.createQuote — variable-amount Steam top-up', () => {
   });
 });
 
+/* ============================================================================
+ * A supplier that bills in toman: no exchange rate anywhere in the quote
+ * ==========================================================================*/
+
+describe('QuotesService.createQuote — supplier billed in toman', () => {
+  /*
+   * 1,735,270 toman, charged on that same price (GLOBAL_RULE: 1% payment, 2%
+   * service, 50,000 operational, 5% margin, 10,000 rounding step):
+   *
+   *   supplier cost = charge base = 1,735,270 x 10      = 17,352,700
+   *   payment 173,527 + service 347,054 + operational 50,000 + margin 867,635
+   *   subtotal                                          = 18,790,916
+   *   rounded up                                        = 18,800,000
+   */
+  const TOMAN_PRICE = '1735270';
+  const EXPECTED_FINAL = 18_800_000n;
+
+  const TOMAN_SKU_TARGET = {
+    ...SKU_TARGET,
+    costCurrency: 'IRT',
+    listedCost: TOMAN_PRICE,
+    effectiveCost: TOMAN_PRICE,
+  };
+
+  const tomanTopUpPrice = {
+    providerSku: 'telegram:stars:500',
+    cost: { amount: TOMAN_PRICE, currency: 'IRT' },
+    observedAt: new Date('2026-08-30T09:59:45.000Z'),
+  };
+
+  it('prices a gift card from the supplier toman, charging the price the supplier asks', async () => {
+    const context = harness({ skuTarget: TOMAN_SKU_TARGET });
+
+    const response = await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.computeQuote.mock.calls[0]?.[0]).toMatchObject({
+      supplierCostUsd: new Decimal(TOMAN_PRICE),
+      customerForeignAmount: new Decimal(TOMAN_PRICE),
+      supplierPricedInToman: true,
+    });
+    const row = context.db.only();
+    expect(row['finalAmountIrr']).toBe(EXPECTED_FINAL);
+    expect(response.quote.finalAmountIrr).toBe(EXPECTED_FINAL.toString());
+    expect((row['effectiveFxRate'] as Decimal).toFixed(6)).toBe('10.000000');
+    expect(row['fxSpreadAmount']).toBe(0n);
+    expect(row['fxRiskBufferAmount']).toBe(0n);
+    expect(row['currency']).toBe('IRT');
+  });
+
+  it('asks for no cross rate of any currency, not even the dollar', async () => {
+    const context = harness({ skuTarget: TOMAN_SKU_TARGET });
+
+    await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.getCrossRate).not.toHaveBeenCalled();
+  });
+
+  it('records in the snapshot that the cost columns hold toman, and that no rate was used', async () => {
+    const context = harness({ skuTarget: TOMAN_SKU_TARGET });
+
+    await context.service.createQuote(createRequest(), ACTOR);
+    const snapshot = context.db.only()['snapshot'] as Record<string, unknown>;
+
+    expect(snapshot['pricingBasis']).toBe('SUPPLIER_TOMAN_DIRECT');
+    expect(snapshot['crossRates']).toBeNull();
+    expect(snapshot['supplierCostUsd']).toBe('1735270.000000');
+    expect(snapshot['chargeBaseUsd']).toBe('1735270.000000');
+    expect(snapshot['customerForeignCurrency']).toBe('IRT');
+    expect((snapshot['target'] as Record<string, unknown>)['supplierOffer']).toMatchObject({
+      costCurrency: 'IRT',
+      effectiveCost: '1735270.000000',
+    });
+  });
+
+  it('is not refused when the dollar rate is stale, because it never reads it', async () => {
+    const context = harness({ skuTarget: TOMAN_SKU_TARGET });
+    context.getRateSnapshot.mockResolvedValue({ ...fxSnapshot(), isStale: true, ageSeconds: 9_000 });
+
+    await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.db.only()['finalAmountIrr']).toBe(EXPECTED_FINAL);
+  });
+
+  it('is the same price whatever the dollar rate is', async () => {
+    const context = harness({ skuTarget: TOMAN_SKU_TARGET });
+    context.getRateSnapshot.mockResolvedValue(fxSnapshot('5'));
+
+    await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.db.only()['finalAmountIrr']).toBe(EXPECTED_FINAL);
+  });
+
+  it('prices a game top-up from the live toman price, charged on that price', async () => {
+    const context = harness({
+      topUpTarget: topUpTarget({ costCurrency: 'IRT', costAmount: TOMAN_PRICE }),
+      liveTopUpPrice: tomanTopUpPrice,
+    });
+    context.rules.value = [GLOBAL_RULE];
+
+    await context.service.createQuote(
+      {
+        topUpOfferId: 'topup-offer-1',
+        topUpAccountFields: { telegram_username: 'player_one' },
+        quantity: 1,
+      } as CreateQuoteRequest,
+      ACTOR,
+    );
+
+    expect(context.getCrossRate).not.toHaveBeenCalled();
+    expect(context.computeQuote.mock.calls[0]?.[0]).toMatchObject({ supplierPricedInToman: true });
+    const row = context.db.only();
+    expect(row['finalAmountIrr']).toBe(EXPECTED_FINAL);
+    const topUp = ((row['snapshot'] as Record<string, unknown>)['target'] as Record<string, unknown>)['topUp'];
+    expect(topUp).toMatchObject({ costAmount: '1735270.000000', costCurrency: 'IRT' });
+  });
+
+  it('leaves a dollar quote untouched: rates still asked for, still refused when stale', async () => {
+    const context = harness();
+
+    await context.service.createQuote(createRequest(), ACTOR);
+
+    expect(context.getCrossRate).toHaveBeenCalledWith('USD');
+    expect(context.computeQuote.mock.calls[0]?.[0]).not.toHaveProperty('supplierPricedInToman');
+    expect((context.db.only()['snapshot'] as Record<string, unknown>)['pricingBasis']).toBe('USD_CROSS_RATE');
+  });
+});
+
+describe('QuotesService.fromPrices — supplier billed in toman', () => {
+  const TOMAN_CANDIDATE = {
+    productId: 'product-1',
+    skuId: 'sku-1',
+    faceValue: '10',
+    currency: 'USD',
+    effectiveCost: '1735270',
+    costCurrency: 'IRT',
+  };
+
+  it('advertises the toman price through the same engine, with no cross rate', async () => {
+    const context = harness({ fromPriceCandidates: [TOMAN_CANDIDATE] });
+
+    const prices = await context.service.fromPrices(['product-1']);
+
+    expect(prices).toEqual({ 'product-1': '18800000' });
+    expect(context.getCrossRate).not.toHaveBeenCalled();
+  });
+
+  it('still advertises a toman product when the dollar rate is stale, and withholds a dollar one', async () => {
+    const context = harness({
+      fromPriceCandidates: [
+        TOMAN_CANDIDATE,
+        { ...TOMAN_CANDIDATE, productId: 'product-2', skuId: 'sku-2', effectiveCost: '10', costCurrency: 'USD' },
+      ],
+    });
+    context.getRateSnapshot.mockResolvedValue({ ...fxSnapshot(), isStale: true, ageSeconds: 9_000 });
+
+    const prices = await context.service.fromPrices(['product-1', 'product-2']);
+
+    expect(prices).toEqual({ 'product-1': '18800000' });
+  });
+});
+
 describe('QuotesService.getQuote', () => {
   it('never re-prices: the stored snapshot survives an FX and a rule change', async () => {
     const context = harness();
@@ -1800,7 +1961,7 @@ describe('QuotesService.fromPrices', () => {
       'product-2': expectedFinal('20', '20'),
     });
     /* The quote path's cost-currency filter is reused verbatim. */
-    expect(context.getFromPriceCandidates).toHaveBeenCalledWith(['product-1', 'product-2'], 'USD');
+    expect(context.getFromPriceCandidates).toHaveBeenCalledWith(['product-1', 'product-2'], ['USD', 'IRT']);
   });
 
   it('returns nothing at all on a stale dollar rate, and does not cache the outage', async () => {

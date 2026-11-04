@@ -27,7 +27,13 @@ import { AuditService } from '../audit/audit.service';
 import { CatalogService, type SkuQuoteTarget, type TopUpQuoteTarget } from '../catalog/catalog.service';
 import { CrossRateUnavailableError, type CrossRateSnapshot } from '../fx/cross-rate.types';
 import { PricingRuleService, toEnginePricingRule } from '../pricing/pricing-rule.service';
-import type { PricingBreakdown, PricingRule } from '../pricing/pricing.types';
+import { TOMAN_DIRECT_PRICING_BASIS } from './pricing-basis';
+import {
+  TOMAN_COST_CURRENCY,
+  type PricingBreakdown,
+  type PricingInput,
+  type PricingRule,
+} from '../pricing/pricing.types';
 import {
   QUOTES_DATABASE,
   QUOTE_CROSS_RATE_SERVICE,
@@ -210,9 +216,6 @@ export class QuotesService {
     }
 
     const fx = await this.fx.getRateSnapshot('USD_IRR');
-    if (fx.isStale) {
-      throw DomainErrors.fxRateStale(fx.ageSeconds);
-    }
 
     const quantity = input.quantity ?? 1;
     const unitSupplierCost =
@@ -226,14 +229,26 @@ export class QuotesService {
         { path: 'requestedAmountForeign', message: 'A foreign amount is required' },
       ]);
     }
-    const unitFaceAmount = unitCustomerForeignAmount(target, input, topUpPrice);
-    const faceCurrency = targetFaceCurrency(target, topUpPrice);
     const costCurrency =
       target.kind === 'service'
-        ? faceCurrency
+        ? targetFaceCurrency(target)
         : target.kind === 'topup'
           ? requiredTopUpPrice(topUpPrice).cost.currency
           : target.sku.costCurrency;
+    /*
+     * A supplier that bills in toman is priced straight into rial: its price is
+     * the cost AND the charge base, nothing is converted, and the dollar rate
+     * plays no part — so a stale dollar rate must not refuse a quote that never
+     * looks at it. The snapshot above is still recorded for provenance.
+     */
+    const tomanDirect = costCurrency === TOMAN_COST_CURRENCY && target.kind !== 'service';
+    if (fx.isStale && !tomanDirect) {
+      throw DomainErrors.fxRateStale(fx.ageSeconds);
+    }
+    const unitFaceAmount = tomanDirect
+      ? unitSupplierCost
+      : unitCustomerForeignAmount(target, input, topUpPrice);
+    const faceCurrency = tomanDirect ? TOMAN_COST_CURRENCY : targetFaceCurrency(target, topUpPrice);
 
     /*
      * Two amounts go into a quote and they are not in the same currency.
@@ -247,20 +262,27 @@ export class QuotesService {
      * as a $25 one, roughly a quarter under cost.
      *
      * `USD` resolves to identity without a network call, so the dollar-priced
-     * majority of the catalog is unaffected by this leg existing at all.
+     * majority of the catalog is unaffected by this leg existing at all. A toman
+     * supplier has no leg here at all.
      */
-    const [faceRate, costRate] = await Promise.all([
-      this.crossRate(faceCurrency),
-      this.crossRate(costCurrency),
-    ]);
+    const [faceRate, costRate] = tomanDirect
+      ? [null, null]
+      : await Promise.all([this.crossRate(faceCurrency), this.crossRate(costCurrency)]);
 
     const rule = toEnginePricingRule(ruleRecord);
     const breakdown = this.pricing.computeQuote(
-      {
-        supplierCostUsd: toUsd(unitSupplierCost, costRate),
-        customerForeignAmount: toUsd(unitFaceAmount, faceRate),
-        quantity,
-      },
+      faceRate === null || costRate === null
+        ? {
+            supplierCostUsd: new Decimal(unitSupplierCost),
+            customerForeignAmount: new Decimal(unitFaceAmount),
+            quantity,
+            supplierPricedInToman: true,
+          }
+        : {
+            supplierCostUsd: toUsd(unitSupplierCost, costRate),
+            customerForeignAmount: toUsd(unitFaceAmount, faceRate),
+            quantity,
+          },
       rule,
       fx,
     );
@@ -720,7 +742,10 @@ export class QuotesService {
        * carries the latter, and passing it here made every non-dollar card look
        * out of stock to the one caller that actually wanted to buy it.
        */
-      const sku = await this.catalog.getSkuQuoteTarget(input.skuId, QUOTE_COST_CURRENCY);
+      const sku = await this.catalog.getSkuQuoteTarget(input.skuId, [
+        QUOTE_COST_CURRENCY,
+        TOMAN_COST_CURRENCY,
+      ]);
       const quantity = input.quantity ?? 1;
       if (quantity < sku.sku.minQuantity || quantity > sku.sku.maxQuantity) {
         throw DomainErrors.validation([
@@ -999,14 +1024,18 @@ export class QuotesService {
     let fx;
     try {
       [candidates, rules, fx] = await Promise.all([
-        this.catalog.getFromPriceCandidates(productIds, QUOTE_COST_CURRENCY),
+        this.catalog.getFromPriceCandidates(productIds, [QUOTE_COST_CURRENCY, TOMAN_COST_CURRENCY]),
         this.pricingRules.list(),
         this.fx.getRateSnapshot('USD_IRR'),
       ]);
     } catch {
       return null;
     }
-    if (fx.isStale) {
+
+    /* A stale dollar rate empties the whole run, as it always has, unless a toman
+     * supplier is in it: that price never looks at the dollar rate, so only the
+     * dollar-priced labels are withheld below. */
+    if (fx.isStale && !candidates.some((candidate) => candidate.costCurrency === TOMAN_COST_CURRENCY)) {
       return null;
     }
 
@@ -1023,32 +1052,46 @@ export class QuotesService {
       if (rule === undefined) {
         continue;
       }
-      let faceRate = faceRates.get(candidate.currency);
-      if (faceRate === undefined) {
-        try {
-          const snapshot = await this.crossRates.getSnapshot(candidate.currency);
-          faceRate = snapshot.isStale ? null : snapshot;
-        } catch {
-          faceRate = null;
-        }
-        faceRates.set(candidate.currency, faceRate);
-      }
-      if (faceRate === null) {
+      const tomanDirect = candidate.costCurrency === TOMAN_COST_CURRENCY;
+      /* A stale dollar rate withholds the dollar-priced labels only: a toman
+       * supplier's price never looks at it. */
+      if (fx.isStale && !tomanDirect) {
         continue;
       }
+      let engineInput: PricingInput;
+      if (tomanDirect) {
+        engineInput = {
+          supplierCostUsd: new Decimal(candidate.effectiveCost),
+          customerForeignAmount: new Decimal(candidate.effectiveCost),
+          quantity: 1,
+          supplierPricedInToman: true,
+        };
+      } else {
+        let faceRate = faceRates.get(candidate.currency);
+        if (faceRate === undefined) {
+          try {
+            const snapshot = await this.crossRates.getSnapshot(candidate.currency);
+            faceRate = snapshot.isStale ? null : snapshot;
+          } catch {
+            faceRate = null;
+          }
+          faceRates.set(candidate.currency, faceRate);
+        }
+        if (faceRate === null) {
+          continue;
+        }
+        engineInput = {
+          supplierCostUsd: new Decimal(candidate.effectiveCost),
+          customerForeignAmount: toUsd(candidate.faceValue, faceRate),
+          quantity: 1,
+        };
+      }
       try {
-        /* `effectiveCost` is already in `QUOTE_COST_CURRENCY` (dollars) —
+        /* `effectiveCost` is already in `candidate.costCurrency` —
          * `getFromPriceCandidates` filtered offers on it, exactly as the quote
-         * path does — so only the face leg needs a cross rate. */
-        const breakdown = this.pricing.computeQuote(
-          {
-            supplierCostUsd: new Decimal(candidate.effectiveCost),
-            customerForeignAmount: toUsd(candidate.faceValue, faceRate),
-            quantity: 1,
-          },
-          toEnginePricingRule(rule),
-          fx,
-        );
+         * path does — so only the face leg needs a cross rate, and a toman
+         * offer needs none: its price is both cost and charge base. */
+        const breakdown = this.pricing.computeQuote(engineInput, toEnginePricingRule(rule), fx);
         const current = floors.get(candidate.productId);
         if (current === undefined || breakdown.finalAmountIrr < current) {
           floors.set(candidate.productId, breakdown.finalAmountIrr);
@@ -1215,9 +1258,10 @@ function makeSnapshot(params: {
   /** The same total in the dollars the engine actually priced from. */
   readonly chargeBaseUsd: string;
   /* Both legs of the conversion, so a price can be re-derived years later from
-   * the snapshot alone — which is what rule 4 means by auditable. */
-  readonly faceRate: CrossRateSnapshot;
-  readonly costRate: CrossRateSnapshot;
+   * the snapshot alone — which is what rule 4 means by auditable. Null for a
+   * toman supplier, which has no conversion to record. */
+  readonly faceRate: CrossRateSnapshot | null;
+  readonly costRate: CrossRateSnapshot | null;
   /** Sealed already: this function never sees a plaintext credential. */
   readonly serviceAccount: ServiceAccountSnapshot | null;
   /*
@@ -1314,10 +1358,17 @@ function makeSnapshot(params: {
      * from its own snapshot — the face value alone does not determine a price
      * once a second currency is in the chain. */
     chargeBaseUsd: databaseDecimalString(chargeBaseUsd),
-    crossRates: {
-      face: faceRate as unknown as Prisma.InputJsonObject,
-      cost: costRate as unknown as Prisma.InputJsonObject,
-    },
+    /* How the rial figure was reached. `SUPPLIER_TOMAN_DIRECT` means `supplierCostUsd`
+     * and `chargeBaseUsd` above are TOMAN, the supplier's own price taken as cost and
+     * charge base with no exchange rate (`effectiveFxRate` is the 10 rial a toman). */
+    pricingBasis: breakdown.supplierCostCurrency === 'IRT' ? TOMAN_DIRECT_PRICING_BASIS : 'USD_CROSS_RATE',
+    crossRates:
+      faceRate === null || costRate === null
+        ? null
+        : {
+            face: faceRate as unknown as Prisma.InputJsonObject,
+            cost: costRate as unknown as Prisma.InputJsonObject,
+          },
     ...(configuredFields === undefined
       ? {}
       : { serviceFields: configuredFields as Prisma.InputJsonObject }),
