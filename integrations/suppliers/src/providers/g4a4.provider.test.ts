@@ -154,6 +154,14 @@ describe('balance', () => {
     expect(calls[0]?.headers['authorization']).toBeUndefined();
   });
 
+  it('identifies itself as curl, since the venue firewall serves an HTML page to any other User-Agent', async () => {
+    const { calls } = stubFetch({ 'GET /get-balance': ok({ balance: 1, currency: 'IRT' }) });
+
+    await giftCards().getBalance();
+
+    expect(calls[0]?.headers['user-agent']).toBe('curl/8.5.0');
+  });
+
   it('refuses a balance it cannot read exactly', async () => {
     stubFetch({ 'GET /get-balance': ok({ balance: -5, currency: 'IRT' }) });
     await expect(giftCards().getBalance()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });

@@ -20,6 +20,9 @@ const DEFAULT_BASE_URL = 'https://g4a4.com/wp-json/reseller/v1';
 const DEFAULT_TIMEOUT_MS = 20_000;
 const MAX_TIMEOUT_MS = 60_000;
 
+/** The venue's firewall answers an unrecognised User-Agent, even from an allow-listed IP, with an HTML page and status 200. */
+const USER_AGENT = 'curl/8.5.0';
+
 /** The docs promise a 429 but state no limit; reads wait it out, purchases never retry. */
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MAX_RETRY_AFTER_MS = 65_000;
@@ -211,7 +214,7 @@ class G4a4Client {
     query?: Readonly<Record<string, string>>;
     body?: unknown;
   }): Promise<G4a4Response> {
-    const headers: Record<string, string> = { 'api-key': this.apiKey, accept: 'application/json' };
+    const headers: Record<string, string> = { 'api-key': this.apiKey, accept: 'application/json', 'user-agent': USER_AGENT };
     if (options.body !== undefined) {
       headers['content-type'] = 'application/json';
     }
