@@ -466,6 +466,25 @@ describe('gift-card status', () => {
     expect(result.status).toBe('PENDING');
     expect(waits).toEqual([3_000]);
   });
+
+  it('treats the firewall HTML page on a read as throttling: backs off, then answers', async () => {
+    const waits: number[] = [];
+    stubFetch({
+      'GET /order/get-order': [{ status: 200, text: '<html>' }, { status: 200, text: '<html>' }, order('processing')],
+    });
+
+    const result = await giftCards({ sleep: async (ms: number) => void waits.push(ms) }).getPurchaseStatus('310414');
+
+    expect(result.status).toBe('PENDING');
+    expect(waits).toEqual([2_000, 4_000]);
+  });
+
+  it('gives up on a read that stays throttled, as an unreadable answer', async () => {
+    const { count } = stubFetch({ 'GET /get-balance': { status: 200, text: '<html>' } });
+
+    await expect(giftCards().getBalance()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    expect(count('GET /get-balance')).toBe(7);
+  });
 });
 
 describe('top-up catalogue', () => {

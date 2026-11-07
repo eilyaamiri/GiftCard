@@ -23,15 +23,17 @@ const MAX_TIMEOUT_MS = 60_000;
 /** The venue's firewall answers an unrecognised User-Agent, even from an allow-listed IP, with an HTML page and status 200. */
 const USER_AGENT = 'curl/8.5.0';
 
-/** The docs promise a 429 but state no limit; reads wait it out, purchases never retry. */
-const MAX_RATE_LIMIT_RETRIES = 3;
+/**
+ * The venue throttles bursts with a 429, or with an HTML page and status 200.
+ * Reads wait it out with a growing pause when it names none; purchases never retry.
+ */
+const THROTTLE_BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 30_000] as const;
 const MAX_RETRY_AFTER_MS = 65_000;
-const DEFAULT_RETRY_AFTER_MS = 2_000;
 const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 const READ_RETRY_DELAYS_MS = [500, 1_500] as const;
 
 /** A catalogue walk is one request per category and one per product, so keep it gentle. */
-const CATALOG_CONCURRENCY = 2;
+const CATALOG_CONCURRENCY = 1;
 
 /** Bound on the in-process replay memory; one entry per purchase attempt. */
 const MAX_REMEMBERED_PURCHASES = 1_000;
@@ -168,6 +170,11 @@ function retryAfterMs(response: Response): number | undefined {
   return Math.min(Math.ceil(seconds * 1000), MAX_RETRY_AFTER_MS);
 }
 
+/** A 429, or a 200 whose body is not JSON: the firewall's HTML page, which no endpoint of this API returns on purpose. */
+function isThrottled(response: G4a4Response): boolean {
+  return response.status === 429 || (response.status === 200 && response.payload === undefined);
+}
+
 function isRetryableNetworkError(error: unknown): boolean {
   if (!(error instanceof G4a4SupplierError) || error.code !== 'NETWORK_ERROR') {
     return false;
@@ -186,6 +193,7 @@ class G4a4Client {
   private readonly timeoutMs: number;
   readonly sleep: (ms: number) => Promise<void>;
   readonly categoryIds: readonly string[];
+  private pausedUntil = 0;
 
   constructor(options: G4a4SupplierProviderOptions) {
     const apiKey = options.apiKey.trim();
@@ -247,9 +255,13 @@ class G4a4Client {
    * A timeout is not retried: it has already spent the whole per-request budget.
    */
   async read(path: string, query?: Readonly<Record<string, string>>): Promise<G4a4Response> {
-    let rateLimited = 0;
+    let throttled = 0;
     let transient = 0;
     for (;;) {
+      const paused = this.pausedUntil - Date.now();
+      if (paused > 0) {
+        await this.sleep(paused);
+      }
       let response: G4a4Response;
       try {
         response = await this.call({ method: 'GET', path, ...(query === undefined ? {} : { query }) });
@@ -262,9 +274,10 @@ class G4a4Client {
         await this.sleep(delay);
         continue;
       }
-      if (response.status === 429 && rateLimited < MAX_RATE_LIMIT_RETRIES) {
-        rateLimited += 1;
-        await this.sleep(response.retryAfterMs ?? DEFAULT_RETRY_AFTER_MS);
+      const backoff = THROTTLE_BACKOFF_MS[throttled];
+      if (backoff !== undefined && isThrottled(response)) {
+        throttled += 1;
+        await this.pause(response.retryAfterMs ?? backoff);
         continue;
       }
       const delay = READ_RETRY_DELAYS_MS[transient];
@@ -274,6 +287,16 @@ class G4a4Client {
         continue;
       }
       return response;
+    }
+  }
+
+  /** Holds every read on this client, not just the caller, so a walk does not keep hammering a venue that said stop. */
+  private async pause(ms: number): Promise<void> {
+    const until = Date.now() + ms;
+    this.pausedUntil = Math.max(this.pausedUntil, until);
+    await this.sleep(ms);
+    if (this.pausedUntil === until) {
+      this.pausedUntil = 0;
     }
   }
 
