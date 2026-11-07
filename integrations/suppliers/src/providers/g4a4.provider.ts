@@ -28,6 +28,7 @@ const USER_AGENT = 'curl/8.5.0';
  * Reads wait it out with a growing pause when it names none; purchases never retry.
  */
 const THROTTLE_BACKOFF_MS = [2_000, 4_000, 8_000, 16_000, 30_000, 30_000] as const;
+const DEFAULT_MIN_READ_INTERVAL_MS = 1_000;
 const MAX_RETRY_AFTER_MS = 65_000;
 const RETRYABLE_STATUSES: ReadonlySet<number> = new Set([502, 503, 504]);
 const READ_RETRY_DELAYS_MS = [500, 1_500] as const;
@@ -69,6 +70,8 @@ export interface G4a4SupplierProviderOptions {
   readonly clock?: () => Date;
   /** The pause between retries; injectable so tests do not wait. */
   readonly sleep?: (ms: number) => Promise<void>;
+  /** The least gap between two reads; the venue answers faster traffic with 429s. Defaults to one second. */
+  readonly minReadIntervalMs?: number;
 }
 
 function isObject(value: unknown): value is JsonObject {
@@ -194,6 +197,8 @@ class G4a4Client {
   readonly sleep: (ms: number) => Promise<void>;
   readonly categoryIds: readonly string[];
   private pausedUntil = 0;
+  private nextReadAt = 0;
+  private readonly minReadIntervalMs: number;
 
   constructor(options: G4a4SupplierProviderOptions) {
     const apiKey = options.apiKey.trim();
@@ -211,6 +216,11 @@ class G4a4Client {
     this.apiKey = apiKey;
     this.baseUrl = (options.baseUrl ?? DEFAULT_BASE_URL).replace(/\/+$/u, '');
     this.timeoutMs = timeoutMs;
+    const minReadIntervalMs = options.minReadIntervalMs ?? DEFAULT_MIN_READ_INTERVAL_MS;
+    if (!Number.isSafeInteger(minReadIntervalMs) || minReadIntervalMs < 0 || minReadIntervalMs > MAX_RETRY_AFTER_MS) {
+      throw new RangeError('G4A4 read interval must be a non-negative safe integer');
+    }
+    this.minReadIntervalMs = minReadIntervalMs;
     this.categoryIds = categoryIds;
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
   }
@@ -262,6 +272,7 @@ class G4a4Client {
       if (paused > 0) {
         await this.sleep(paused);
       }
+      await this.pace();
       let response: G4a4Response;
       try {
         response = await this.call({ method: 'GET', path, ...(query === undefined ? {} : { query }) });
@@ -287,6 +298,16 @@ class G4a4Client {
         continue;
       }
       return response;
+    }
+  }
+
+  /** Each read takes the next free slot, so even concurrent callers end up one interval apart. */
+  private async pace(): Promise<void> {
+    const now = Date.now();
+    const slot = Math.max(now, this.nextReadAt);
+    this.nextReadAt = slot + this.minReadIntervalMs;
+    if (slot > now) {
+      await this.sleep(slot - now);
     }
   }
 

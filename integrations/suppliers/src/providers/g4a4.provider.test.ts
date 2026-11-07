@@ -72,11 +72,11 @@ function stubFetch(routes: Record<string, Route | readonly Route[]>): { calls: C
 const noSleep = async (): Promise<void> => undefined;
 
 function giftCards(options: Record<string, unknown> = {}): G4a4GiftCardSupplierProvider {
-  return new G4a4GiftCardSupplierProvider({ apiKey: KEY, sleep: noSleep, ...options });
+  return new G4a4GiftCardSupplierProvider({ apiKey: KEY, sleep: noSleep, minReadIntervalMs: 0, ...options });
 }
 
 function topUps(options: Record<string, unknown> = {}): G4a4TopUpSupplierProvider {
-  return new G4a4TopUpSupplierProvider({ apiKey: KEY, sleep: noSleep, ...options });
+  return new G4a4TopUpSupplierProvider({ apiKey: KEY, sleep: noSleep, minReadIntervalMs: 0, ...options });
 }
 
 function ok(data: Record<string, unknown>): Route {
@@ -477,6 +477,24 @@ describe('gift-card status', () => {
 
     expect(result.status).toBe('PENDING');
     expect(waits).toEqual([2_000, 4_000]);
+  });
+
+  it('spaces reads at least the configured interval apart, concurrent callers included', async () => {
+    const waits: number[] = [];
+    stubFetch({ 'GET /get-balance': ok({ balance: 1, currency: 'IRT' }) });
+    const provider = giftCards({ minReadIntervalMs: 1_000, sleep: async (ms: number) => void waits.push(ms) });
+
+    await Promise.all([provider.getBalance(), provider.getBalance(), provider.getBalance()]);
+
+    expect(waits).toHaveLength(2);
+    expect(waits[0]).toBeGreaterThan(900);
+    expect(waits[1]).toBeGreaterThan(1_900);
+    expect(Math.max(...waits)).toBeLessThanOrEqual(2_000);
+  });
+
+  it('refuses a read interval that is negative or not a whole number', () => {
+    expect(() => giftCards({ minReadIntervalMs: -1 })).toThrow(RangeError);
+    expect(() => giftCards({ minReadIntervalMs: 1.5 })).toThrow(RangeError);
   });
 
   it('gives up on a read that stays throttled, as an unreadable answer', async () => {
